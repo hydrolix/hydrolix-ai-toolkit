@@ -1,6 +1,8 @@
 dist/
 site/
-docs/
+docs/*
+!docs/bot-insights-sources.md
+!docs/bot-insights-live-validation.md
 .claude/
 __pycache__/
 *.pyc

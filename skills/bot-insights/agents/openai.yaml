@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bot Insights"
+  short_description: "Investigate bot traffic and operational impact"
+  default_prompt: "Use $bot-insights to investigate bot traffic changes, crawler access, or cache and origin impact."
