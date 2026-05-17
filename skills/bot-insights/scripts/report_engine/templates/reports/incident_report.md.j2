@@ -1,0 +1,231 @@
+{#- Markdown sibling of reports/incident_report.html. Uses the same
+    prepare() context. ``md_escape`` is applied at every
+    producer/user-controlled interpolation site. -#}
+# {{ headline | md_escape }}
+
+{% if dek %}{{ dek | md_escape }}
+
+{% endif %}
+Report type: `incident_report`
+
+Scope: {{ scope.cluster | md_escape }}{% if scope.database %} / {{ scope.database | md_escape }}{% endif %}{% if scope.request_host %} · host `{{ scope.request_host | md_escape }}`{% endif %}{% if scope.asn %} · ASN `{{ scope.asn | md_escape }}`{% endif %}{% if scope.path_pattern %} · path `{{ scope.path_pattern | md_escape }}`{% endif %}{% if scope.granularity %} · granularity `{{ scope.granularity | md_escape }}`{% endif %} · SIEM {{ "available" if scope.siem_available else "not available" }}
+
+{% if windows and windows.current %}Window: {{ windows.current.start | md_escape }} → {{ windows.current.end | md_escape }}{% if windows.baseline %} vs {{ windows.baseline.start | md_escape }} → {{ windows.baseline.end | md_escape }}{% endif %}
+
+{% endif %}
+{% set exec_note = notes_by_slot.get("executive_summary") if notes_by_slot else None %}
+## Executive Summary — what's critical, and why
+
+**Criticality: {{ deterministic_summary.level_label | md_escape }}** · **Confidence: {{ deterministic_summary.confidence_label | md_escape }}**
+
+{% if exec_note %}
+{{ exec_note.text | md_escape }}
+
+_From {{ (exec_note.author_type or "analyst") | humanize_author | md_escape }}._
+
+{% else %}
+**Assessed with {{ deterministic_summary.confidence | md_escape }} confidence:** {{ deterministic_summary.headline | md_escape }}
+
+{% for reason in deterministic_summary.reasons %}
+- {{ reason | md_escape }}
+{% endfor %}
+
+_Mechanical — derived from artifact data only._
+
+{% endif %}
+## Impact
+
+{% if impact.volume_chart %}
+**{{ impact.volume_chart.metric_label | md_escape }}:** peak {{ impact.volume_chart.peak_value_display | md_escape }}{% if impact.volume_chart.baseline_avg_display %} (baseline avg ~{{ impact.volume_chart.baseline_avg_display | md_escape }}){% endif %} across {{ impact.volume_chart.left_label | md_escape }} → {{ impact.volume_chart.right_label | md_escape }}. _({{ impact.volume_chart.selection_reason | md_escape }})_
+
+{% endif %}
+{% if impact.tiles %}
+| Measure | Value | Sub |
+| --- | --- | --- |
+{% for tile in impact.tiles %}
+| {{ tile.label | md_escape }} | {{ tile.value | md_escape }} | {{ (tile.sub or "") | md_escape }} |
+{% endfor %}
+
+{% endif %}
+{% if impact.top_affected %}
+Top affected: **{{ impact.top_affected.host | md_escape }}** `{{ impact.top_affected.path_pattern | md_escape }}` — {{ impact.top_affected.requests_display | md_escape }} requests ({{ impact.top_affected.share_pct_display | md_escape }} of window, {{ impact.top_affected.delta_pct_display | md_escape }} vs baseline).
+
+{% endif %}
+## Suspicious Targets
+
+{% if suspicious_targets %}
+{% if concentration_chart.rows %}
+**Top {{ concentration_chart.top_n }} of {{ concentration_chart.total_count }} flagged targets, by share of window traffic:**
+
+{% for row in concentration_chart.rows %}
+- **{{ row.target_type_label | md_escape }}** `{{ row.target_value | md_escape }}` — {{ row.share_pct_display | md_escape }} ({{ row.severity_label | md_escape }})
+{% endfor %}
+
+{% endif %}
+| Type | Target | Reasons | ATT&CK (consistent with) | Requests | Share | 429s | Severity | Confidence |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+{% for row in suspicious_targets %}
+| {{ row.target_type_label | md_escape }} | `{{ row.target_value | md_escape }}` | {% for label in row.reason_flag_labels %}{{ label | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %} | {{ row.attack_techniques_summary | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} | {{ row.req_429_display | md_escape }} | {{ row.severity_label | md_escape }} | {{ row.confidence_label | md_escape }} |
+{% endfor %}
+
+{% else %}
+> **No flagged targets** — no targets crossed the suspicious-actor heuristic thresholds for this window. Either the cluster has no raw access log, or no actor crossed the heuristic thresholds. Scope evidence below still applies.
+
+{% endif %}
+## Section A — Scope Confirmation
+
+{% if window_confirmation.tiles %}
+| Measure | Value |
+| --- | --- |
+{% for tile in window_confirmation.tiles %}
+| {{ tile.label | md_escape }} | {{ tile.value | md_escape }} |
+{% endfor %}
+
+{% endif %}
+{% if window_confirmation.spike_flags %}
+Spike flags: {% for flag in window_confirmation.spike_flags %}{{ flag.label | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %}
+
+{% endif %}
+{% if targeted_hosts_rows %}
+### Top targeted hosts
+
+| Host | Requests | Share | Δ vs baseline |
+| --- | --- | --- | --- |
+{% for row in targeted_hosts_rows %}
+| {{ row.value | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} | {{ row.delta_vs_baseline_display | md_escape }} |
+{% endfor %}
+
+{% endif %}
+{% if path_pattern_rows %}
+### Top targeted path patterns
+
+| Path pattern | Requests | Share | Δ vs baseline |
+| --- | --- | --- | --- |
+{% for row in path_pattern_rows %}
+| {{ row.value | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} | {{ row.delta_vs_baseline_display | md_escape }} |
+{% endfor %}
+
+{% endif %}
+{% if status_mix_rows %}
+### Status mix
+
+| Status | Requests | Share |
+| --- | --- | --- |
+{% for row in status_mix_rows %}
+| {{ row.value | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} |
+{% endfor %}
+
+{% endif %}
+{% if country_mix_rows %}
+### Country mix
+
+| Country | Requests | Share | Δ vs baseline |
+| --- | --- | --- | --- |
+{% for row in country_mix_rows %}
+| {{ row.value | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} | {{ row.delta_vs_baseline_display | md_escape }} |
+{% endfor %}
+
+{% endif %}
+{% if scope.siem_available %}
+{% if siem_action_rows %}
+### SIEM action mix
+
+| Action | Requests | Share | Δ vs baseline |
+| --- | --- | --- | --- |
+{% for row in siem_action_rows %}
+| {{ row.value | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} | {{ row.delta_vs_baseline_display | md_escape }} |
+{% endfor %}
+
+{% endif %}
+{% if siem_policy_rows %}
+### SIEM policy mix
+
+| Policy | Requests | Share | Δ vs baseline |
+| --- | --- | --- | --- |
+{% for row in siem_policy_rows %}
+| {{ row.value | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} | {{ row.delta_vs_baseline_display | md_escape }} |
+{% endfor %}
+
+{% endif %}
+{% if siem_bot_type_rows %}
+### SIEM bot-type mix
+
+| Bot type | Requests | Share | Δ vs baseline |
+| --- | --- | --- | --- |
+{% for row in siem_bot_type_rows %}
+| {{ row.value | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} | {{ row.delta_vs_baseline_display | md_escape }} |
+{% endfor %}
+
+{% endif %}
+{% endif %}
+{% set op_note = notes_by_slot.get("operational_interpretation") if notes_by_slot else None %}
+{% if op_note %}
+## Operational Interpretation
+
+{{ op_note.text | md_escape }}
+
+_From {{ (op_note.author_type or "analyst") | humanize_author | md_escape }}._
+
+{% endif %}
+## Section B — Actors
+
+{% if not raw_drilldown_available %}
+> **Raw drilldown unavailable** — the cluster's raw access log was not available for this report, so per-actor rankings are not shown. Scope-confirmation evidence in Section A above still applies. See the limitations appendix for the captured detail.
+
+{% else %}
+{% for ranking in actor_rankings %}
+### {{ ranking.field_label | md_escape }} — top {{ ranking.rows | length }}
+
+| {{ ranking.field_label | md_escape }} | Requests | Bytes | Distinct paths | 429s | 429 share | 5xx | 5xx share |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+{% for row in ranking.rows %}
+| {{ row.value | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.bytes_display | md_escape }} | {{ row.distinct_paths_display | md_escape }} | {{ row.req_429_display | md_escape }} | {{ row.req_429_share_display | md_escape }} | {{ row.req_5xx_display | md_escape }} | {{ row.req_5xx_share_display | md_escape }} |
+{% endfor %}
+
+{% endfor %}
+{% endif %}
+{% set next_note = notes_by_slot.get("next_steps") if notes_by_slot else None %}
+{% if next_note %}
+## Next Steps
+
+{{ next_note.text | md_escape }}
+
+{% endif %}
+{% if dashboard_url %}
+## Continue investigating
+
+[Open the linked Grafana dashboard]({{ dashboard_url }}) — pre-scoped to this window and scope filters for further drilldown.
+
+{% endif %}
+{% if iocs.indicators %}
+## Indicators of Compromise
+
+The same flagged targets, restructured as a portable indicator feed (schema `{{ iocs.schema | md_escape }}`, {{ iocs.indicators | length }} indicators). Each entry carries severity, confidence, the analyst window as first/last observed timestamps, ATT&CK techniques consistent with the signal, and the supporting evidence numbers.
+
+```json
+{{ iocs_json_text }}
+```
+
+{% endif %}
+{% if limitations %}
+## Limitations
+
+{% for item in limitations %}
+- {{ item | md_escape }}
+{% endfor %}
+
+{% endif %}
+## Method
+
+Incident report for {{ scope.cluster | cluster_display | md_escape }}{% if scope.database %} · {{ scope.database | cluster_display | md_escape }}{% endif %}, scope-confirmed against a trailing equal-length baseline.
+
+- Schema: `{{ method.schema_version }}`
+{% if method.producer_limit is not none %}
+- Top-N per actor field: {{ method.producer_limit }}
+{% endif %}
+{% if method.interpretation_constraints %}
+- Constraints: {% for c in method.interpretation_constraints %}{{ c | humanize_constraint | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %}
+
+{% endif %}
+
+Generated {{ generated_at }}

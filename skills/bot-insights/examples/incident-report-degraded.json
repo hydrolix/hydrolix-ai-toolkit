@@ -1,0 +1,138 @@
+{
+  "analyst_notes": [
+    {
+      "author_type": "llm",
+      "data_sources": [
+        {
+          "artifact_id": "incident-scope-1",
+          "json_pointer": "/window_confirmation/requests",
+          "label": "request volume in window"
+        },
+        {
+          "artifact_id": "incident-scope-1",
+          "json_pointer": "/top_targeted_path_patterns/0/value",
+          "label": "top targeted path pattern"
+        }
+      ],
+      "note_id": "llm-interpretation",
+      "text": "Volume on www.example.com is materially up (+210% on the top host) and 429s are spiking on `/login/*` — both consistent with a login-attack pattern, but per-actor evidence is unavailable on this cluster so naming specific origins is out of reach. The spike flags volume_up + rate_429_up are the only concurring signals, with no SIEM surface and no raw-log breakdown to confirm whether the increase is concentrated on a handful of actors or spread broadly. Escalation should wait on raw-log access for this scope rather than acting on summary evidence alone."
+    },
+    {
+      "author_type": "llm",
+      "data_sources": [
+        {
+          "artifact_id": "incident-scope-1",
+          "json_pointer": "/top_targeted_path_patterns",
+          "label": "targeted path patterns"
+        },
+        {
+          "artifact_id": "incident-scope-1",
+          "json_pointer": "/status_mix",
+          "label": "status mix"
+        }
+      ],
+      "note_id": "llm-next-steps",
+      "text": "- Confirm the spike in the linked dashboard against a longer baseline.\n- Stand up raw-log access on this cluster so the actors section can populate the next time this scope is investigated."
+    }
+  ],
+  "artifacts": [
+    {
+      "artifact_id": "incident-scope-1",
+      "schema_version": "bot_incident_scope.v1",
+      "scope": {
+        "cluster": "demo",
+        "database": "akamai",
+        "start": "2026-05-13T14:00:00Z",
+        "end": "2026-05-13T17:00:00Z",
+        "baseline_start": "2026-05-13T11:00:00Z",
+        "baseline_end": "2026-05-13T14:00:00Z",
+        "granularity": "minute",
+        "host": "www.example.com",
+        "asn": null,
+        "path_pattern": null,
+        "siem_available": false
+      },
+      "window_confirmation": {
+        "requests": 2150000,
+        "bot_share_pct": 64.2,
+        "rate_429_pct": 6.4,
+        "rate_5xx_pct": 0.9,
+        "blocked_share_pct": null,
+        "spike_flags": ["volume_up", "rate_429_up"]
+      },
+      "top_targeted_hosts": [
+        {"value": "www.example.com", "requests": 2050000, "share_pct": 95.3, "delta_vs_baseline_pct": 210.0},
+        {"value": "api.example.com", "requests": 70000, "share_pct": 3.3, "delta_vs_baseline_pct": 18.0},
+        {"value": "assets.example.com", "requests": 20000, "share_pct": 0.9, "delta_vs_baseline_pct": 4.0}
+      ],
+      "top_targeted_path_patterns": [
+        {"value": "/login/*", "requests": 1500000, "share_pct": 69.8, "delta_vs_baseline_pct": 410.0},
+        {"value": "/api/v1/auth/*", "requests": 340000, "share_pct": 15.8, "delta_vs_baseline_pct": 280.0},
+        {"value": "/", "requests": 120000, "share_pct": 5.6, "delta_vs_baseline_pct": 6.0}
+      ],
+      "status_mix": [
+        {"status_code": 200, "requests": 1800000, "share_pct": 83.7},
+        {"status_code": 429, "requests": 137600, "share_pct": 6.4},
+        {"status_code": 401, "requests": 130000, "share_pct": 6.0},
+        {"status_code": 500, "requests": 19350, "share_pct": 0.9}
+      ],
+      "country_mix": [
+        {"value": "US", "requests": 1100000, "share_pct": 51.2, "delta_vs_baseline_pct": 220.0},
+        {"value": "DE", "requests": 380000, "share_pct": 17.7, "delta_vs_baseline_pct": 290.0},
+        {"value": "BR", "requests": 250000, "share_pct": 11.6, "delta_vs_baseline_pct": 260.0}
+      ],
+      "siem_action_mix": null,
+      "siem_policy_mix": null,
+      "siem_bot_type_mix": null,
+      "limitations": ["SIEM policy summary table not present on this cluster; SIEM mixes are not available."]
+    },
+    {
+      "artifact_id": "incident-actors-1",
+      "schema_version": "bot_incident_actors.v1",
+      "scope": {
+        "cluster": "demo",
+        "database": "akamai",
+        "start": "2026-05-13T14:00:00Z",
+        "end": "2026-05-13T17:00:00Z",
+        "baseline_start": "2026-05-13T11:00:00Z",
+        "baseline_end": "2026-05-13T14:00:00Z",
+        "granularity": "minute",
+        "host": "www.example.com",
+        "asn": null,
+        "path_pattern": null,
+        "siem_available": false
+      },
+      "raw_drilldown_available": false,
+      "raw_table": "akamai.logs",
+      "fields_resolved": [],
+      "fields_unresolved": [],
+      "top_n": 10,
+      "actor_rankings": [],
+      "limitations": ["akamai.logs is not present on this cluster; per-actor drilldown is not available."]
+    },
+    {
+      "artifact_id": "incident-action-targets-1",
+      "schema_version": "bot_incident_action_targets.v1",
+      "scope": {
+        "cluster": "demo",
+        "database": "akamai",
+        "start": "2026-05-13T14:00:00Z",
+        "end": "2026-05-13T17:00:00Z",
+        "baseline_start": "2026-05-13T11:00:00Z",
+        "baseline_end": "2026-05-13T14:00:00Z",
+        "granularity": "minute",
+        "host": "www.example.com",
+        "asn": null,
+        "path_pattern": null,
+        "siem_available": false
+      },
+      "targets": [],
+      "heuristic_version": "v2",
+      "limitations": ["Suspicious-target heuristics produced no flagged rows because the cluster has no raw access log; only summary-level scope evidence is available."]
+    }
+  ],
+  "report_type": "incident_report",
+  "schema_version": "bot_report_input.v1",
+  "scope_label": "www.example.com",
+  "title": "Incident Report - www.example.com - 2026-05-13 (degraded)"
+}

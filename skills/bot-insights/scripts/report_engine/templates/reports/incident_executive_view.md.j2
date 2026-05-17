@@ -1,0 +1,44 @@
+# {{ headline }} — Incident Executive View
+
+{% set status_note = notes_by_slot.get("incident_status_level") if notes_by_slot else None -%}
+**Status:** {{ (status_note.text|trim) if status_note else incident_status_default }}
+**Window:** {{ windows.current.start }} → {{ windows.current.end }} UTC
+
+## What happened
+
+{% set wh = notes_by_slot.get("what_happened") if notes_by_slot else None -%}
+{{ wh.text if wh else "_Analyst summary pending._" }}
+
+## Measured impact
+
+{% for tile in impact_tiles %}
+- **{{ tile.label }}:** {{ tile.value }}{{ (" (" ~ tile.sub ~ ")") if tile.sub else "" }}
+{% endfor %}
+{% if top_affected %}
+- **Top affected:** `{{ top_affected.host }}` on `{{ top_affected.path_pattern }}` — {{ top_affected.share_pct_display }} of window, {{ top_affected.delta_pct_display }} vs baseline
+{% endif %}
+
+## Business / customer impact
+
+{% set bi = notes_by_slot.get("executive_impact") if notes_by_slot else None -%}
+{{ bi.text if bi else "_Not assessed from logs._" }}
+
+## Response taken / recommended
+
+{% set rt = notes_by_slot.get("response_taken") if notes_by_slot else None -%}
+{% if rt %}{{ rt.text }}
+
+{% endif -%}
+{% for action in recommended_actions %}
+{{ loop.index }}. {{ action.step }} — _{{ action.role }}, {{ action.urgency }}_{{ (" · " ~ action.effect) if action.effect else "" }}
+{% endfor %}
+
+## Decision needed
+
+{% set dn = notes_by_slot.get("decision_needed") if notes_by_slot else None -%}
+{{ dn.text if dn else "_No decision flagged._" }}
+
+## Confidence and caveat
+
+{% set cs = notes_by_slot.get("current_status") if notes_by_slot else None -%}
+{{ cs.text if cs else confidence_caveat_default }}

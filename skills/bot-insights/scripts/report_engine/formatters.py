@@ -7,10 +7,81 @@ from datetime import datetime
 
 
 def window_fmt(window: dict) -> str:
-    """Format a {start,end} ISO window as 'YYYY-MM-DD HH:MM → ... UTC'."""
+    """Format a {start,end} ISO window.
+
+    Same-day windows collapse to 'YYYY-MM-DD HH:MM-HH:MM UTC' so the
+    date doesn't repeat. Cross-day windows keep the full both-ends
+    form 'YYYY-MM-DD HH:MM → YYYY-MM-DD HH:MM UTC'.
+    """
     start = datetime.fromisoformat(window["start"].replace("Z", "+00:00"))
     end = datetime.fromisoformat(window["end"].replace("Z", "+00:00"))
+    if start.date() == end.date():
+        return f"{start:%Y-%m-%d %H:%M}-{end:%H:%M} UTC"
     return f"{start:%Y-%m-%d %H:%M} → {end:%Y-%m-%d %H:%M} UTC"
+
+
+def _date_long(dt: datetime) -> str:
+    """Long-form date suitable for editorial headlines: ``Apr 19, 2026``.
+
+    Avoids ``%-d``/``%#d`` for portability — manually composes the
+    day-of-month without the platform-dependent strftime modifier.
+    """
+    return f"{dt:%b} {dt.day}, {dt.year}"
+
+
+def _hm_24(dt: datetime) -> str:
+    return f"{dt:%H:%M}"
+
+
+def _hm_12(dt: datetime) -> str:
+    hour = dt.hour % 12 or 12
+    return f"{hour}:{dt:%M}"
+
+
+def _period_12(dt: datetime) -> str:
+    return "AM" if dt.hour < 12 else "PM"
+
+
+def headline_window_fmt(window: dict, clock: str = "12") -> str:
+    """Format a ``{start, end}`` window for inclusion inside an editorial
+    H1 headline.
+
+    Produces a compact, human-readable rendering for the incident
+    report's H1 parenthetical, e.g. ``"Apr 19, 2026 · 3:00–4:00 PM
+    UTC"`` for the 12-hour clock or ``"Apr 19, 2026 · 15:00–16:00
+    UTC"`` for the 24-hour clock. The 12-hour form omits a repeated
+    period (PM/AM) when both endpoints fall in the same half.
+    """
+    start = datetime.fromisoformat(window["start"].replace("Z", "+00:00"))
+    end = datetime.fromisoformat(window["end"].replace("Z", "+00:00"))
+
+    if clock == "24":
+        if start.date() == end.date():
+            return (
+                f"{_date_long(start)} · "
+                f"{_hm_24(start)}–{_hm_24(end)} UTC"
+            )
+        return (
+            f"{_date_long(start)} {_hm_24(start)} → "
+            f"{_date_long(end)} {_hm_24(end)} UTC"
+        )
+
+    # 12-hour clock
+    if start.date() == end.date():
+        if _period_12(start) == _period_12(end):
+            return (
+                f"{_date_long(start)} · "
+                f"{_hm_12(start)}–{_hm_12(end)} {_period_12(end)} UTC"
+            )
+        return (
+            f"{_date_long(start)} · "
+            f"{_hm_12(start)} {_period_12(start)}–"
+            f"{_hm_12(end)} {_period_12(end)} UTC"
+        )
+    return (
+        f"{_date_long(start)} {_hm_12(start)} {_period_12(start)} → "
+        f"{_date_long(end)} {_hm_12(end)} {_period_12(end)} UTC"
+    )
 
 
 def big_number(value: float | int) -> str:

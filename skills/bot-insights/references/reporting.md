@@ -8,6 +8,11 @@ upstream step. The renderer does not query Hydrolix, open database clients,
 read credentials, recompute scores, or infer values beyond the fields already
 present in the input.
 
+This file documents report usage and rendering behavior. For maintainer steps
+to add a new predefined report type, wire a custom report, or skin existing
+reports without changing evidence semantics, read
+[report-extension.md](report-extension.md).
+
 ## Contents
 
 - [Accepted Input](#accepted-input)
@@ -67,6 +72,10 @@ array tokens must be non-negative indexes without leading zeroes.
   `crawler_governance` scorecard features.
 - `edge_ops_impact` - cache-busting and origin-impact evidence using only
   evaluated `cache_busting` and `origin_impact` scorecard features.
+- `incident_report` - window-scoped incident confirmation from summary
+  tables plus per-actor drilldown against `akamai.logs`, with a Grafana
+  dashboard handoff link. Sits between a top-N panel and a full RCA;
+  see [incident-analysis.md](incident-analysis.md) for the reading guide.
 
 ## Report Workflow Matrix
 
@@ -96,6 +105,7 @@ for the decision rule.
 | `soc_triage` | `bot_scorecard_index.v1`; optional compatible `bot_entity_scorecard.v1`, `bot_posture_movement.v1`, `bot_mover_attribution.v1` | `bot_insights_report.py --report soc_triage --mode evidence` runs SIEM policy summary SQL via `/query/`, then `scorecard.py --domains security_evidence` produces the SOC artifact and evidence packet locally | Same command exits `42`; rerun with `--raw-input <saved.json>` | Migrated |
 | `crawler_governance` | One or more `bot_entity_scorecard.v1` artifacts with evaluated `crawler_governance` features; optional compatible `bot_scorecard_index.v1`, `bot_posture_movement.v1`, `bot_mover_attribution.v1` | `bot_insights_report.py --report crawler_governance --mode evidence` runs crawler-grain `bi_summary_*` SQL via `/query/`, then `scorecard.py --domains crawler_governance` produces the artifact and evidence packet locally | Same command exits `42`; rerun with `--raw-input <saved.json>` | Migrated |
 | `edge_ops_impact` | One or more `bot_entity_scorecard.v1` artifacts with evaluated `cache_busting` or `origin_impact` features; optional compatible `bot_scorecard_index.v1`, `bot_posture_movement.v1`, `bot_mover_attribution.v1` | `bot_insights_report.py --report edge_ops_impact --mode evidence` runs entity-grain `bi_summary_*` SQL via `/query/`, then `scorecard.py --domains cache_busting,origin_impact` produces the artifact and evidence packet locally. `--include-paths` opts into the path-grain detector and is gated on path-summary deployment | Same command exits `42`; rerun with `--raw-input <saved.json>` (and `--raw-path-input` when `--include-paths` is set) | Migrated |
+| `incident_report` | `bot_incident_scope.v1` (required), `bot_incident_actors.v1` (required; may carry `raw_drilldown_available: false`), and `bot_incident_action_targets.v1` (required; `targets` may be empty) | `bot_insights_report.py --report incident_report --mode evidence` runs `bi_summary_*` and (when present) `bi_siem_policy_summary_*` queries plus per-field current- and baseline-window `akamai.logs` queries via `/query/` and writes the evidence packet locally | Same command exits `42`; capture re-issues the MCP handoff per phase; rerun with `--raw-input <saved.json>` once results are saved | Migrated |
 
 ## Query Execution Boundary
 

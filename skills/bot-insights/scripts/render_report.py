@@ -50,6 +50,10 @@ TIMESERIES_SCHEMA = "bot_timeseries.v1"
 CACHE_ORIGIN_SCHEMA = "cache_origin_impact_report.v1"
 CONTROL_EXPECTED_BASES = {"before_window", "explicit_target", "external_model"}
 
+INCIDENT_SCOPE_SCHEMA = "bot_incident_scope.v1"
+INCIDENT_ACTORS_SCHEMA = "bot_incident_actors.v1"
+INCIDENT_ACTION_TARGETS_SCHEMA = "bot_incident_action_targets.v1"
+
 SUPPORTED_SCHEMAS = {
     POSTURE_SCHEMA,
     MOVER_SCHEMA,
@@ -59,6 +63,9 @@ SUPPORTED_SCHEMAS = {
     SCORECARD_PACKET_SCHEMA,
     TIMESERIES_SCHEMA,
     CACHE_ORIGIN_SCHEMA,
+    INCIDENT_SCOPE_SCHEMA,
+    INCIDENT_ACTORS_SCHEMA,
+    INCIDENT_ACTION_TARGETS_SCHEMA,
 }
 KNOWN_UNSUPPORTED_SCHEMAS: set[str] = set()
 REPORT_TYPES = {
@@ -68,6 +75,8 @@ REPORT_TYPES = {
     "scorecard_brief",
     "crawler_governance",
     "edge_ops_impact",
+    "incident_report",
+    "incident_executive_view",
 }
 RESERVED_CHILD_ID = re.compile(r"(#index|#scorecard-\d+)$")
 
@@ -150,6 +159,32 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--title",
         help="Presentation title override.",
+    )
+    parser.add_argument(
+        "--palette",
+        choices=("tableau", "cloudscape", "carbon"),
+        default="tableau",
+        help=(
+            "Visual palette. tableau (default) is the Tableau-10 BI "
+            "palette; cloudscape is AWS Cloudscape's command-center "
+            "palette; carbon is IBM Carbon's enterprise palette. Each "
+            "ships matched light + dark variants — the browser picks "
+            "based on prefers-color-scheme by default; see --theme to "
+            "force one."
+        ),
+    )
+    parser.add_argument(
+        "--theme",
+        choices=("auto", "light", "dark"),
+        default="auto",
+        help=(
+            "Theme mode. auto (default) emits both palettes and lets the "
+            "viewer's prefers-color-scheme pick. light forces the light "
+            "palette — use when projecting in a meeting room where the "
+            "presenter machine may be in dark mode but you want a "
+            "light-rendered report. dark forces dark. Print stylesheet "
+            "always pins light regardless of --theme."
+        ),
     )
     return parser.parse_args()
 
@@ -779,6 +814,16 @@ def duplicate_dedupe_risk(
             POSTURE_SCHEMA,
             MOVER_SCHEMA,
         },
+        "incident_report": {
+            INCIDENT_SCOPE_SCHEMA,
+            INCIDENT_ACTORS_SCHEMA,
+            INCIDENT_ACTION_TARGETS_SCHEMA,
+        },
+        "incident_executive_view": {
+            INCIDENT_SCOPE_SCHEMA,
+            INCIDENT_ACTORS_SCHEMA,
+            INCIDENT_ACTION_TARGETS_SCHEMA,
+        },
     }
     if schema in selection_sensitive_schemas.get(report_type, set()):
         if schema == SCORECARD_SCHEMA and report_type in {
@@ -970,6 +1015,17 @@ def validate_report_artifacts(
             "index_order_usable": index_order_usable,
             "posture": filter_compatible_companion(reference, posture, "posture", ctx),
             "mover": filter_compatible_companion(reference, mover, "mover", ctx),
+        }
+    if report_type in ("incident_report", "incident_executive_view"):
+        scope = require_one(artifacts, INCIDENT_SCOPE_SCHEMA, report_type)
+        actors = require_one(artifacts, INCIDENT_ACTORS_SCHEMA, report_type)
+        action_targets = require_one(
+            artifacts, INCIDENT_ACTION_TARGETS_SCHEMA, report_type
+        )
+        return {
+            "scope": scope,
+            "actors": actors,
+            "action_targets": action_targets,
         }
     if report_type == "edge_ops_impact":
         scorecards = by_schema(artifacts, SCORECARD_SCHEMA)
@@ -4087,6 +4143,8 @@ def _render_via_engine(
     notes: list[dict[str, Any]],
     ctx: ReportContext,
     output_format: str = "html",
+    palette: str = "tableau",
+    theme_mode: str = "auto",
 ) -> str | None:
     """Route rendering through the report_engine for a given wrapper
     ``report_type`` and ``output_format`` (``"html"`` or ``"markdown"``).
@@ -4144,9 +4202,7 @@ def _render_via_engine(
     try:
         artifact = module.assemble(artifacts)
     except (ValueError, KeyError) as exc:
-        raise ReportError(
-            f"{report_type} engine assembly failed: {exc}"
-        ) from exc
+        raise ReportError(f"{report_type} engine assembly failed: {exc}") from exc
 
     notes_by_slot = engine_render._build_notes_by_slot(
         notes,
@@ -4163,6 +4219,11 @@ def _render_via_engine(
     if hasattr(module, "post_prepare"):
         module.post_prepare(template_ctx)
     template_ctx["mode"] = "full"
+    # ``report_type`` lets shared templates (e.g. base.html's
+    # `_styles_editorial.css` include guard) emit per-report assets.
+    # Keep in lockstep with report_engine.render.render(); the engine
+    # path sets the same key right after the prepare() call.
+    template_ctx["report_type"] = module.REPORT_TYPE
     overrides_note = notes_by_slot.get("finding_overrides")
     if overrides_note and "findings" in template_ctx:
         template_ctx["findings"] = findings_mod.apply_finding_overrides(
@@ -4170,7 +4231,9 @@ def _render_via_engine(
             overrides_note.get("text"),
         )
 
-    env = engine_render.build_env(output_format=output_format)
+    env = engine_render.build_env(
+        output_format=output_format, palette=palette, theme_mode=theme_mode
+    )
     template = env.get_template(engine_render.template_for(module, output_format))
     return template.render(**template_ctx)
 
@@ -4224,6 +4287,8 @@ def render(
             notes=notes,
             ctx=ctx,
             output_format=args.format,
+            palette=getattr(args, "palette", "tableau"),
+            theme_mode=getattr(args, "theme", "auto"),
         )
         if engine_output is not None:
             return engine_output, ctx.warnings

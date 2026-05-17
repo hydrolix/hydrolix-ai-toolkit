@@ -54,3 +54,29 @@
 - **Delta baselines**: The demo and dashboards use `(current - baseline) / greatest(baseline, 1) * 100`
   as the standard delta formula. Use the same approach for consistency when writing
   custom queries.
+- **Incident report raw-log bounds**: Any query the incident_report flow runs
+  against `akamai.logs` MUST carry both a time predicate (between the analyst
+  window's start/end) and a scope predicate (`reqHost`, `asn`, and/or
+  `request_path LIKE ...`). The orchestrator builds the WHERE clause
+  mechanically — never let analyst input flow directly into SQL.
+- **DESCRIBE-validated field names only**: The incident_report orchestrator
+  validates `--fields` against the cluster's actual `akamai.logs` column list
+  before running any phase-2 query. Unknown field names fail closed before
+  the raw-log table is touched. Do not add fields the cluster does not deploy
+  by hand-editing the SQL.
+- **Missing raw access log graceful skip**: When `akamai.logs` is not present
+  on the target cluster, the incident_report flow sets
+  `raw_drilldown_available: false`, populates `limitations`, and still
+  renders Section A from summary tables. It does not silently substitute
+  another raw surface, and the LLM prose must never name `akamai.logs`
+  directly — refer to "this report's raw access log" or "the actors section"
+  instead.
+- **Suspicious-target heuristics are conservative by design**: The v2
+  ladder in `bot_insights_report.py` caps single-signal flags at
+  `severity: review`. Promoting to `high` requires multi-signal
+  concurrence. `suggested_action_hint` is always `"review"` in v2
+  regardless of severity — the field is present so downstream WAF /
+  bot-manager MCP tooling can switch on it later, not because v2
+  knows where the false-positive line sits. Do not edit
+  `_SUSPICIOUS_*` constants or `_AUTOMATION_UA_PATTERN` without
+  re-running calibration against representative incidents.

@@ -9,7 +9,33 @@
   --observe: {{ palette.observe }};
   --monitor: {{ palette.monitor }};
   --escalate: {{ palette.escalate }};
+  --critical: {{ palette.critical }};
 }
+
+{% if emit_dark_media %}
+/* Dark-mode pairs. OS / browser picks via prefers-color-scheme; no
+   JavaScript, no user toggle, no per-report config — opening the same
+   HTML on a dark-themed laptop at 2am vs a light-themed display in a
+   morning briefing renders correctly either way. Print stylesheet
+   below pins to light (printers cost the same to operate on dark
+   backgrounds and the ink waste matters for 30-page exec briefs).
+   Skipped when --theme is light or dark (forced mode). */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: {{ dark_palette.bg }};
+    --surface: {{ dark_palette.surface }};
+    --surface-2: {{ dark_palette.surface_2 }};
+    --text: {{ dark_palette.text }};
+    --muted: {{ dark_palette.muted }};
+    --muted-2: {{ dark_palette.muted_2 }};
+    --border: {{ dark_palette.border }};
+    --observe: {{ dark_palette.observe }};
+    --monitor: {{ dark_palette.monitor }};
+    --escalate: {{ dark_palette.escalate }};
+    --critical: {{ dark_palette.critical }};
+  }
+}
+{% endif %}
 * { box-sizing: border-box; }
 html, body {
   margin: 0;
@@ -111,6 +137,11 @@ h1 {
   border: 1px solid transparent;
   white-space: nowrap;
 }
+.pill-critical {
+  background: color-mix(in srgb, var(--critical) 18%, var(--surface));
+  color: var(--critical);
+  border-color: color-mix(in srgb, var(--critical) 45%, transparent);
+}
 .pill-escalate {
   background: color-mix(in srgb, var(--escalate) 15%, var(--surface));
   color: var(--escalate);
@@ -131,7 +162,174 @@ h1 {
   color: var(--muted);
   border-color: var(--border);
 }
+.attack-pill {
+  font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  letter-spacing: 0;
+  font-weight: 500;
+  cursor: help;
+}
+
+/* IOC export — pre-formatted JSON for SIEM ingestion. Readable
+   monospace, dim chrome, horizontal scroll on overflow so long
+   indicator values don't break the page layout. */
+.ioc-export {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin: 12px 0;
+  overflow-x: auto;
+  font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
+  white-space: pre;
+  max-height: 480px;
+}
+.ioc-export code {
+  font-family: inherit;
+  background: transparent;
+  padding: 0;
+  border: 0;
+}
 .muted-small { font-size: 11px; color: var(--muted-2); }
+
+/* Incident volume chart — wide time-series in the Impact section
+   showing the shape of the attack across the window. The SVG itself
+   uses currentColor for axis text, so the labels pick up the active
+   theme's --text variable; the line + fill colors are passed in as
+   palette tokens so palette switches retint the chart. */
+.incident-volume-chart-wrap {
+  margin: 6px 0 22px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+}
+.incident-volume-chart-wrap svg.incident-volume-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.incident-volume-chart-caption {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--text);
+}
+.incident-volume-chart-caption strong {
+  font-weight: 600;
+}
+.incident-volume-chart-caption .muted-small {
+  display: block;
+  margin-top: 2px;
+}
+.incident-volume-chart-legend {
+  margin: 8px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.legend-dot {
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.legend-current { background: var(--escalate); }
+.legend-baseline {
+  background: transparent;
+  border-top: 1.5px dashed var(--muted);
+  height: 0;
+  margin-top: 2px;
+}
+
+/* Concentration chart — horizontal bar visualization above the
+   Suspicious Targets table. Designed for at-a-glance scanning by
+   executive readers who don't have time to parse a ranked table. Bars
+   are colored by severity tone so the criticality story is encoded
+   visually as well as quantitatively. */
+.concentration-chart {
+  margin: 16px 0 20px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.concentration-chart-caption {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 12px;
+  line-height: 1.45;
+}
+.concentration-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 22ch) 1fr 56px;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 0;
+}
+.concentration-label {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+.concentration-type {
+  color: var(--muted);
+  margin-right: 6px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.concentration-label code {
+  background: var(--surface-2);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.concentration-bar-wrap {
+  background: var(--surface-2);
+  height: 14px;
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+.concentration-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.2s ease-out;
+}
+.concentration-bar-critical { background: var(--critical); }
+.concentration-bar-escalate { background: var(--escalate); }
+.concentration-bar-monitor { background: var(--monitor); }
+.concentration-bar-observe { background: var(--observe); }
+.concentration-value {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--text);
+  text-align: right;
+  font-weight: 500;
+}
+
+/* Executive summary — colored state line above the prose. Pills sit on
+   their own row with a small gap so the criticality + confidence call
+   reads as a single visual block, separate from the analysis below. */
+.exec-summary-state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 14px;
+  font-size: 13px;
+}
+.exec-summary-state .pill {
+  font-size: 13px;
+  font-weight: 600;
+}
 
 /* Executive summary — recommendation + caveat callouts under the lead. */
 .exec-recommendation {
@@ -708,11 +906,48 @@ section > h2 {
   color: {{ palette.escalate_pill_text }};
   border-color: {{ palette.escalate_pill_border }};
 }
+.pill-critical {
+  background: {{ palette.critical_pill_bg }};
+  color: {{ palette.critical_pill_text }};
+  border-color: {{ palette.critical_pill_border }};
+  font-weight: 600;
+}
 .pill-neutral {
   background: var(--surface-2);
   color: var(--muted);
   border-color: var(--border);
 }
+
+{% if emit_dark_media %}
+/* Dark-mode overrides for the hard-hex pill rules above. The .pill-*
+   rules earlier in the file use CSS variables (--observe etc.) and
+   pick up dark mode automatically through the :root @media block;
+   these later rules use raw palette values and need an explicit
+   dark-mode parallel. Skipped when --theme is forced. */
+@media (prefers-color-scheme: dark) {
+  .pill-observe {
+    background: {{ dark_palette.observe_pill_bg }};
+    color: {{ dark_palette.observe_pill_text }};
+    border-color: {{ dark_palette.observe_pill_border }};
+  }
+  .pill-monitor {
+    background: {{ dark_palette.monitor_pill_bg }};
+    color: {{ dark_palette.monitor_pill_text }};
+    border-color: {{ dark_palette.monitor_pill_border }};
+  }
+  .pill-escalate {
+    background: {{ dark_palette.escalate_pill_bg }};
+    color: {{ dark_palette.escalate_pill_text }};
+    border-color: {{ dark_palette.escalate_pill_border }};
+  }
+  .pill-critical {
+    background: {{ dark_palette.critical_pill_bg }};
+    color: {{ dark_palette.critical_pill_text }};
+    border-color: {{ dark_palette.critical_pill_border }};
+  }
+}
+{% endif %}
+
 .domain-pill {
   display: inline-block;
   font-size: 12px;
@@ -1100,8 +1335,46 @@ footer {
   font-variant-numeric: tabular-nums;
 }
 
-/* Print — board-packet / PDF output. Brief mode is the natural target. */
+/* Print — board-packet / PDF output. Brief mode is the natural target.
+   Pin to the light palette regardless of --theme: a printed copy that
+   came off a dark-mode browser (or a --theme=dark forced render) would
+   otherwise carry inverted color tokens that render poorly on paper
+   (and waste ink). ``light_palette`` is always the light variant of
+   the selected palette, independent of theme_mode. */
 @media print {
+  :root {
+    --bg: {{ light_palette.bg }};
+    --surface: {{ light_palette.surface }};
+    --surface-2: {{ light_palette.surface_2 }};
+    --text: {{ light_palette.text }};
+    --muted: {{ light_palette.muted }};
+    --muted-2: {{ light_palette.muted_2 }};
+    --border: {{ light_palette.border }};
+    --observe: {{ light_palette.observe }};
+    --monitor: {{ light_palette.monitor }};
+    --escalate: {{ light_palette.escalate }};
+    --critical: {{ light_palette.critical }};
+  }
+  .pill-observe {
+    background: {{ light_palette.observe_pill_bg }} !important;
+    color: {{ light_palette.observe_pill_text }} !important;
+    border-color: {{ light_palette.observe_pill_border }} !important;
+  }
+  .pill-monitor {
+    background: {{ light_palette.monitor_pill_bg }} !important;
+    color: {{ light_palette.monitor_pill_text }} !important;
+    border-color: {{ light_palette.monitor_pill_border }} !important;
+  }
+  .pill-escalate {
+    background: {{ light_palette.escalate_pill_bg }} !important;
+    color: {{ light_palette.escalate_pill_text }} !important;
+    border-color: {{ light_palette.escalate_pill_border }} !important;
+  }
+  .pill-critical {
+    background: {{ light_palette.critical_pill_bg }} !important;
+    color: {{ light_palette.critical_pill_text }} !important;
+    border-color: {{ light_palette.critical_pill_border }} !important;
+  }
   @page {
     size: letter;
     margin: 0.6in 0.5in;

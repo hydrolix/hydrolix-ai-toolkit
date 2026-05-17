@@ -86,8 +86,11 @@ Do not read every reference at startup. Pick the smallest relevant file:
 - Advanced aggregate-delta attribution CLI → [references/advanced-attribution.md](references/advanced-attribution.md)
 - Executive posture, multi-domain triage, mitigation verification → [references/executive-analysis.md](references/executive-analysis.md)
 - Rendering saved artifacts to Markdown/HTML → [references/reporting.md](references/reporting.md)
+- Adding a predefined report, custom report wiring, report skinning, themes,
+  or brand report presentation → [references/report-extension.md](references/report-extension.md)
 - Runnable report-rendering demo payloads → [examples/](examples/)
 - Known schema and analysis footguns → [references/pitfalls.md](references/pitfalls.md)
+- Window-scoped incident analysis with raw-log drilldown → [references/incident-analysis.md](references/incident-analysis.md)
 - Worked conversation examples for non-predefined-report workflows → [examples/conversations/](examples/conversations/)
 - Documented failure modes, pressure scenarios, and how to re-run them → [scenarios/](scenarios/)
 
@@ -107,6 +110,7 @@ Do not read every reference at startup. Pick the smallest relevant file:
 | Render saved artifacts | `reporting.md` | Markdown or self-contained HTML |
 | LLM-interpreted executive report | `reporting.md` | Skill-orchestrated capture + interpretation handoff + deterministic render |
 | Capture vetted preset evidence | `reporting.md` (+ `summary-tables.md`) | `bot_insights_capture.py` presets only |
+| Attack / incident analysis (window-scoped IR) | `incident-analysis.md` | `bot_incident_scope.v1` + `bot_incident_actors.v1` + `bot_incident_action_targets.v1` (machine-readable suspicious-target list for downstream WAF / bot-manager MCP tooling) |
 
 ## Data Firewall
 

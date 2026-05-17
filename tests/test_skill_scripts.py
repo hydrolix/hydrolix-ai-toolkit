@@ -658,7 +658,16 @@ class BotInsightsScriptTests(unittest.TestCase):
         artifact_script_paths = [
             path
             for path in script_paths
-            if path.name not in {"bot_insights_report.py", "bot_insights_capture.py"}
+            if path.name
+            not in {
+                "bot_insights_report.py",
+                "bot_insights_capture.py",
+                # Build-time tool: regenerates the embedded-font CSS partial
+                # from Google Fonts. Run on demand by a maintainer; the
+                # generated output is committed so report rendering itself
+                # stays fully offline. Not an artifact-producing script.
+                "build_editorial_fonts.py",
+            }
         ]
         blocked_import_roots = {
             "clickhouse_connect",

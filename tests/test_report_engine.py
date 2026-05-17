@@ -1417,3 +1417,252 @@ def test_companion_compatible_returns_reason_for_each_failure_mode():
     ok, reason = companion_compatible(primary, conflicting)
     assert not ok
     assert "conflict on comparison_type" in reason
+
+
+# ── Incident Executive View ─────────────────────────────────────────
+#
+# Same wrapper artifacts as ``incident-report.json``; only the
+# ``report_type`` and ``analyst_notes`` differ. Fixtures live in
+# tests/fixtures/report_engine/ rather than the user-facing examples
+# directory because the exec view is an alternate render of an
+# existing example, not a standalone report shape.
+
+
+def test_incident_executive_view_full_html():
+    """Full executive render — analyst notes populated, all seven
+    sections present, mechanical KPI strip + actions list rendered."""
+    fixture = FIXTURES / "incident_executive_view_full.json"
+    actual = _normalize(_render(fixture))
+    snapshot = SNAPSHOTS / "incident_executive_view_full.html"
+    _assert_snapshot(actual, snapshot)
+    for header in (
+        "Incident status",
+        "What happened",
+        "Measured impact",
+        "Business / customer impact",
+        "Response taken / recommended",
+        "Decision needed",
+        "Confidence and caveat",
+    ):
+        assert header in actual, f"section header missing: {header}"
+    # Status pill renders with the critical tone for "Active".
+    assert "pill-critical pill-lg" in actual
+    # Recommended actions list shape.
+    assert 'class="actions-list"' in actual
+    # Editorial chrome we keep on the exec view.
+    assert 'class="brief-incident exec-view"' in actual
+
+
+def test_incident_executive_view_no_notes_html():
+    """Empty ``analyst_notes`` exercises the graceful-degradation
+    strings — every analyst slot has a fallback."""
+    fixture = FIXTURES / "incident_executive_view_no_notes.json"
+    actual = _normalize(_render(fixture))
+    snapshot = SNAPSHOTS / "incident_executive_view_no_notes.html"
+    _assert_snapshot(actual, snapshot)
+    assert "Analyst summary pending" in actual
+    assert "Not assessed from logs" in actual
+    assert "no root-cause or intent attribution" in actual
+    # Status pill falls back to the default ``Active`` label.
+    assert ">Active<" in actual
+
+
+def test_incident_executive_view_markdown():
+    """Markdown sibling renders the same seven sections plus the
+    status / window header line."""
+    fixture = FIXTURES / "incident_executive_view_full.json"
+    actual = _render(fixture, "--format", "markdown")
+    snapshot = SNAPSHOTS / "incident_executive_view_full.md"
+    _assert_snapshot(actual, snapshot)
+    for line in (
+        "# www.example.com — Incident Executive View",
+        "**Status:** Active",
+        "## What happened",
+        "## Measured impact",
+        "## Business / customer impact",
+        "## Response taken / recommended",
+        "## Decision needed",
+        "## Confidence and caveat",
+    ):
+        assert line in actual, f"markdown line missing: {line}"
+
+
+class TestIncidentExecutiveView:
+    """Direct unit tests on the incident_executive_view context module."""
+
+    EXAMPLES = ROOT / "skills/bot-insights/examples"
+
+    @staticmethod
+    def _module():
+        from report_engine.contexts import incident_executive_view
+
+        return incident_executive_view
+
+    @staticmethod
+    def _load(name: str) -> dict:
+        import json
+
+        return json.loads((TestIncidentExecutiveView.EXAMPLES / name).read_text())
+
+    def test_constants(self):
+        mod = self._module()
+        assert mod.SCHEMA == "bot_incident_scope.v1"
+        assert mod.REPORT_TYPE == "incident_executive_view"
+        assert mod.TEMPLATE == "reports/incident_executive_view.html"
+        assert set(mod.NOTE_ID_TO_SLOT) == {
+            "llm-incident-status-level",
+            "llm-what-happened",
+            "llm-executive-impact",
+            "llm-response-taken",
+            "llm-decision-needed",
+            "llm-current-status",
+        }
+        assert set(mod.NOTE_ID_TO_SLOT.values()) == {
+            "incident_status_level",
+            "what_happened",
+            "executive_impact",
+            "response_taken",
+            "decision_needed",
+            "current_status",
+        }
+        # ``executive_impact`` and ``current_status`` slot keys are
+        # intentionally shared with the analyst incident_report so
+        # analyst tooling can author once and surface in both views.
+        from report_engine.contexts import incident_report
+
+        shared = {"executive_impact", "current_status"}
+        assert shared <= set(incident_report.NOTE_ID_TO_SLOT.values())
+        assert shared <= set(mod.NOTE_ID_TO_SLOT.values())
+
+    def test_assemble_delegates(self):
+        from report_engine.contexts import incident_report
+
+        mod = self._module()
+        wrapper = self._load("incident-report.json")
+        assembled = mod.assemble(wrapper["artifacts"])
+        assembled_ir = incident_report.assemble(wrapper["artifacts"])
+        assert assembled == assembled_ir
+
+    def test_prepare_thin_keys(self):
+        mod = self._module()
+        wrapper = self._load("incident-report.json")
+        ctx = mod.prepare(mod.assemble(wrapper["artifacts"]))
+        # Keys the exec template consumes.
+        expected = {
+            "title",
+            "kicker",
+            "headline",
+            "dek",
+            "scope",
+            "windows",
+            "impact_tiles",
+            "top_affected",
+            "recommended_actions",
+            "deterministic_summary",
+            "incident_status_tone",
+            "incident_status_default",
+            "confidence_caveat_default",
+            "dashboard_url",
+            "method",
+            "generated_at",
+        }
+        assert expected <= set(ctx.keys())
+        # Analyst-view-only fields are dropped — the exec view ships
+        # a thin context, not the full incident_report dict.
+        for absent in (
+            "findings",
+            "iocs",
+            "iocs_json_text",
+            "severity_ladder",
+            "attack_aggregation",
+            "incident_findings",
+            "actor_rankings",
+            "suspicious_targets",
+        ):
+            assert absent not in ctx, (
+                f"{absent!r} should not surface in exec view context"
+            )
+        # KPI tiles capped at the exec ceiling (5).
+        assert len(ctx["impact_tiles"]) <= mod.EXEC_IMPACT_TILES_CAP
+        # Actions capped at the exec ceiling (5).
+        assert len(ctx["recommended_actions"]) <= mod.EXEC_ACTIONS_CAP
+
+    def test_status_tone_known(self):
+        mod = self._module()
+        assert mod.INCIDENT_STATUS_TONE["Active"] == "critical"
+        assert mod.INCIDENT_STATUS_TONE["Contained"] == "monitor"
+        assert mod.INCIDENT_STATUS_TONE["Monitoring"] == "observe"
+        assert mod.INCIDENT_STATUS_TONE["Closed"] == "observe-mute"
+
+    def test_status_tone_unknown_permissive(self):
+        """An unknown status label must render verbatim with the
+        neutral ``monitor`` tone — the template uses
+        ``incident_status_tone.get(label, "monitor")``."""
+        mod = self._module()
+        assert mod.INCIDENT_STATUS_TONE.get("Resolved", "monitor") == "monitor"
+        assert mod.INCIDENT_STATUS_TONE.get("Standing-by", "monitor") == "monitor"
+
+    def test_actions_capped_at_five(self):
+        """Synthesize a suspicious-targets list large enough to push
+        the upstream action generator past five items, then assert the
+        exec view truncates."""
+        mod = self._module()
+        from report_engine.contexts import incident_report as ir
+
+        # The action generator branches on severity tiers + types.
+        # Build a mix that triggers every branch (block, enrich, rate-
+        # limit, anomaly, dashboard, retro) so the upstream list grows
+        # past 5 and the exec view's cap kicks in.
+        suspicious_targets = []
+        for ip in ("203.0.113.10", "198.51.100.42", "192.0.2.17", "203.0.113.55"):
+            suspicious_targets.append({
+                "target_type": "client_ip",
+                "target_type_label": "Client IP",
+                "target_value": ip,
+                "severity": "critical",
+                "severity_tone": "critical",
+                "severity_label": "Critical",
+                "share_pct": 10.0,
+                "share_pct_display": "10%",
+                "requests_display": "100K",
+                "supporting": {"requests": 100000},
+                "reason_flag_labels": [],
+                "edge_action_top_label": None,
+                "edge_action_top_share_display": None,
+            })
+        suspicious_targets.append({
+            "target_type": "request_path",
+            "target_type_label": "Request Path",
+            "target_value": "/login/submit",
+            "severity": "high",
+            "severity_tone": "escalate",
+            "severity_label": "High",
+            "share_pct": 30.0,
+            "share_pct_display": "30%",
+            "requests_display": "300K",
+            "supporting": {"requests": 300000},
+            "reason_flag_labels": [],
+        })
+        suspicious_targets.append({
+            "target_type": "cohort",
+            "target_type_label": "Traffic cohort",
+            "target_value": "Browser",
+            "severity": "high",
+            "severity_tone": "escalate",
+            "severity_label": "High",
+            "share_pct": 12.0,
+            "share_pct_display": "12%",
+            "requests_display": "120K",
+            "supporting": {"requests": 120000},
+            "reason_flag_labels": ["behavioral anomaly"],
+        })
+
+        upstream = ir._recommended_actions_view(
+            suspicious_targets, "https://grafana.example/d/incident", None
+        )
+        assert len(upstream) >= 5, (
+            "test setup invariant: upstream generator should now produce "
+            f"at least 5 actions; got {len(upstream)}"
+        )
+        capped = upstream[: mod.EXEC_ACTIONS_CAP]
+        assert len(capped) <= mod.EXEC_ACTIONS_CAP == 5

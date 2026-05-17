@@ -93,6 +93,8 @@ Read the authoritative references before changing report behavior:
 - [SKILL.md](SKILL.md) for agent routing, data firewall, and safety rules.
 - [references/reporting.md](references/reporting.md) for report workflow,
   supported report types, artifact shapes, and renderer commands.
+- [references/report-extension.md](references/report-extension.md) for adding
+  predefined reports, custom report wiring, and report skinning boundaries.
 
 ## Keeping This README Consistent
 

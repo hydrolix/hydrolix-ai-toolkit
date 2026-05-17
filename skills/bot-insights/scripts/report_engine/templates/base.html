@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <title>{{ title }}{% if scope.cluster %} — {{ scope.cluster | cluster_display }}{% endif %}</title>
-  <style>{% include "_styles.css" %}</style>
+  <style>{% include "_styles.css" %}{% if report_type in ("incident_report", "incident_executive_view") %}{% include "_styles_editorial.css" %}{% endif %}</style>
   {% block head %}{% endblock %}
 </head>
 <body>

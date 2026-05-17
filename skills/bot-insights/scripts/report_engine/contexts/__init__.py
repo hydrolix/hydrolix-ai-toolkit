@@ -19,6 +19,8 @@ from . import (
     crawler_governance,
     edge_ops_impact,
     executive_posture,
+    incident_executive_view,
+    incident_report,
     scorecard_brief,
     scorecard_entity_review,
     soc_triage,
@@ -32,6 +34,8 @@ _MODULES = (
     soc_triage,
     crawler_governance,
     edge_ops_impact,
+    incident_report,
+    incident_executive_view,
 )
 
 # Registry keyed on raw artifact schema_version. ``soc_triage``,
@@ -41,7 +45,14 @@ _MODULES = (
 # schema-mode default; the others route through ``REPORT_TYPE_REGISTRY``
 # via the wrapper's ``report_type`` field, the same path
 # ``executive_posture`` uses.
-_SCHEMA_REGISTRY_EXCLUSIONS = {"soc_triage", "crawler_governance", "edge_ops_impact"}
+_SCHEMA_REGISTRY_EXCLUSIONS = {
+    "soc_triage",
+    "crawler_governance",
+    "edge_ops_impact",
+    # ``incident_executive_view`` shares ``bot_incident_scope.v1`` with
+    # ``incident_report``; route via the wrapper's ``report_type`` field.
+    "incident_executive_view",
+}
 SCHEMA_REGISTRY = {
     mod.SCHEMA: mod
     for mod in _MODULES

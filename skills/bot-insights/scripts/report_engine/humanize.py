@@ -184,6 +184,26 @@ def humanize_identifier(s: str) -> str:
     return s.replace("_", " ").strip().capitalize()
 
 
+_ATTACK_BASE_URL = "https://attack.mitre.org/techniques/"
+
+
+def attack_url(technique_id: str) -> str:
+    """Return the MITRE ATT&CK source URL for ``technique_id``.
+
+    Top-level techniques (``T1110``) resolve to
+    ``…/techniques/T1110/``; sub-techniques (``T1110.004``) split on
+    the dot so the URL becomes ``…/techniques/T1110/004/`` per the
+    MITRE ATT&CK site's routing. Unknown / empty inputs return an
+    empty string so the template can fall back to a plain code chip.
+    """
+    if not technique_id:
+        return ""
+    parts = technique_id.split(".", 1)
+    if len(parts) == 2:
+        return f"{_ATTACK_BASE_URL}{parts[0]}/{parts[1]}/"
+    return f"{_ATTACK_BASE_URL}{parts[0]}/"
+
+
 def cluster_display(name: str) -> str:
     """Human-readable cluster/tenant name. Uses overrides, falls back to
     Title Case for snake_case, otherwise leaves as-is."""

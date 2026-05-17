@@ -47,11 +47,41 @@ else:
 
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+ASSETS_DIR = TEMPLATES_DIR / "assets"
 
 WRAPPER_SCHEMA = "bot_report_input.v1"
 
 
-def build_env(output_format: str = "html") -> Environment:
+def _load_asset(name: str) -> str:
+    """Read a templates/assets/<name> file as text.
+
+    Brand SVGs live under ``templates/assets/`` and are inlined into
+    the rendered HTML at build time so the report stays a single
+    self-contained file. The XML declaration (``<?xml ... ?>``) and
+    any Adobe Illustrator generator comments at the top are stripped
+    — they're only valid at the start of an XML document and would
+    render as literal text noise when embedded in HTML. Falls back
+    to empty string when the asset is missing rather than raising —
+    render must not hard-fail when a decorative logo isn't on disk.
+    """
+    path = ASSETS_DIR / name
+    if not path.exists():
+        return ""
+    raw = path.read_text()
+    # Strip XML prolog and editor-generator comments before the first
+    # ``<svg``. Anything outside the root SVG element is safe to drop.
+    svg_idx = raw.find("<svg")
+    if svg_idx > 0:
+        raw = raw[svg_idx:]
+    return raw
+
+
+def build_env(
+    output_format: str = "html",
+    palette: str = "tableau",
+    theme_mode: str = "auto",
+    clock: str = "12",
+) -> Environment:
     """Build a Jinja2 environment for ``output_format`` rendering.
 
     HTML mode keeps the default autoescape policy (escape ``<``, ``>``,
@@ -61,7 +91,29 @@ def build_env(output_format: str = "html") -> Environment:
     literal ``&amp;`` in the final reading. Markdown templates are
     expected to apply the ``md_escape`` filter at every
     user/producer-controlled interpolation site instead.
+
+    ``palette`` selects one of the registered palettes in
+    :data:`theme.PALETTES`. The token names (observe / monitor /
+    escalate / critical, plus the pill triplets and chrome) stay the
+    same; only the hex values differ. Default ``tableau`` matches
+    the historic palette.
+
+    ``theme_mode`` controls light/dark behavior:
+      - ``"auto"`` (default) — ship both palettes; the viewer's
+        ``prefers-color-scheme`` picks at render time.
+      - ``"light"`` — ship the light palette only; the rendered HTML
+        stays light regardless of the viewer's OS theme. Use for
+        projector demos where you can't rely on the meeting machine
+        being in light mode.
+      - ``"dark"`` — ship the dark palette inline; the rendered HTML
+        stays dark regardless of viewer.
+    The print stylesheet always pins light, regardless of ``theme_mode``,
+    so a PDF produced from any of the three reads identically.
     """
+    if theme_mode not in ("auto", "light", "dark"):
+        raise SystemExit(
+            f"Unknown theme {theme_mode!r}. Expected one of: auto, light, dark."
+        )
     if output_format == "markdown":
         autoescape = False  # md_escape filter is the escaping boundary
     else:
@@ -91,15 +143,67 @@ def build_env(output_format: str = "html") -> Environment:
         charts.triage_histogram_svg(*a, **kw)
     )
     env.globals["sparkline"] = lambda *a, **kw: Markup(charts.sparkline_svg(*a, **kw))
+    env.globals["incident_volume_chart"] = lambda *a, **kw: Markup(
+        charts.incident_volume_chart_svg(*a, **kw)
+    )
     env.globals["bullet_chart"] = lambda *a, **kw: Markup(
         charts.bullet_chart_svg(*a, **kw)
     )
     env.globals["slopegraph"] = lambda *a, **kw: Markup(charts.slopegraph_svg(*a, **kw))
-    env.globals["palette"] = theme.PALETTE
+    # Hydrolix brand logotype — inlined SVG, light-background variant.
+    # Marked safe so autoescape leaves the markup intact. Decorative
+    # use only; the wordmark replaces the editorial "The Incident
+    # Brief" placeholder in the masthead.
+    env.globals["hydrolix_logotype_svg"] = Markup(
+        _load_asset("hydrolix_logotype.svg")
+    )
+    try:
+        light_palette, dark_palette = theme.PALETTES[palette]
+    except KeyError as exc:
+        raise SystemExit(
+            f"Unknown palette {palette!r}. Available: {sorted(theme.PALETTES)}"
+        ) from exc
+    # ``palette`` is whatever goes into the unconditional :root rule —
+    # the light pair for auto/light modes, the dark pair when forced
+    # dark. ``dark_palette`` is what fills the @media override block;
+    # ``emit_dark_media`` controls whether that block is emitted at all.
+    if theme_mode == "dark":
+        env.globals["palette"] = dark_palette
+    else:
+        env.globals["palette"] = light_palette
+    env.globals["dark_palette"] = dark_palette
+    env.globals["light_palette"] = light_palette
+    env.globals["palette_name"] = palette
+    env.globals["theme_mode"] = theme_mode
+    env.globals["emit_dark_media"] = theme_mode == "auto"
+    # Clock-format preference; consumed by the headline_window_fmt
+    # filter so the H1 parenthetical matches the operator's locale
+    # convention. Defaults to 12-hour at the CLI layer.
+    env.globals["clock"] = clock
     # Markdown → safe HTML for analyst_notes prose
     env.globals["markdown_render"] = md_mod.render_safe
+
+    # Inline-code filter: convert ``backtick spans`` inside short
+    # producer-authored strings (e.g. a recommended-action ``step``
+    # field carrying an IP or path identifier) into proper ``<code>``
+    # HTML so they don't render as literal backticks. Lighter-weight
+    # than ``markdown_render`` — no block wrapper, no bleach pass,
+    # safe to apply per-cell inside list/table templates.
+    import html as _html_mod
+    import re as _re_mod
+
+    def _inline_code(text: object) -> Any:
+        s = "" if text is None else str(text)
+        if not s:
+            return Markup("")
+        escaped = _html_mod.escape(s)
+        return Markup(_re_mod.sub(r"`([^`]+)`", r"<code>\1</code>", escaped))
+
+    env.filters["inline_code"] = _inline_code
+
     # Formatters as filters
     env.filters["window_fmt"] = formatters.window_fmt
+    env.filters["headline_window_fmt"] = formatters.headline_window_fmt
     env.filters["big_number"] = formatters.big_number
     env.filters["signed_pct"] = formatters.signed_pct
     env.filters["signed_pp"] = formatters.signed_pp
@@ -114,6 +218,7 @@ def build_env(output_format: str = "html") -> Environment:
     env.filters["humanize_constraint"] = humanize_mod.humanize_constraint
     env.filters["humanize_status"] = humanize_mod.humanize_status
     env.filters["humanize"] = humanize_mod.humanize_identifier
+    env.filters["attack_url"] = humanize_mod.attack_url
     env.filters["humanize_entity_type"] = humanize_mod.humanize_entity_type
     env.filters["humanize_entity_type_plural"] = (
         humanize_mod.humanize_entity_type_plural
@@ -211,6 +316,9 @@ def render(
     input_kind: str = "auto",
     mode: str = "full",
     output_format: str = "html",
+    palette: str = "tableau",
+    theme_mode: str = "auto",
+    clock: str = "12",
 ) -> None:
     """Render an artifact or wrapper to ``output_format``.
 
@@ -248,6 +356,11 @@ def render(
     if hasattr(module, "post_prepare"):
         module.post_prepare(ctx)
     ctx["mode"] = mode
+    # ``report_type`` lets shared templates (e.g. ``base.html``) include
+    # report-type-specific stylesheet partials without leaking those
+    # rules into other reports. Set here so every render carries it,
+    # regardless of which context module produced the artifact.
+    ctx["report_type"] = module.REPORT_TYPE
 
     # Apply per-finding LLM overrides if the wrapper carried any.
     overrides_note = notes_by_slot.get("finding_overrides")
@@ -257,7 +370,12 @@ def render(
             overrides_note.get("text"),
         )
 
-    env = build_env(output_format=output_format)
+    env = build_env(
+        output_format=output_format,
+        palette=palette,
+        theme_mode=theme_mode,
+        clock=clock,
+    )
     template_path = template_for(module, output_format)
     template = env.get_template(template_path)
     out_path.write_text(template.render(**ctx))
@@ -298,9 +416,51 @@ def main() -> None:
         default="html",
         help="Output format. Markdown renders the sibling .md.j2 template.",
     )
+    ap.add_argument(
+        "--palette",
+        choices=sorted(theme.PALETTES),
+        default="tableau",
+        help=(
+            "Visual palette. tableau (default) is the historic Tableau-10 "
+            "BI palette; cloudscape is AWS Cloudscape's incident-console "
+            "palette; carbon is IBM Carbon's enterprise palette. Each "
+            "ships light + dark variants."
+        ),
+    )
+    ap.add_argument(
+        "--theme",
+        choices=["auto", "light", "dark"],
+        default="auto",
+        help=(
+            "Theme mode. auto (default) ships both palettes and lets the "
+            "viewer's prefers-color-scheme pick. light forces the light "
+            "palette regardless of OS theme — use for projector demos. "
+            "dark forces the dark palette. Print stylesheet always pins "
+            "light regardless of theme."
+        ),
+    )
+    ap.add_argument(
+        "--clock",
+        choices=["12", "24"],
+        default="12",
+        help=(
+            "Clock format for the headline incident window. 12 "
+            "(default) renders \"3:00–4:00 PM UTC\"; 24 renders "
+            "\"15:00–16:00 UTC\". UTC labelling is fixed because the "
+            "underlying timestamps are stored in UTC."
+        ),
+    )
     args = ap.parse_args()
     render(
-        args.artifact, args.out, args.schema, args.input, args.mode, args.format
+        args.artifact,
+        args.out,
+        args.schema,
+        args.input,
+        args.mode,
+        args.format,
+        args.palette,
+        args.theme,
+        args.clock,
     )
 
 

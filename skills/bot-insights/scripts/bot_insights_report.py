@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # report_engine.humanize and report_engine.theme are pure-Python
@@ -2016,6 +2017,2420 @@ LLM: Explain what the changes may mean operationally. Keep this as hypotheses or
 """
 
 
+# ---- incident_report orchestrator ------------------------------------------
+#
+# The incident_report flow is materially different from the other report
+# types: it produces two artifacts (``bot_incident_scope.v1`` and
+# ``bot_incident_actors.v1``) via vetted SQL templates against the
+# cluster's summary tables AND raw ``akamai.logs``, then ships the
+# bundle through render_report.py. It does not pass through
+# compare_posture.py or scorecard.py — the artifacts are assembled
+# mechanically inside this script. The LLM emits prose only, into
+# the three slots ``contexts/incident_report.NOTE_ID_TO_SLOT`` defines.
+#
+# Capture is reused as a generic SQL runner (``capture --sql ...``)
+# for each phase. DESCRIBE-style introspection runs through
+# ``system.columns`` (capture rejects non-SELECT statements, so a true
+# DESCRIBE TABLE would be blocked).
+
+
+INCIDENT_INTERPRETATION_CONTRACT: dict[str, list[str]] = {
+    "allowed": [
+        "Lead the executive_summary slot with a CISA-style assessment "
+        "opening: 'Assessed with [high|medium|low] confidence: <criticality "
+        "call>.' (Or an equivalent decisive first sentence that carries "
+        "the same authority.) The slot renders above the Impact tiles, "
+        "so a reader who only reads the opening should know whether to "
+        "escalate and how solid the call is.",
+        "Explain *why* the evidence reads that way - which combination of "
+        "spike flags, suspicious-target reason flags, and SIEM signals "
+        "is driving the call. State this as an opinion grounded in the "
+        "named evidence, not a generic narration.",
+        "Format the executive_summary as a hybrid when there are 3+ "
+        "distinct parallel signals (different evidence sources concurring): "
+        "a 1-sentence prose lead naming the pattern, a bulleted reasoning "
+        "trail with one bullet per signal, then an optional 1-sentence "
+        "closing interpretation. With 1-2 tightly-coupled signals or when "
+        "reasoning interweaves with limitations, prefer integrated prose. "
+        "Do not pad prose with inline (1)(2)(3) numbered reasons - use "
+        "Markdown bullets instead. The colored criticality + confidence "
+        "pills render above the slot already; do not restate them inside "
+        "the prose.",
+        "Summarize the incident's shape from the scope-confirmation evidence: "
+        "request volume, 429 rate, 5xx rate, bot share, SIEM-blocked share.",
+        "Describe actor concentration using the top rows in the actors section.",
+        "Reference evidence with human-readable labels (Client IP, Client ASN, "
+        "Request Path, User Agent, Country, Request host, Status code).",
+        "State limitations explicitly when the actors section is empty or SIEM "
+        "evidence is missing - including how that affects confidence in the "
+        "criticality call.",
+        "Name the top 1-3 suspicious targets explicitly using their "
+        "human-readable label (Client IP `203.0.113.10`, Client ASN 64500, "
+        "User Agent `python-requests/2.31`).",
+        "Cite the reason flags that promoted each target - for example "
+        "'flagged for high volume share and single-path concentration'.",
+        "When the `anomaly` primitive fires on a target, name the "
+        "baseline-relative magnitude explicitly (e.g. 'Browser cohort "
+        "error rate climbed to X% vs ~Y% baseline, an N× departure'). "
+        "The anomaly flag carries baseline corroboration the share-based "
+        "primitives don't, so it warrants a sentence in the lede when "
+        "present.",
+        "Reference at least one target from the action-targets artifact in "
+        "the next-steps slot.",
+    ],
+    "forbidden": [
+        "Do not name internal tables (akamai.logs, bi_summary_*, "
+        "bi_siem_policy_summary_*) — refer to 'this report's evidence' or to "
+        "the report type by name.",
+        "Do not claim malicious intent, abuse, attack causality, or root cause.",
+        "Do not invent metrics, rankings, share percentages, deltas, severity "
+        "labels, or dashboard URLs.",
+        "Do not query Hydrolix from the interpretation step.",
+        "Do not emit final HTML or Markdown layout.",
+        "Do not write an executive_summary that only restates the Impact "
+        "tiles - the slot must carry a criticality call and reasoning the "
+        "tiles do not already convey.",
+        "Do not summarize actor concentration in generic terms ('a small "
+        "number of actors covered most traffic') without naming the specific "
+        "top targets and their reason flags.",
+        "Do not propose a specific mitigation action (block, rate-limit, "
+        "challenge) - `suggested_action_hint` is mechanical and the LLM's "
+        "job is to describe evidence, not propose enforcement.",
+        "Do not modify the action-targets list or invent targets, reason "
+        "flags, severities, or confidence labels.",
+    ],
+}
+
+
+# Heuristic-ladder constants. Lifted to module scope so calibration
+# against real incidents is a one-line change. See
+# ``references/incident-analysis.md`` and the Phase-2 design for the
+# rationale behind each floor.
+_SUSPICIOUS_VOLUME_SHARE_MIN = 0.05  # 5% of in-window requests
+_SUSPICIOUS_RATE_429_SHARE_MIN = 0.10  # 10% of in-window 429s
+_SUSPICIOUS_RATE_429_TOTAL_MIN = 100  # de-noise tiny windows
+_SUSPICIOUS_SINGLE_PATH_REQUESTS_MIN = 1000  # floor on single-path concentration
+_SUSPICIOUS_ASN_CLUSTER_MIN_IPS = 3  # cluster requires >= 3 flagged IPs
+# Fleet-level volume floor for the ``botnet_member`` cross-row flag.
+# Individual IPs in a botnet fan-out attack rarely cross the
+# ``high_volume_share`` 5% bar — share is split across thousands of
+# nodes. The cluster's *combined* share is the honest quant signal at
+# the fleet level. Calibrated against the Expedia 2026-04-19 incident:
+# the AS24940 Hetzner cluster of 3 flagged IPs ran at 0.70% of the
+# window with verified ASN attribution — clearly malicious, but a 1%
+# floor missed it. 0.5% catches genuine ~3-IP VPS clusters without
+# tripping on noise (a 50M-req cluster in a 10B-req window is real).
+_SUSPICIOUS_BOTNET_CLUSTER_SHARE_MIN = 0.005
+
+# Magnitude floor for the ``high_volume_new_actor`` flag on lone
+# (non-clustered) new client IPs. ``new_in_window`` alone is a
+# categorical signal — a brand-new IP doing 1 request and one doing
+# 30M requests both get the same flag, leaving high-volume singletons
+# stuck at severity:low. The cluster pivots (``single_asn_cluster``,
+# ``botnet_member``) only fire when ≥3 flagged peers share an ASN;
+# lone high-volume IPs across distinct ASNs slip through.
+#
+# Calibrated against the Expedia 2026-04-19 incident: 8 lone-ASN
+# new-in-window IPs at 24-30M reqs each in a 10.9B-req window
+# (0.22-0.27% share) carried real signal but stayed at severity:low,
+# action_class:monitor, invisible in the editorial top-10. 0.1% share
+# captures them; the absolute floor (1M reqs) prevents false fires
+# on tiny windows where share% spikes are noise.
+_SUSPICIOUS_NEW_ACTOR_VOLUME_SHARE_MIN = 0.001
+_SUSPICIOUS_NEW_ACTOR_REQUESTS_MIN = 1_000_000
+_AUTOMATION_UA_PATTERN = re.compile(
+    r"\b(curl|python-requests|Go-http-client|wget|libwww|httpx|aiohttp)\b",
+    re.IGNORECASE,
+)
+
+# CMS / SPA routing tables typically collapse high-cardinality URL
+# spaces (every article, every product page, every hotel listing) into
+# a single templated pattern that begins with a placeholder segment
+# like ``/:slug``, ``/:locale/:slug``, or ``/:id``. When the upstream
+# capture aggregates by ``requestPathPattern``, that single bucket
+# inevitably accumulates the highest volume share — but it represents
+# millions of distinct underlying URLs, not a real focal point.
+#
+# Treat any request_path target whose value starts with a placeholder
+# segment as a catch-all bucket: it can still be flagged via volume
+# and 429 primitives, but ``single_path_concentration`` is
+# tautologically true for any ``GROUP BY request_path`` row and gives
+# a false-positive critical-tier flag here. Suppressing it lets real,
+# specific endpoints (``/graphql``, ``/api/v1/auth/login``,
+# ``/login/submit``) keep their critical tier while CMS buckets fall
+# to high — visible, but no longer dominating the ranking.
+_TEMPLATED_CATCHALL_PATH_PATTERN = re.compile(r"^/:[A-Za-z_][\w]*")
+
+
+def _is_templated_catchall_path(value: str) -> bool:
+    """Return True if ``value`` is a CMS-bucket templated path pattern
+    whose leading segment is a placeholder (``/:slug``, ``/:locale``,
+    ``/:id/...``). Used by the suspicious-target heuristic to suppress
+    the tautological ``single_path_concentration`` flag for such
+    patterns."""
+    return bool(_TEMPLATED_CATCHALL_PATH_PATTERN.match(value or ""))
+
+# Anomaly primitive: an actor's current-window error rate
+# (req_429+req_5xx)/requests is at least N× its own baseline error rate,
+# with absolute floors to de-noise the long tail. Applies across all
+# entity types (cohort, IP, ASN, UA, path, country) — wherever a baseline
+# error rate is known.
+_ANOMALY_ERROR_RATE_RATIO_MIN = 3.0   # current >= 3× baseline
+_ANOMALY_CURRENT_ERROR_RATE_MIN = 0.05  # current rate >= 5%
+_ANOMALY_MIN_REQUESTS = 1000  # de-noise tiny actors
+
+_SUSPICIOUS_TARGET_TYPE_BY_FIELD = {
+    "client_ip": "client_ip",
+    "asn": "asn",
+    "user_agent": "user_agent",
+    "request_path": "request_path",
+    "country": "country",
+    "trafficCohort": "cohort",
+}
+
+# MITRE ATT&CK technique mapping per primitive.
+#
+# Each heuristic primitive maps to one or more techniques *consistent with*
+# its signal. This is deliberately not "evidence of" — a single primitive
+# alone is rarely conclusive, and the LLM contract forbids causal claims.
+# The framing carried through to the rendered report is "techniques
+# consistent with this signal," not "techniques used by this actor."
+#
+# Mapping rationale per primitive:
+#   - `high_volume_share`: volume concentration alone is consistent with
+#     volumetric attack patterns (DoS family). Specific technique
+#     depends on path; we keep the mapping generic.
+#   - `high_rate_429_share`: 429 spike indicates rate-limit pressure, the
+#     hallmark of credential-stuffing / brute-force families.
+#   - `single_path_concentration`: single-path focus paired with rate
+#     pressure is the textbook credential-stuffing pattern.
+#   - `single_asn_cluster`: multiple flagged IPs sharing one ASN is
+#     consistent with VPS/proxy fleet acquisition.
+#   - `botnet_member`: a cluster of flagged IPs whose combined volume
+#     crosses the fleet-level share floor — the magnitude signal that
+#     individual share% misses when fan-out splits the load across
+#     thousands of nodes. Consistent with volumetric (DoS) patterns.
+#   - `high_volume_new_actor`: a brand-new client IP whose absolute
+#     volume crosses the share floor — captures lone high-volume IPs
+#     across distinct ASNs that the cluster pivots miss. Consistent
+#     with VPS-sourced volumetric / probing patterns.
+#   - `automation_user_agent`: direct evidence of scripted, non-browser
+#     HTTP clients.
+#   - `anomaly`: behavioral departure in a normally-trusted cohort is
+#     consistent with traffic passing classification by mimicking the
+#     cohort it joined.
+#   - `new_in_window`: novelty alone is pre-attack signal, not a technique
+#     itself — no mapping.
+#
+# Update with care: the technique IDs ship in the artifact and are
+# consumed by downstream WAF / SOC tooling. Changing an ID is a
+# breaking change for those consumers.
+_PRIMITIVE_ATTACK_TECHNIQUES: dict[str, list[dict]] = {
+    "high_volume_share": [
+        {"id": "T1498", "name": "Network Denial of Service", "tactic": "Impact"},
+    ],
+    "high_rate_429_share": [
+        {"id": "T1110", "name": "Brute Force", "tactic": "Credential Access"},
+    ],
+    "single_path_concentration": [
+        {
+            "id": "T1110.004",
+            "name": "Credential Stuffing",
+            "tactic": "Credential Access",
+        },
+    ],
+    "single_asn_cluster": [
+        {
+            "id": "T1583.003",
+            "name": "Acquire Infrastructure: Virtual Private Server",
+            "tactic": "Resource Development",
+        },
+    ],
+    "botnet_member": [
+        {"id": "T1498", "name": "Network Denial of Service", "tactic": "Impact"},
+    ],
+    "high_volume_new_actor": [
+        {"id": "T1498", "name": "Network Denial of Service", "tactic": "Impact"},
+        {
+            "id": "T1583.003",
+            "name": "Acquire Infrastructure: Virtual Private Server",
+            "tactic": "Resource Development",
+        },
+    ],
+    "automation_user_agent": [
+        {
+            "id": "T1071.001",
+            "name": "Application Layer Protocol: Web Protocols",
+            "tactic": "Command and Control",
+        },
+    ],
+    "anomaly": [
+        {"id": "T1036", "name": "Masquerading", "tactic": "Defense Evasion"},
+    ],
+    # `new_in_window` intentionally has no mapping — novelty isn't a technique.
+}
+
+
+def _attack_techniques_for_flags(flags: list[str]) -> list[dict]:
+    """Union of ATT&CK techniques from a target's reason_flags, deduped by id.
+
+    Order preserved from flag order so the rendered output reflects the
+    investigative narrative (volume → rate → concentration → infra → UA).
+    """
+    out: list[dict] = []
+    seen_ids: set[str] = set()
+    for flag in flags:
+        for tech in _PRIMITIVE_ATTACK_TECHNIQUES.get(flag, []):
+            tech_id = tech["id"]
+            if tech_id not in seen_ids:
+                seen_ids.add(tech_id)
+                out.append(dict(tech))
+    return out
+
+
+# Field-type taxonomy.
+#
+# Individual-entity fields (client_ip, asn, user_agent, request_path)
+# enumerate many distinct values, most of which are a small share of
+# the window. Share-based primitives (high_volume_share,
+# high_rate_429_share, single_path_concentration, etc.) are meaningful
+# here because a 5% share IS an outlier.
+#
+# Aggregate fields (cohort, country, status_code) enumerate a small
+# fixed set of values, most of which are large shares of the window by
+# construction (the Bot cohort, the US country). Share-based primitives
+# would fire on every major value and produce noise. Only baseline-
+# relative primitives — anomaly, new_in_window — fire on these fields,
+# because those compare an entity against its own normal behavior.
+#
+# This split keeps the Suspicious Targets table actionable: a row with
+# severity:high on an aggregate field means "this aggregate is behaving
+# differently from how it normally does," not "this aggregate happens
+# to be large."
+_INDIVIDUAL_ENTITY_FIELDS = frozenset(
+    {"client_ip", "asn", "user_agent", "request_path"}
+)
+
+_SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+# Quantitative flags — concentration in *amount* (volume or 429 share),
+# distinct from concentration in *shape* (single path, single ASN cluster)
+# and from identification signals (automation_user_agent, new_in_window).
+# `critical` requires one flag from each of (quantitative) AND
+# (concentration in shape), so a single-dimension actor never gets the
+# top tier.
+_SUSPICIOUS_QUANT_FLAGS = frozenset(
+    {"high_volume_share", "high_rate_429_share", "botnet_member",
+     "high_volume_new_actor"}
+)
+
+# Role taxonomy for flagged signals. An ``actor`` is the WHO of the
+# attack — the entity originating traffic. A ``target`` is the WHAT —
+# the resource being hit. Same heuristic ladder catches both; the
+# distinction matters for downstream SOC action because the action
+# class (block / challenge / rate-limit / watch / monitor) differs
+# fundamentally by role even at the same severity tier.
+_TARGET_KIND_BY_TYPE = {
+    "client_ip":    "actor",
+    "asn":          "actor",
+    "user_agent":   "actor",
+    "cohort":       "actor",
+    "country":      "actor",   # source country = who hit you
+    "request_path": "target",
+}
+
+
+def _suspicious_action_class(
+    target_type: str,
+    severity: str,
+    reason_flags: list[str] | set[str],
+) -> str:
+    """Descriptive (not prescriptive) action class for an indicator.
+
+    Names the *kind* of mitigation the signal is typically actioned
+    with at a WAF / SIEM consumer — so a downstream SOAR playbook can
+    bucket indicators by mitigation pathway without each consumer
+    re-deriving the same logic. **Not** a directive: the report still
+    sets ``suggested_action_hint = "review"`` on every indicator. A
+    consumer is expected to read this as "this indicator belongs in
+    the block-list workflow if you have one" rather than "block this".
+
+    Action classes:
+      - ``block``: hard-deny at the edge. Used only when the entity is
+        narrowly attributed (a verified-cluster IP, an automation UA
+        like curl / python-requests). Low false-positive risk.
+      - ``challenge``: graceful friction (JS / CAPTCHA / fingerprint).
+        Right for high-confidence-but-not-conclusive actor signals —
+        a singleton high-volume new IP, a UA caught by volume alone.
+      - ``rate-limit``: path-scoped throttle. The natural mitigation
+        for a target (endpoint) finding — protects the resource
+        without per-actor identification.
+      - ``watch``: surface in analyst review, no automatic edge
+        action. Right for real-browser UA strings, ASN-level findings
+        (too broad to block), low-severity actors with weak signals.
+      - ``monitor``: track over time, no immediate action expected.
+        Right for cohort-level findings and low-severity tail.
+    """
+    flags = set(reason_flags or [])
+    if target_type == "client_ip":
+        if severity == "critical":
+            return "block"
+        if severity == "high":
+            # Volume / cluster signals are confidence-grade enough for
+            # challenge friction. Anomaly-only highs are weaker — watch.
+            if flags & {
+                "high_volume_share", "high_rate_429_share",
+                "botnet_member", "high_volume_new_actor",
+            }:
+                return "challenge"
+            return "watch"
+        return "monitor"
+    if target_type == "user_agent":
+        # Automation UAs (curl, python-requests, etc.) are narrowly
+        # attributed to scripted clients — blockable.
+        if "automation_user_agent" in flags:
+            return "block" if severity in ("critical", "high") else "challenge"
+        # Real-browser strings caught by volume / share alone — never
+        # block UA-only, that drops genuine users. Watch and pair with
+        # other signals before acting.
+        return "watch"
+    if target_type == "request_path":
+        if severity in ("critical", "high"):
+            return "rate-limit"
+        return "monitor"
+    if target_type == "asn":
+        # ASN-level block is too broad — would drop legitimate
+        # self-hosting customers, scrapers, etc. Watch only.
+        return "watch"
+    if target_type == "country":
+        # Geo-rate-limit or watch — default watch.
+        return "watch"
+    if target_type == "cohort":
+        # Behavioral grouping, not directly actionable.
+        return "monitor"
+    return "monitor"
+_SUSPICIOUS_CONCENTRATION_FLAGS = frozenset(
+    {"single_path_concentration", "single_asn_cluster"}
+)
+
+
+_INCIDENT_DEFAULT_FIELDS = (
+    "client_ip,asn,request_path,user_agent,country,status_code,request_method,trafficCohort"
+)
+
+
+_INCIDENT_FIELD_LABELS = {
+    "client_ip": "Client IP",
+    "asn": "Client ASN",
+    "request_path": "Request Path",
+    "user_agent": "User Agent",
+    "country": "Country",
+    "status_code": "Status Code",
+    "request_method": "Request Method",
+    "trafficCohort": "Traffic cohort",
+}
+
+
+def _incident_time_predicate(start: datetime, end: datetime) -> str:
+    return (
+        f"reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC') "
+        f"AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')"
+    )
+
+
+def _incident_scope_predicate(
+    host: str | None, asn: str | None, path_pattern: str | None
+) -> str:
+    parts: list[str] = []
+    if host:
+        parts.append(f"reqHost = {sql_literal(host)}")
+    if asn:
+        parts.append(f"toString(asn) = {sql_literal(str(asn))}")
+    if path_pattern:
+        parts.append(f"requestPathPattern = {sql_literal(path_pattern)}")
+    return " AND ".join(parts) if parts else "1"
+
+
+def _incident_raw_scope_predicate(
+    host: str | None, asn: str | None, path_pattern: str | None
+) -> str:
+    """Same scope predicate but targeted at raw ``akamai.logs`` column names."""
+    parts: list[str] = []
+    if host:
+        parts.append(f"reqHost = {sql_literal(host)}")
+    if asn:
+        parts.append(f"toString(asn) = {sql_literal(str(asn))}")
+    if path_pattern:
+        parts.append(f"request_path LIKE {sql_literal(path_pattern)}")
+    return " AND ".join(parts) if parts else "1"
+
+
+def _incident_columns_query(database: str, table: str) -> str:
+    """Return a guarded SELECT against ``system.columns``.
+
+    Capture's SQL guard rejects DESCRIBE TABLE because it isn't a SELECT,
+    so introspection routes through ``system.columns``. The query is
+    bounded by ``database`` + ``table`` literals so it stays cheap
+    regardless of cluster size.
+    """
+    return (
+        f"SELECT name FROM system.columns "
+        f"WHERE database = {sql_literal(database)} "
+        f"AND table = {sql_literal(table)} "
+        f"ORDER BY name LIMIT 1000"
+    )
+
+
+def _incident_window_confirmation_sql(
+    summary_table: str,
+    siem_table: str | None,
+    start: datetime,
+    end: datetime,
+    baseline_start: datetime,
+    host: str | None,
+    asn: str | None,
+    path_pattern: str | None,
+    raw_drilldown_available: bool = False,
+) -> str:
+    scope = _incident_scope_predicate(host, asn, path_pattern)
+    siem_join = ""
+    if siem_table:
+        # Two passes via UNION ALL — one for summary measures, one for
+        # SIEM blocked share. Period is "current" or "baseline" so the
+        # orchestrator can split locally.
+        siem_join = f"""
+UNION ALL
+SELECT
+  'siem' AS source,
+  if(timestamp >= toDateTime('{sql_ts(start)}', 'UTC'), 'current', 'baseline') AS period,
+  countMerge(`count()`) AS requests,
+  toUInt64(0) AS bot_like_requests,
+  toUInt64(0) AS req_429,
+  toUInt64(0) AS req_5xx,
+  countIfMerge(`countIf(equals(actionClass, 'deny'))`) AS blocked,
+  toUInt64(0) AS denied_requests,
+  toUInt64(0) AS monitored_requests
+FROM {siem_table}
+WHERE timestamp >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
+  AND timestamp < toDateTime('{sql_ts(end)}', 'UTC')
+  AND ({scope})
+GROUP BY period
+""".rstrip()
+    raw_join = ""
+    if raw_drilldown_available:
+        raw_scope = _incident_raw_scope_predicate(host, asn, path_pattern)
+        # Third pass against raw akamai.logs to derive the edge-response
+        # (action_applied) deny + monitor counts when a separate SIEM
+        # summary table isn't present. For canonical-schema clusters the
+        # Akamai DS2 stream carries action_applied / denied / denyRule
+        # inline, so the edge response is visible directly from the raw
+        # access log.
+        raw_join = f"""
+UNION ALL
+SELECT
+  'raw' AS source,
+  if(reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC'), 'current', 'baseline') AS period,
+  count() AS requests,
+  toUInt64(0) AS bot_like_requests,
+  toUInt64(0) AS req_429,
+  toUInt64(0) AS req_5xx,
+  toUInt64(0) AS blocked,
+  countIf(action_applied = 'Deny') AS denied_requests,
+  countIf(action_applied = 'Monitor') AS monitored_requests
+FROM akamai.logs
+WHERE reqTimeSec >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
+  AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')
+  AND ({raw_scope})
+GROUP BY period
+""".rstrip()
+    return f"""
+SELECT
+  'summary' AS source,
+  if(reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC'), 'current', 'baseline') AS period,
+  countMerge(`count()`) AS requests,
+  countMergeIf(`count()`, trafficCohort IN ('Bot', 'AI')) AS bot_like_requests,
+  countMergeIf(`count()`, statusCode = 429) AS req_429,
+  countMergeIf(`count()`, statusCode BETWEEN 500 AND 599) AS req_5xx,
+  toUInt64(0) AS blocked,
+  toUInt64(0) AS denied_requests,
+  toUInt64(0) AS monitored_requests
+FROM {summary_table}
+WHERE reqTimeSec >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
+  AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')
+  AND ({scope})
+GROUP BY period
+{siem_join}
+{raw_join}
+""".strip()
+
+
+def _incident_volume_timeseries_sql(
+    summary_table: str,
+    granularity: str,
+    start: datetime,
+    end: datetime,
+    baseline_start: datetime,
+    host: str | None,
+    asn: str | None,
+    path_pattern: str | None,
+) -> str:
+    """Per-bucket volume + 429 + bot-classified counts for current + baseline.
+
+    Populates the ``volume_timeseries.series`` field on
+    ``bot_incident_scope.v1`` so the renderer can mechanically pick the
+    most relevant metric to chart based on which spike flag dominated.
+
+    Bucket function is chosen from the report's granularity. The query
+    runs against the same summary table the window-confirmation query
+    uses (``bi_summary_<granularity>``), so it's cheap — one extra
+    grouped scan over the same window the orchestrator already touched.
+    """
+    scope = _incident_scope_predicate(host, asn, path_pattern)
+    bucket_fn = {
+        "minute": "toStartOfMinute",
+        "hour": "toStartOfHour",
+        "day": "toStartOfDay",
+    }.get(granularity, "toStartOfMinute")
+    return f"""
+SELECT
+  if(reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC'), 'current', 'baseline') AS period,
+  {bucket_fn}(reqTimeSec) AS bucket,
+  countMerge(`count()`) AS requests,
+  countMergeIf(`count()`, statusCode = 429) AS req_429,
+  countMergeIf(`count()`, trafficCohort IN ('Bot', 'AI')) AS bot_like_requests
+FROM {summary_table}
+WHERE reqTimeSec >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
+  AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')
+  AND ({scope})
+GROUP BY period, bucket
+ORDER BY period, bucket
+""".strip()
+
+
+def _incident_dimension_sql(
+    summary_table: str,
+    dimension: str,
+    start: datetime,
+    end: datetime,
+    baseline_start: datetime,
+    host: str | None,
+    asn: str | None,
+    path_pattern: str | None,
+    top_n: int,
+) -> str:
+    """Per-dimension top-N + delta against the equal-length baseline."""
+    scope = _incident_scope_predicate(host, asn, path_pattern)
+    return f"""
+SELECT
+  toString({dimension}) AS value,
+  countMergeIf(`count()`, reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC')) AS current_requests,
+  countMergeIf(`count()`, reqTimeSec < toDateTime('{sql_ts(start)}', 'UTC')) AS baseline_requests
+FROM {summary_table}
+WHERE reqTimeSec >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
+  AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')
+  AND ({scope})
+GROUP BY value
+HAVING current_requests > 0
+ORDER BY current_requests DESC
+LIMIT {int(top_n)}
+""".strip()
+
+
+def _incident_edge_action_mix_sql(
+    start: datetime,
+    end: datetime,
+    baseline_start: datetime,
+    host: str | None,
+    asn: str | None,
+    path_pattern: str | None,
+    top_n: int,
+) -> str:
+    """Top-N ``action_applied`` values + delta vs the equal-length baseline.
+
+    Mirrors the shape of :func:`_incident_dimension_sql` so the
+    orchestrator can feed the rows through ``_incident_dimension_rows``
+    for the same ``(value, share_pct, delta_vs_baseline_pct)``
+    projection used by the other scope mix tables. Queries raw
+    ``akamai.logs`` because ``action_applied`` is not carried on the
+    summary table.
+    """
+    scope = _incident_raw_scope_predicate(host, asn, path_pattern)
+    return f"""
+SELECT
+  toString(action_applied) AS value,
+  countIf(reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC')) AS current_requests,
+  countIf(reqTimeSec < toDateTime('{sql_ts(start)}', 'UTC')) AS baseline_requests
+FROM akamai.logs
+WHERE reqTimeSec >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
+  AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')
+  AND ({scope})
+GROUP BY action_applied
+HAVING current_requests > 0
+ORDER BY current_requests DESC
+LIMIT {int(top_n)}
+""".strip()
+
+
+def _incident_deny_rule_mix_sql(
+    start: datetime,
+    end: datetime,
+    baseline_start: datetime,
+    host: str | None,
+    asn: str | None,
+    path_pattern: str | None,
+    top_n: int,
+) -> str:
+    """Top-N ``denyRule`` values for actually-denied requests + delta.
+
+    Same shape as ``_incident_edge_action_mix_sql``. Filters on
+    ``action_applied = 'Deny'`` so the table answers "which rules
+    produced a denial" — the ``denied`` boolean is set whenever a WAF
+    rule MATCHED (including Monitor / Tarpit / Allow-with-flag policies),
+    so a ``denied = 1`` filter over-counts a rule's actual blast radius
+    by an order of magnitude on bot-heavy traffic. The Edge Action Mix
+    table above already enumerates monitored / tarpit / etc.
+    """
+    scope = _incident_raw_scope_predicate(host, asn, path_pattern)
+    return f"""
+SELECT
+  toString(denyRule) AS value,
+  countIf(reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC')) AS current_requests,
+  countIf(reqTimeSec < toDateTime('{sql_ts(start)}', 'UTC')) AS baseline_requests
+FROM akamai.logs
+WHERE reqTimeSec >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
+  AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')
+  AND ({scope})
+  AND action_applied = 'Deny'
+GROUP BY denyRule
+HAVING current_requests > 0
+ORDER BY current_requests DESC
+LIMIT {int(top_n)}
+""".strip()
+
+
+def _incident_status_mix_sql(
+    summary_table: str,
+    start: datetime,
+    end: datetime,
+    host: str | None,
+    asn: str | None,
+    path_pattern: str | None,
+    top_n: int,
+) -> str:
+    scope = _incident_scope_predicate(host, asn, path_pattern)
+    return f"""
+SELECT
+  toUInt32(statusCode) AS status_code,
+  countMerge(`count()`) AS requests
+FROM {summary_table}
+WHERE reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC')
+  AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')
+  AND ({scope})
+GROUP BY status_code
+ORDER BY requests DESC
+LIMIT {int(top_n)}
+""".strip()
+
+
+def _incident_siem_dimension_sql(
+    siem_table: str,
+    dimension: str,
+    start: datetime,
+    end: datetime,
+    baseline_start: datetime,
+    host: str | None,
+    asn: str | None,
+    path_pattern: str | None,
+    top_n: int,
+) -> str:
+    scope = _incident_scope_predicate(host, asn, path_pattern)
+    return f"""
+SELECT
+  toString({dimension}) AS value,
+  countMergeIf(`count()`, timestamp >= toDateTime('{sql_ts(start)}', 'UTC')) AS current_requests,
+  countMergeIf(`count()`, timestamp < toDateTime('{sql_ts(start)}', 'UTC')) AS baseline_requests
+FROM {siem_table}
+WHERE timestamp >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
+  AND timestamp < toDateTime('{sql_ts(end)}', 'UTC')
+  AND ({scope})
+GROUP BY value
+HAVING current_requests > 0
+ORDER BY current_requests DESC
+LIMIT {int(top_n)}
+""".strip()
+
+
+def _incident_actor_topk_sql(
+    field: str,
+    start: datetime,
+    end: datetime,
+    host: str | None,
+    asn: str | None,
+    path_pattern: str | None,
+    top_n: int,
+) -> str:
+    """Phase 1 of the two-step actor pipeline: extract top-K candidates only.
+
+    ``topK(N)(column)`` runs as a space-saving sketch (Filtered
+    Space-Saving algorithm, O(K) memory) so it does NOT exhaust the
+    cluster's 2 GiB per-query memory cap the way a raw
+    ``GROUP BY column ORDER BY count() DESC LIMIT N`` does over a
+    high-cardinality field like ``client_ip``.
+
+    Returns a single row whose ``candidates`` column is an array of
+    top-K values for the field. Phase 2 (``_incident_actor_scoped_metrics_sql``)
+    then computes per-row metrics scoped to that candidate list, which
+    bounds the metrics GROUP BY hash table to at most ``top_n`` groups.
+    """
+    scope = _incident_raw_scope_predicate(host, asn, path_pattern)
+    return f"""
+SELECT topK({int(top_n)})({field}) AS candidates
+FROM akamai.logs
+WHERE {_incident_time_predicate(start, end)}
+  AND ({scope})
+""".strip()
+
+
+def _incident_actor_topk_baseline_sql(
+    field: str,
+    baseline_start: datetime,
+    current_start: datetime,
+    host: str | None,
+    asn: str | None,
+    path_pattern: str | None,
+    top_n: int,
+) -> str:
+    """Same as :func:`_incident_actor_topk_sql` but for the baseline window."""
+    scope = _incident_raw_scope_predicate(host, asn, path_pattern)
+    return f"""
+SELECT topK({int(top_n)})({field}) AS candidates
+FROM akamai.logs
+WHERE reqTimeSec >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
+  AND reqTimeSec < toDateTime('{sql_ts(current_start)}', 'UTC')
+  AND ({scope})
+""".strip()
+
+
+def _incident_actor_scoped_metrics_sql(
+    field: str,
+    candidates: list[str],
+    start: datetime,
+    end: datetime,
+    host: str | None,
+    asn: str | None,
+    path_pattern: str | None,
+    *,
+    full_metrics: bool,
+) -> str:
+    """Phase 2 of the two-step actor pipeline: per-row metrics scoped to candidates.
+
+    The IN-clause filters the rows scanned to those whose ``field``
+    value is in the candidate set, which bounds the GROUP BY hash table
+    to at most ``len(candidates)`` groups — well under the cluster's
+    per-query memory cap regardless of underlying cardinality.
+
+    ``full_metrics=True`` emits the current-window shape (with
+    ``bytes`` + ``distinct_paths``); ``False`` emits the leaner
+    baseline shape (counts only — what the ``anomaly`` +
+    ``new_in_window`` primitives need without re-scanning columns the
+    baseline query doesn't read).
+
+    For the ``client_ip`` field, the current-window query also
+    projects ``any(asn) AS asn`` so the orchestrator's per-row ASN
+    pivot can fire ``single_asn_cluster`` + ``botnet_member`` against
+    verified cluster membership instead of falling back to the coarse
+    total-count approximation.
+    """
+    scope = _incident_raw_scope_predicate(host, asn, path_pattern)
+    select_extras = (
+        ",\n  sum(bytesOut) AS bytes,\n"
+        "  uniqExact(request_path) AS distinct_paths"
+    ) if full_metrics else ""
+    asn_projection = (
+        ",\n  any(asn) AS asn"
+        if full_metrics and field == "client_ip"
+        else ""
+    )
+    return f"""
+SELECT
+  toString({field}) AS value,
+  count() AS requests{select_extras},
+  countIf(statusCode = 429) AS req_429,
+  countIf(statusCode BETWEEN 500 AND 599) AS req_5xx{asn_projection}
+FROM akamai.logs
+WHERE {_incident_time_predicate(start, end)}
+  AND ({scope})
+  AND {field} IN ({_incident_in_list(candidates)})
+GROUP BY value
+ORDER BY requests DESC
+""".strip()
+
+
+def _incident_actor_scoped_metrics_baseline_sql(
+    field: str,
+    candidates: list[str],
+    baseline_start: datetime,
+    current_start: datetime,
+    host: str | None,
+    asn: str | None,
+    path_pattern: str | None,
+) -> str:
+    """Same as scoped metrics, but for the baseline window."""
+    scope = _incident_raw_scope_predicate(host, asn, path_pattern)
+    return f"""
+SELECT
+  toString({field}) AS value,
+  count() AS requests,
+  countIf(statusCode = 429) AS req_429,
+  countIf(statusCode BETWEEN 500 AND 599) AS req_5xx
+FROM akamai.logs
+WHERE reqTimeSec >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
+  AND reqTimeSec < toDateTime('{sql_ts(current_start)}', 'UTC')
+  AND ({scope})
+  AND {field} IN ({_incident_in_list(candidates)})
+GROUP BY value
+ORDER BY requests DESC
+""".strip()
+
+
+def _incident_actor_cooccurrence_sql(
+    field_a: str,
+    field_b: str,
+    candidates_a: list[str],
+    candidates_b: list[str],
+    start: datetime,
+    end: datetime,
+    host: str | None,
+    asn: str | None,
+    path_pattern: str | None,
+) -> str:
+    """Joint ``(field_a, field_b)`` cell counts scoped to both candidate sets.
+
+    Feeds the orchestrator's ``actor_cooccurrence`` artifact slot,
+    which the disjoint-cohorts finding consumes. Scoping to both
+    candidate sets bounds the GROUP BY hash table to
+    ``len(candidates_a) × len(candidates_b)`` cells (e.g., 2500 for
+    K=50) — well under the per-query memory cap. Denominators for the
+    overlap math come from the marginal rankings, so the bounded
+    scope doesn't bias the result.
+    """
+    scope = _incident_raw_scope_predicate(host, asn, path_pattern)
+    # When the second axis is small-cardinality (e.g. ``action_applied``
+    # has 4–5 fixed values), it's wasteful to require a candidate list
+    # — the GROUP BY hash stays bounded by ``len(candidates_a) ×
+    # cardinality(field_b)``. Skip the second ``IN`` clause when the
+    # caller hands us an empty candidate list for axis B.
+    in_b_clause = (
+        f"\n  AND {field_b} IN ({_incident_in_list(candidates_b)})"
+        if candidates_b
+        else ""
+    )
+    return f"""
+SELECT
+  toString({field_a}) AS value_a,
+  toString({field_b}) AS value_b,
+  count() AS requests
+FROM akamai.logs
+WHERE {_incident_time_predicate(start, end)}
+  AND ({scope})
+  AND {field_a} IN ({_incident_in_list(candidates_a)}){in_b_clause}
+GROUP BY value_a, value_b
+ORDER BY requests DESC
+""".strip()
+
+
+def _incident_in_list(values: list[str]) -> str:
+    """Render a list of values as the body of an SQL IN clause.
+
+    Returns ``NULL`` (a no-match value rather than a parse error) when
+    the candidate list is empty so the outer query short-circuits to
+    zero rows without raising a SQL error at the cluster.
+    """
+    if not values:
+        return "NULL"
+    return ", ".join(sql_literal(v) for v in values)
+
+
+def _capture_sql_to_rows(
+    args: argparse.Namespace,
+    sql: str,
+    output_path: Path,
+    *,
+    label: str,
+) -> tuple[list[dict], dict | None]:
+    """Run a single ``capture --sql`` invocation and return parsed rows.
+
+    Returns ``(rows, handoff_packet)``. ``handoff_packet`` is non-None
+    when capture exited ``NEEDS_MCP_EXIT`` with a
+    ``bot_hydrolix_mcp_query_request.v1`` packet. The orchestrator
+    re-emits that packet upstream so the existing MCP handoff
+    contract carries over unchanged.
+    """
+    capture_text = run(
+        [
+            sys.executable,
+            str(CAPTURE),
+            "--cluster",
+            args.cluster,
+            "--database",
+            args.database,
+            "--sql",
+            sql,
+            "--output",
+            str(output_path),
+        ],
+        allowed_returncodes=(NEEDS_MCP_EXIT,),
+    )
+    try:
+        summary = json.loads(capture_text) if capture_text else {}
+    except json.JSONDecodeError as exc:
+        raise SystemExit(
+            f"{label}: capture did not return machine-readable JSON ({exc})."
+        ) from exc
+    if (
+        isinstance(summary, dict)
+        and summary.get("schema_version") == HANDOFF_SCHEMA
+    ):
+        return [], summary
+    raw_value = load_raw_query_result(output_path)
+    return result_rows(raw_value), None
+
+
+def _incident_split_period_rows(rows: list[dict], *, source: str) -> dict:
+    """Bucket UNION-ALL rows by ``period`` for a given ``source`` tag."""
+    out: dict[str, dict] = {"current": {}, "baseline": {}}
+    for row in rows:
+        if row.get("source") != source:
+            continue
+        period = row.get("period")
+        if period in out:
+            out[period] = row
+    return out
+
+
+def _incident_compute_window_confirmation(
+    rows: list[dict], siem_available: bool
+) -> tuple[dict, dict]:
+    """Return ``(window_confirmation, baseline_stats)`` from the phase-1 rows."""
+    import baselines as baselines_mod
+
+    summary = _incident_split_period_rows(rows, source="summary")
+    current = summary.get("current") or {}
+    baseline = summary.get("baseline") or {}
+
+    def _num(row: dict, key: str) -> float:
+        n = baselines_mod.to_number(row.get(key))
+        return float(n) if n is not None else 0.0
+
+    requests_current = _num(current, "requests")
+    requests_baseline = _num(baseline, "requests")
+    bot_current = _num(current, "bot_like_requests")
+    bot_baseline = _num(baseline, "bot_like_requests")
+    req_429_current = _num(current, "req_429")
+    req_429_baseline = _num(baseline, "req_429")
+    req_5xx_current = _num(current, "req_5xx")
+    req_5xx_baseline = _num(baseline, "req_5xx")
+
+    def _share(num: float, denom: float) -> float:
+        return 100.0 * num / denom if denom > 0 else 0.0
+
+    bot_share = _share(bot_current, requests_current)
+    rate_429 = _share(req_429_current, requests_current)
+    rate_5xx = _share(req_5xx_current, requests_current)
+    blocked_share: float | None = None
+    if siem_available:
+        # Prefer the SIEM-table value when both sources exist — it carries
+        # the authoritative ``actionClass`` semantics from the policy
+        # summary.
+        siem = _incident_split_period_rows(rows, source="siem")
+        siem_current = siem.get("current") or {}
+        siem_requests = _num(siem_current, "requests")
+        siem_blocked = _num(siem_current, "blocked")
+        if siem_requests > 0:
+            blocked_share = _share(siem_blocked, siem_requests)
+        else:
+            blocked_share = 0.0
+    else:
+        # Fall back to raw ``akamai.logs`` action_applied counts. For
+        # canonical-schema clusters (no separate SIEM summary table) the
+        # Akamai DS2 stream carries the edge response inline so the deny
+        # + monitor decision is visible directly from the access log.
+        raw = _incident_split_period_rows(rows, source="raw")
+        raw_current = raw.get("current") or {}
+        raw_requests = _num(raw_current, "requests")
+        denied = _num(raw_current, "denied_requests")
+        monitored = _num(raw_current, "monitored_requests")
+        if raw_requests > 0:
+            blocked_share = _share(denied + monitored, raw_requests)
+
+    # Spike flags fire on +25% volume/share moves vs the trailing window.
+    spike_flags: list[str] = []
+    if baselines_mod.pct_delta(requests_current, requests_baseline) >= 25:
+        spike_flags.append("volume_up")
+    if baselines_mod.pct_delta(bot_current, bot_baseline) >= 25:
+        spike_flags.append("bot_share_up")
+    if baselines_mod.pct_delta(req_429_current, req_429_baseline) >= 25:
+        spike_flags.append("rate_429_up")
+    if baselines_mod.pct_delta(req_5xx_current, req_5xx_baseline) >= 25:
+        spike_flags.append("rate_5xx_up")
+
+    window_confirmation = {
+        "requests": int(requests_current),
+        "bot_share_pct": baselines_mod.clean_number(round(bot_share, 2)),
+        "rate_429_pct": baselines_mod.clean_number(round(rate_429, 2)),
+        "rate_5xx_pct": baselines_mod.clean_number(round(rate_5xx, 2)),
+        "blocked_share_pct": (
+            baselines_mod.clean_number(round(blocked_share, 2))
+            if blocked_share is not None
+            else None
+        ),
+        "spike_flags": spike_flags,
+    }
+    baseline_stats = {
+        "requests": int(requests_baseline),
+        "bot_like_requests": int(bot_baseline),
+        "req_429": int(req_429_baseline),
+        "req_5xx": int(req_5xx_baseline),
+    }
+    return window_confirmation, baseline_stats
+
+
+_INCIDENT_GRANULARITY_DELTA = {
+    "minute": timedelta(minutes=1),
+    "hour": timedelta(hours=1),
+    "day": timedelta(days=1),
+}
+
+
+def _incident_compute_timeseries(
+    rows: list[dict],
+    *,
+    granularity: str,
+    current_start: datetime,
+    current_end: datetime,
+    baseline_start: datetime,
+    baseline_end: datetime,
+) -> dict | None:
+    """Reshape per-bucket timeseries rows into the artifact's volume_timeseries field.
+
+    Fills missing buckets with 0 so the chart's polyline does not get
+    short-circuited by holes (a quiet baseline minute is still a
+    legitimate data point). Returns ``None`` if no rows came back; the
+    renderer then omits the chart instead of rendering an empty box.
+
+    Series keys are stable identifiers (``requests_per_minute`` etc.)
+    regardless of actual granularity — the chart-series selection rule
+    in ``contexts/incident_report.py`` switches on these names. The
+    bucket size is carried separately in the ``granularity`` field and
+    used to humanize the chart labels.
+    """
+    import baselines as baselines_mod
+
+    if not rows:
+        return None
+
+    bucket_delta = _INCIDENT_GRANULARITY_DELTA.get(
+        granularity, timedelta(minutes=1)
+    )
+
+    def _to_dt(value: object) -> datetime | None:
+        if isinstance(value, datetime):
+            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(
+                    value.replace("Z", "+00:00")
+                ).astimezone(timezone.utc)
+            except ValueError:
+                return None
+        return None
+
+    indexed: dict[tuple[str, datetime], dict] = {}
+    for r in rows:
+        period = r.get("period")
+        bucket = _to_dt(r.get("bucket"))
+        if period in ("current", "baseline") and bucket is not None:
+            indexed[(period, bucket)] = r
+
+    def _bucketize(start: datetime, end: datetime) -> list[datetime]:
+        out: list[datetime] = []
+        t = start
+        while t < end:
+            out.append(t)
+            t += bucket_delta
+        return out
+
+    def _series_for(
+        period: str, start: datetime, end: datetime, key: str
+    ) -> list[int]:
+        out: list[int] = []
+        for b in _bucketize(start, end):
+            row = indexed.get((period, b))
+            if row is None:
+                out.append(0)
+            else:
+                v = baselines_mod.to_number(row.get(key)) or 0
+                out.append(int(v))
+        return out
+
+    granularity_label = granularity if granularity in ("minute", "hour", "day") else "minute"
+
+    return {
+        "granularity": granularity_label,
+        "start": current_start.isoformat().replace("+00:00", "Z"),
+        "end": current_end.isoformat().replace("+00:00", "Z"),
+        "baseline_start": baseline_start.isoformat().replace("+00:00", "Z"),
+        "baseline_end": baseline_end.isoformat().replace("+00:00", "Z"),
+        "series": {
+            "requests_per_minute": {
+                "label": f"Requests per {granularity_label}",
+                "spike_flag": "volume_up",
+                "current": _series_for(
+                    "current", current_start, current_end, "requests"
+                ),
+                "baseline": _series_for(
+                    "baseline", baseline_start, baseline_end, "requests"
+                ),
+            },
+            "req_429_per_minute": {
+                "label": f"429s per {granularity_label}",
+                "spike_flag": "rate_429_up",
+                "current": _series_for(
+                    "current", current_start, current_end, "req_429"
+                ),
+                "baseline": _series_for(
+                    "baseline", baseline_start, baseline_end, "req_429"
+                ),
+            },
+            "bot_like_requests_per_minute": {
+                "label": f"Bot-classified requests per {granularity_label}",
+                "spike_flag": "bot_share_up",
+                "current": _series_for(
+                    "current", current_start, current_end, "bot_like_requests"
+                ),
+                "baseline": _series_for(
+                    "baseline", baseline_start, baseline_end, "bot_like_requests"
+                ),
+            },
+        },
+    }
+
+
+def _incident_dimension_rows(
+    rows: list[dict], *, total_current: float, include_delta: bool = True
+) -> list[dict]:
+    import baselines as baselines_mod
+
+    out: list[dict] = []
+    for row in rows:
+        current = baselines_mod.to_number(row.get("current_requests")) or 0.0
+        baseline = baselines_mod.to_number(row.get("baseline_requests")) or 0.0
+        share = 100.0 * current / total_current if total_current > 0 else 0.0
+        entry: dict = {
+            "value": str(row.get("value") if row.get("value") is not None else ""),
+            "requests": int(current),
+            "share_pct": baselines_mod.clean_number(round(share, 2)),
+        }
+        if include_delta:
+            entry["delta_vs_baseline_pct"] = baselines_mod.clean_number(
+                round(baselines_mod.pct_delta(current, baseline), 2)
+            )
+        out.append(entry)
+    return out
+
+
+def _incident_status_rows(
+    rows: list[dict], *, total_current: float
+) -> list[dict]:
+    import baselines as baselines_mod
+
+    out: list[dict] = []
+    for row in rows:
+        requests = baselines_mod.to_number(row.get("requests")) or 0.0
+        share = 100.0 * requests / total_current if total_current > 0 else 0.0
+        status_code_val = baselines_mod.to_number(row.get("status_code"))
+        out.append(
+            {
+                "status_code": int(status_code_val) if status_code_val is not None else None,
+                "requests": int(requests),
+                "share_pct": baselines_mod.clean_number(round(share, 2)),
+            }
+        )
+    return out
+
+
+def _incident_actor_rows(
+    rows: list[dict],
+) -> list[dict]:
+    import baselines as baselines_mod
+
+    out: list[dict] = []
+    for row in rows:
+        requests = baselines_mod.to_number(row.get("requests")) or 0.0
+        req_429 = baselines_mod.to_number(row.get("req_429")) or 0.0
+        req_5xx = baselines_mod.to_number(row.get("req_5xx")) or 0.0
+        share_429 = 100.0 * req_429 / requests if requests > 0 else 0.0
+        share_5xx = 100.0 * req_5xx / requests if requests > 0 else 0.0
+        projected = {
+            "value": str(row.get("value") if row.get("value") is not None else ""),
+            "requests": int(requests),
+            "bytes": int(baselines_mod.to_number(row.get("bytes")) or 0),
+            "distinct_paths": int(
+                baselines_mod.to_number(row.get("distinct_paths")) or 0
+            ),
+            "req_429": int(req_429),
+            "req_5xx": int(req_5xx),
+            "req_429_share_pct": baselines_mod.clean_number(round(share_429, 2)),
+            "req_5xx_share_pct": baselines_mod.clean_number(round(share_5xx, 2)),
+        }
+        # Per-row ASN attribution (projected by the scoped-metrics query
+        # for the ``client_ip`` field — ``any(asn) AS asn``). Feeds the
+        # heuristic's verified per-ASN ``single_asn_cluster`` /
+        # ``botnet_member`` pivots.
+        raw_asn = row.get("asn")
+        if raw_asn not in (None, "", 0):
+            asn_num = baselines_mod.to_number(raw_asn)
+            if asn_num is not None:
+                projected["asn"] = int(asn_num)
+        out.append(projected)
+    return out
+
+
+def _compute_suspicious_targets(
+    scope_artifact: dict,
+    actors_artifact: dict,
+    baseline_actor_rows_by_field: dict[str, dict[str, dict]],
+) -> list[dict]:
+    """Run the heuristic ladder mechanically against the actor rankings.
+
+    Returns rows in canonical order: severity desc, then requests desc.
+    Each row matches the ``bot_incident_action_targets.v1`` ``targets``
+    shape — including ``supporting``, ``severity``, ``confidence``,
+    ``reason_flags``, ``suggested_action_hint`` (always ``review``),
+    and ``evidence_refs``.
+
+    ``scope_artifact`` supplies the in-window totals used for
+    share-of-window checks. ``baseline_actor_rows_by_field`` maps each
+    resolved field to a dict of ``value`` -> ``{requests, req_429,
+    req_5xx}`` for actors observed during the baseline window —
+    absence still satisfies the ``new_in_window`` contract; presence
+    feeds the ``anomaly`` primitive's baseline-rate comparison.
+
+    Field-type taxonomy:
+      - Individual-entity fields (client_ip, asn, user_agent,
+        request_path) — share-based primitives apply.
+      - Aggregate fields (cohort, country) — only baseline-relative
+        primitives (anomaly, new_in_window) apply, because share-based
+        primitives produce noise when every major value is a big share
+        by construction.
+    """
+    import baselines as baselines_mod
+
+    window = scope_artifact.get("window_confirmation") or {}
+    total_current = float(
+        baselines_mod.to_number(window.get("requests")) or 0
+    )
+    rate_429_pct = float(
+        baselines_mod.to_number(window.get("rate_429_pct")) or 0
+    )
+    total_429 = total_current * rate_429_pct / 100.0
+
+    rankings = actors_artifact.get("actor_rankings") or []
+    field_appearance: dict[str, int] = {}
+    intermediate: list[dict] = []
+
+    for ranking_idx, ranking in enumerate(rankings):
+        field = ranking.get("field") or ""
+        target_type = _SUSPICIOUS_TARGET_TYPE_BY_FIELD.get(field)
+        if target_type is None:
+            continue
+        baseline_data = baseline_actor_rows_by_field.get(field, {})
+        is_individual = field in _INDIVIDUAL_ENTITY_FIELDS
+        for row_idx, row in enumerate(ranking.get("rows") or []):
+            value = str(row.get("value") or "")
+            requests = float(
+                baselines_mod.to_number(row.get("requests")) or 0
+            )
+            req_429 = float(baselines_mod.to_number(row.get("req_429")) or 0)
+            req_5xx = float(baselines_mod.to_number(row.get("req_5xx")) or 0)
+            distinct_paths = int(
+                baselines_mod.to_number(row.get("distinct_paths")) or 0
+            )
+
+            share = requests / total_current if total_current > 0 else 0.0
+            share_429 = req_429 / total_429 if total_429 > 0 else 0.0
+            current_error_rate = (
+                (req_429 + req_5xx) / requests if requests > 0 else 0.0
+            )
+
+            flags: list[str] = []
+            supporting_extras: dict = {}
+
+            # Share-based primitives apply only to individual-entity fields.
+            # On aggregate fields (cohort, country) they would fire on every
+            # major value by construction and produce noise.
+            if is_individual:
+                if share >= _SUSPICIOUS_VOLUME_SHARE_MIN:
+                    flags.append("high_volume_share")
+                if (
+                    total_429 >= _SUSPICIOUS_RATE_429_TOTAL_MIN
+                    and share_429 >= _SUSPICIOUS_RATE_429_SHARE_MIN
+                ):
+                    flags.append("high_rate_429_share")
+                if (
+                    distinct_paths == 1
+                    and requests >= _SUSPICIOUS_SINGLE_PATH_REQUESTS_MIN
+                    # For the request_path field itself, distinct_paths
+                    # is tautologically 1 because the GROUP BY column
+                    # *is* the path — every row has exactly one
+                    # distinct path. Suppress the flag for CMS-bucket
+                    # templated patterns (``/:slug``, ``/:locale/...``)
+                    # so they don't reach critical purely on this
+                    # tautology. Specific endpoints like ``/graphql``
+                    # or ``/api/v1/auth/login`` still satisfy the
+                    # check.
+                    and not (
+                        field == "request_path"
+                        and _is_templated_catchall_path(value)
+                    )
+                ):
+                    flags.append("single_path_concentration")
+                if field == "user_agent" and _AUTOMATION_UA_PATTERN.search(
+                    value
+                ):
+                    flags.append("automation_user_agent")
+
+            # Baseline-relative primitives apply to all fields. new_in_window
+            # is absence-based; anomaly is rate-departure-based. Both
+            # generalize across individual entities and aggregates.
+            if value and value not in baseline_data:
+                flags.append("new_in_window")
+                # Magnitude-aware companion: a lone new IP doing
+                # high absolute volume carries real signal even
+                # without a peer cluster. Caps the asymmetry where
+                # ``new_in_window`` alone is categorical (a 100-req
+                # new IP and a 30M-req new IP get the same flag).
+                # Scoped to ``client_ip`` because that's where the
+                # gap matters operationally — lone high-volume new
+                # UAs / paths are surfaced through other primitives.
+                if (
+                    field == "client_ip"
+                    and share >= _SUSPICIOUS_NEW_ACTOR_VOLUME_SHARE_MIN
+                    and requests >= _SUSPICIOUS_NEW_ACTOR_REQUESTS_MIN
+                ):
+                    flags.append("high_volume_new_actor")
+
+            baseline_row = baseline_data.get(value)
+            if baseline_row is not None:
+                baseline_requests = baseline_row.get("requests") or 0
+                baseline_errors = (
+                    (baseline_row.get("req_429") or 0)
+                    + (baseline_row.get("req_5xx") or 0)
+                )
+                baseline_error_rate = (
+                    baseline_errors / baseline_requests
+                    if baseline_requests > 0
+                    else 0.0
+                )
+                if (
+                    baseline_error_rate > 0
+                    and current_error_rate >= _ANOMALY_CURRENT_ERROR_RATE_MIN
+                    and requests >= _ANOMALY_MIN_REQUESTS
+                    and current_error_rate / baseline_error_rate
+                    >= _ANOMALY_ERROR_RATE_RATIO_MIN
+                ):
+                    flags.append("anomaly")
+                    supporting_extras["baseline_error_rate_pct"] = (
+                        baselines_mod.clean_number(
+                            round(100.0 * baseline_error_rate, 2)
+                        )
+                    )
+                    supporting_extras["current_error_rate_pct"] = (
+                        baselines_mod.clean_number(
+                            round(100.0 * current_error_rate, 2)
+                        )
+                    )
+                    supporting_extras["error_rate_ratio"] = (
+                        baselines_mod.clean_number(
+                            round(
+                                current_error_rate / baseline_error_rate, 2
+                            )
+                        )
+                    )
+
+            if not flags:
+                continue
+
+            field_appearance[value] = field_appearance.get(value, 0) + 1
+            # Capture per-row ASN attribution when the producer supplies
+            # it. Used downstream by the single_asn_cluster + botnet_member
+            # pivots; absence triggers the coarse-count fallback so the
+            # heuristic remains backward-compatible with legacy producers
+            # that don't carry IP -> ASN attribution.
+            row_asn = row.get("asn")
+            row_asn_org = row.get("asn_org") or row.get("asn_name") or ""
+            intermediate.append(
+                {
+                    "field": field,
+                    "ranking_idx": ranking_idx,
+                    "row_idx": row_idx,
+                    "target_type": target_type,
+                    "value": value,
+                    "flags": flags,
+                    "requests": requests,
+                    "share_pct": baselines_mod.clean_number(round(100.0 * share, 2)),
+                    "req_429": req_429,
+                    "req_429_share_pct": baselines_mod.clean_number(
+                        round(100.0 * share_429, 2)
+                    ),
+                    "distinct_paths": distinct_paths,
+                    "supporting_extras": supporting_extras,
+                    "asn": row_asn if row_asn not in ("", None) else None,
+                    "asn_org": str(row_asn_org) if row_asn_org else "",
+                }
+            )
+
+    # Cross-row pivots: single_asn_cluster (shape) + botnet_member
+    # (magnitude). Both rest on grouping flagged client_ip rows into
+    # ASN clusters. When the producer carries per-row ASN attribution
+    # (a non-empty ``asn`` field on at least one flagged client_ip
+    # row), the grouping is exact: an IP is a single_asn_cluster
+    # member only when its own ASN has >= N flagged peers, and a
+    # botnet_member only when that same ASN's combined share crosses
+    # the fleet floor. When NO row carries an ``asn`` field, the
+    # producer is a legacy caller without GeoIP attribution; we fall
+    # back to the coarse total-count + total-share rule (the v2
+    # behavior) so existing consumers keep working.
+    flagged_client_ips = [r for r in intermediate if r["field"] == "client_ip"]
+    have_asn_attribution = any(
+        r.get("asn") not in (None, "", 0) for r in flagged_client_ips
+    )
+
+    if have_asn_attribution:
+        # Per-ASN grouping. Rows without an ASN are excluded from
+        # clustering entirely — they're attribution-unknown and
+        # honestly shouldn't claim membership in any specific cluster.
+        groups: dict[object, list[dict]] = {}
+        for row in flagged_client_ips:
+            asn = row.get("asn")
+            if asn in (None, "", 0):
+                continue
+            groups.setdefault(asn, []).append(row)
+        for asn, members in groups.items():
+            if len(members) < _SUSPICIOUS_ASN_CLUSTER_MIN_IPS:
+                continue
+            asn_org = next((m.get("asn_org") for m in members if m.get("asn_org")), "")
+            for row in members:
+                if "single_asn_cluster" not in row["flags"]:
+                    row["flags"].append("single_asn_cluster")
+                extras = row.setdefault("supporting_extras", {})
+                extras["asn_cluster_id"] = asn
+                if asn_org:
+                    extras["asn_cluster_org"] = asn_org
+                extras["asn_cluster_size"] = len(members)
+            if total_current <= 0:
+                continue
+            cluster_requests = sum(m["requests"] for m in members)
+            cluster_share = cluster_requests / total_current
+            if cluster_share < _SUSPICIOUS_BOTNET_CLUSTER_SHARE_MIN:
+                continue
+            cluster_share_pct = baselines_mod.clean_number(
+                round(100.0 * cluster_share, 2)
+            )
+            for row in members:
+                if "botnet_member" not in row["flags"]:
+                    row["flags"].append("botnet_member")
+                extras = row.setdefault("supporting_extras", {})
+                extras["botnet_cluster_requests"] = int(cluster_requests)
+                extras["botnet_cluster_share_pct"] = cluster_share_pct
+                extras["botnet_cluster_size"] = len(members)
+    elif len(flagged_client_ips) >= _SUSPICIOUS_ASN_CLUSTER_MIN_IPS:
+        # Fallback: legacy producer with no per-row ASN attribution.
+        # Use the coarse count + total-share rule. Flag the
+        # supporting_extras so downstream consumers can tell this is
+        # an approximation, not a verified same-ASN cluster.
+        for row in flagged_client_ips:
+            if "single_asn_cluster" not in row["flags"]:
+                row["flags"].append("single_asn_cluster")
+            extras = row.setdefault("supporting_extras", {})
+            extras["asn_cluster_attribution"] = "unverified"
+            extras["asn_cluster_size"] = len(flagged_client_ips)
+        if total_current > 0:
+            cluster_requests = sum(r["requests"] for r in flagged_client_ips)
+            cluster_share = cluster_requests / total_current
+            if cluster_share >= _SUSPICIOUS_BOTNET_CLUSTER_SHARE_MIN:
+                cluster_share_pct = baselines_mod.clean_number(
+                    round(100.0 * cluster_share, 2)
+                )
+                for row in flagged_client_ips:
+                    if "botnet_member" not in row["flags"]:
+                        row["flags"].append("botnet_member")
+                    extras = row.setdefault("supporting_extras", {})
+                    extras["botnet_cluster_requests"] = int(cluster_requests)
+                    extras["botnet_cluster_share_pct"] = cluster_share_pct
+                    extras["botnet_cluster_size"] = len(flagged_client_ips)
+
+    targets: list[dict] = []
+    for row in intermediate:
+        flag_set = set(row["flags"])
+        flag_count = len(row["flags"])
+        cross_field_corroboration = field_appearance.get(row["value"], 0) >= 2
+
+        # Anomaly is a baseline-corroborated signal — the comparison to
+        # the entity's own past is built in. It carries more analytical
+        # weight than a share-based flag (which only compares across the
+        # current window). Counting it as 2 toward severity tiering means
+        # an anomaly-alone finding (1 flag) reaches severity: high, while
+        # share-based singles stay at medium.
+        effective_flag_count = flag_count + (1 if "anomaly" in flag_set else 0)
+
+        critical_rule = (
+            effective_flag_count >= 3
+            and bool(flag_set & _SUSPICIOUS_QUANT_FLAGS)
+            and bool(flag_set & _SUSPICIOUS_CONCENTRATION_FLAGS)
+        )
+        if critical_rule:
+            severity = "critical"
+            confidence = "high" if cross_field_corroboration else "medium"
+        elif effective_flag_count >= 2:
+            severity = "high"
+            confidence = "high" if cross_field_corroboration else "medium"
+        elif flag_set & _SUSPICIOUS_QUANT_FLAGS:
+            severity = "medium"
+            confidence = "low"
+        else:
+            severity = "low"
+            confidence = "low"
+
+        supporting = {
+            "requests": int(row["requests"]),
+            "share_pct": row["share_pct"],
+            "req_429": int(row["req_429"]),
+            "req_429_share_pct": row["req_429_share_pct"],
+            "distinct_paths": row["distinct_paths"],
+        }
+        # Anomaly-specific evidence: baseline error rate + current rate +
+        # the ratio that fired the primitive. Surfaced so the renderer
+        # can show "Browser cohort error rate 11.4% vs ~0.5% baseline
+        # (22× departure)" instead of just naming the flag.
+        supporting.update(row.get("supporting_extras") or {})
+        targets.append(
+            {
+                "target_type": row["target_type"],
+                "target_value": row["value"],
+                "kind": _TARGET_KIND_BY_TYPE.get(row["target_type"], "actor"),
+                "action_class": _suspicious_action_class(
+                    row["target_type"], severity, row["flags"],
+                ),
+                "reason_flags": list(row["flags"]),
+                "attack_techniques": _attack_techniques_for_flags(row["flags"]),
+                "severity": severity,
+                "supporting": supporting,
+                "suggested_action_hint": "review",
+                "confidence": confidence,
+                "evidence_refs": [
+                    {
+                        "artifact": "bot_incident_actors.v1",
+                        "json_pointer": (
+                            f"/actor_rankings/{row['ranking_idx']}/rows/"
+                            f"{row['row_idx']}"
+                        ),
+                    }
+                ],
+            }
+        )
+
+    targets.sort(
+        key=lambda t: (
+            _SEVERITY_RANK.get(t["severity"], 99),
+            -int(t["supporting"]["requests"]),
+        )
+    )
+    return targets
+
+
+def _build_action_targets_artifact(
+    scope_meta: dict,
+    suspicious_targets: list[dict],
+    *,
+    heuristic_version: str = "v2",
+    limitations: list[str] | None = None,
+) -> dict:
+    """Wrap a list of suspicious-target rows in the canonical artifact shape."""
+    return {
+        "artifact_id": "incident-action-targets-1",
+        "schema_version": "bot_incident_action_targets.v1",
+        "scope": scope_meta,
+        "targets": suspicious_targets,
+        "heuristic_version": heuristic_version,
+        "limitations": list(limitations or []),
+    }
+
+
+def _resolve_dashboard_url(args: argparse.Namespace) -> str:
+    """Look up ``BI_INCIDENT_DASHBOARD_URL`` from the cluster env, then
+    substitute scope placeholders mechanically. Returns ``""`` when
+    unset — the renderer omits the handoff block in that case.
+    """
+    import os
+    import shutil
+
+    env_path = Path(
+        f"~/.config/hydrolix/clusters/{args.cluster}.env"
+    ).expanduser()
+    template = ""
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("BI_INCIDENT_DASHBOARD_URL="):
+                template = stripped.split("=", 1)[1].strip().strip("'\"")
+                break
+    if not template:
+        template = os.environ.get("BI_INCIDENT_DASHBOARD_URL", "")
+    if not template:
+        return ""
+    return (
+        template.replace("{start}", args.start)
+        .replace("{end}", args.end)
+        .replace("{host}", args.host or "")
+        .replace("{asn}", str(args.asn) if args.asn else "")
+        .replace("{path_pattern}", args.path_pattern or "")
+    )
+
+
+def _emit_handoff_packet(
+    packet: dict,
+    args: argparse.Namespace,
+    granularity: str,
+    baseline_start: datetime,
+    artifact: str,
+) -> int:
+    report_context = packet.get("report_context")
+    if not isinstance(report_context, dict):
+        report_context = {}
+    report_context.update(
+        {
+            "report": args.report,
+            "mode": args.mode,
+            "artifact": artifact,
+            "start": args.start,
+            "end": args.end,
+            "baseline_start": baseline_start.isoformat().replace("+00:00", "Z"),
+            "granularity": granularity,
+        }
+    )
+    packet["report_context"] = report_context
+    print(json.dumps(packet, sort_keys=True))
+    return NEEDS_MCP_EXIT
+
+
+def _run_incident_report(
+    args: argparse.Namespace,
+    start: datetime,
+    end: datetime,
+    baseline_start: datetime,
+    sample_dir: Path,
+    output_path: Path,
+) -> int:
+    """End-to-end orchestrator for ``--report incident_report``.
+
+    Flow:
+      1. Run ``system.columns`` queries to detect ``akamai.logs`` and the
+         SIEM policy summary table. Validate ``--fields`` mechanically.
+      2. Run a single phase-1 SQL query (summary + optional SIEM blocked
+         share) plus dimension/status/country queries.
+      3. If raw drilldown is available, run one actor query per resolved
+         field against ``akamai.logs``.
+      4. Assemble ``bot_incident_scope.v1`` and ``bot_incident_actors.v1``,
+         build an evidence packet, then either emit ``--mode evidence``
+         or render via ``render_report.py``.
+
+    MCP-handoff: any capture call that exits ``NEEDS_MCP_EXIT`` is
+    re-emitted upstream with the report-context metadata appended.
+    """
+    granularity = choose_granularity(start, end)
+    summary_table = f"{args.database}.bi_summary_{granularity}"
+    siem_table_candidate = f"{args.database}.bi_siem_policy_summary_{granularity}"
+
+    requested_fields = [
+        name.strip()
+        for name in (args.fields or _INCIDENT_DEFAULT_FIELDS).split(",")
+        if name.strip()
+    ]
+    top_n = max(1, int(args.top_n or 10))
+
+    # --- Step 1: introspect column availability ----------------------------
+    columns_logs_path = sample_dir / f"{args.report}-columns-logs.json"
+    logs_rows, handoff = _capture_sql_to_rows(
+        args,
+        _incident_columns_query(args.database, "logs"),
+        columns_logs_path,
+        label="akamai.logs columns",
+    )
+    if handoff is not None:
+        return _emit_handoff_packet(
+            handoff, args, granularity, baseline_start, artifact="columns_logs"
+        )
+    logs_columns = {row.get("name") for row in logs_rows if row.get("name")}
+    raw_drilldown_available = bool(logs_columns)
+
+    columns_siem_path = sample_dir / f"{args.report}-columns-siem.json"
+    siem_rows, handoff = _capture_sql_to_rows(
+        args,
+        _incident_columns_query(
+            args.database, f"bi_siem_policy_summary_{granularity}"
+        ),
+        columns_siem_path,
+        label="SIEM columns",
+    )
+    if handoff is not None:
+        return _emit_handoff_packet(
+            handoff, args, granularity, baseline_start, artifact="columns_siem"
+        )
+    siem_available = bool({row.get("name") for row in siem_rows if row.get("name")})
+    siem_table = siem_table_candidate if siem_available else None
+
+    # --- Step 2: validate --fields against the column list ----------------
+    fields_resolved: list[str] = []
+    fields_unresolved: list[str] = []
+    if raw_drilldown_available:
+        for field in requested_fields:
+            if field in logs_columns:
+                fields_resolved.append(field)
+            else:
+                fields_unresolved.append(field)
+        if fields_unresolved:
+            print(
+                "ERROR: --fields contains names not present on this cluster's "
+                f"raw access log: {', '.join(fields_unresolved)}. "
+                "Resolve the column names before re-running.",
+                file=sys.stderr,
+            )
+            return 2
+
+    limitations_scope: list[str] = []
+    limitations_actors: list[str] = []
+    if not siem_available:
+        limitations_scope.append(
+            "SIEM policy summary table not present on this cluster; SIEM "
+            "mixes are not available."
+        )
+    if not raw_drilldown_available:
+        limitations_actors.append(
+            "akamai.logs is not present on this cluster; per-actor "
+            "drilldown is not available."
+        )
+
+    # --- Step 3: phase-1 captures (summary + optional SIEM blocked share) -
+    wc_path = sample_dir / f"{args.report}-phase1-window.json"
+    wc_rows, handoff = _capture_sql_to_rows(
+        args,
+        _incident_window_confirmation_sql(
+            summary_table,
+            siem_table,
+            start,
+            end,
+            baseline_start,
+            args.host,
+            args.asn,
+            args.path_pattern,
+            raw_drilldown_available=raw_drilldown_available,
+        ),
+        wc_path,
+        label="window confirmation",
+    )
+    if handoff is not None:
+        return _emit_handoff_packet(
+            handoff, args, granularity, baseline_start, artifact="phase1_window"
+        )
+    window_confirmation, _baseline_stats = (
+        _incident_compute_window_confirmation(wc_rows, siem_available)
+    )
+
+    # --- Step 3b: per-bucket volume timeseries (drives the Impact chart) ---
+    # One extra grouped scan of the same summary table the window-
+    # confirmation query already touched. Same time bounds, same scope
+    # predicate. Returns per-bucket (period, requests, req_429,
+    # bot_like_requests) which the compute helper reshapes into three
+    # series consumed by the renderer's mechanical chart-selection rule.
+    ts_path = sample_dir / f"{args.report}-phase1-timeseries.json"
+    ts_rows, handoff = _capture_sql_to_rows(
+        args,
+        _incident_volume_timeseries_sql(
+            summary_table,
+            granularity,
+            start,
+            end,
+            baseline_start,
+            args.host,
+            args.asn,
+            args.path_pattern,
+        ),
+        ts_path,
+        label="volume timeseries",
+    )
+    if handoff is not None:
+        return _emit_handoff_packet(
+            handoff, args, granularity, baseline_start, artifact="phase1_timeseries"
+        )
+    volume_timeseries = _incident_compute_timeseries(
+        ts_rows,
+        granularity=granularity,
+        current_start=start,
+        current_end=end,
+        baseline_start=baseline_start,
+        baseline_end=start,
+    )
+
+    def _run_dimension(table: str, dimension: str, label: str) -> list[dict]:
+        out_path = sample_dir / f"{args.report}-phase1-{label}.json"
+        rows, hop = _capture_sql_to_rows(
+            args,
+            _incident_dimension_sql(
+                table,
+                dimension,
+                start,
+                end,
+                baseline_start,
+                args.host,
+                args.asn,
+                args.path_pattern,
+                top_n,
+            ),
+            out_path,
+            label=label,
+        )
+        if hop is not None:
+            raise _IncidentHandoff(hop, label)
+        return rows
+
+    def _run_siem_dimension(dimension: str, label: str) -> list[dict]:
+        assert siem_table is not None
+        out_path = sample_dir / f"{args.report}-phase1-{label}.json"
+        rows, hop = _capture_sql_to_rows(
+            args,
+            _incident_siem_dimension_sql(
+                siem_table,
+                dimension,
+                start,
+                end,
+                baseline_start,
+                args.host,
+                args.asn,
+                args.path_pattern,
+                top_n,
+            ),
+            out_path,
+            label=label,
+        )
+        if hop is not None:
+            raise _IncidentHandoff(hop, label)
+        return rows
+
+    try:
+        hosts_rows = _run_dimension(summary_table, "reqHost", "top_hosts")
+        path_rows = _run_dimension(
+            summary_table, "requestPathPattern", "top_path_patterns"
+        )
+        country_rows = _run_dimension(summary_table, "country", "country_mix")
+        status_rows, hop = _capture_sql_to_rows(
+            args,
+            _incident_status_mix_sql(
+                summary_table,
+                start,
+                end,
+                args.host,
+                args.asn,
+                args.path_pattern,
+                top_n,
+            ),
+            sample_dir / f"{args.report}-phase1-status_mix.json",
+            label="status mix",
+        )
+        if hop is not None:
+            return _emit_handoff_packet(
+                hop, args, granularity, baseline_start, artifact="status_mix"
+            )
+        siem_action_rows: list[dict] = []
+        siem_policy_rows: list[dict] = []
+        siem_bot_type_rows: list[dict] = []
+        if siem_available:
+            siem_action_rows = _run_siem_dimension("actionClass", "siem_action")
+            siem_policy_rows = _run_siem_dimension("policyId", "siem_policy")
+            siem_bot_type_rows = _run_siem_dimension("botType", "siem_bot_type")
+        edge_action_mix_rows: list[dict] = []
+        deny_rule_mix_rows: list[dict] = []
+        if raw_drilldown_available:
+            edge_action_rows_raw, hop = _capture_sql_to_rows(
+                args,
+                _incident_edge_action_mix_sql(
+                    start,
+                    end,
+                    baseline_start,
+                    args.host,
+                    args.asn,
+                    args.path_pattern,
+                    top_n,
+                ),
+                sample_dir / f"{args.report}-phase1-edge_action_mix.json",
+                label="edge action mix",
+            )
+            if hop is not None:
+                raise _IncidentHandoff(hop, "edge_action_mix")
+            edge_action_mix_rows = edge_action_rows_raw
+            deny_rule_rows_raw, hop = _capture_sql_to_rows(
+                args,
+                _incident_deny_rule_mix_sql(
+                    start,
+                    end,
+                    baseline_start,
+                    args.host,
+                    args.asn,
+                    args.path_pattern,
+                    top_n,
+                ),
+                sample_dir / f"{args.report}-phase1-deny_rule_mix.json",
+                label="deny rule mix",
+            )
+            if hop is not None:
+                raise _IncidentHandoff(hop, "deny_rule_mix")
+            deny_rule_mix_rows = deny_rule_rows_raw
+    except _IncidentHandoff as exc:
+        return _emit_handoff_packet(
+            exc.packet, args, granularity, baseline_start, artifact=exc.label
+        )
+
+    total_current = float(window_confirmation.get("requests") or 0)
+
+    scope_meta = {
+        "cluster": args.cluster,
+        "database": args.database,
+        "start": args.start,
+        "end": args.end,
+        "baseline_start": baseline_start.isoformat().replace("+00:00", "Z"),
+        "baseline_end": args.start,
+        "granularity": granularity,
+        "host": args.host,
+        "asn": args.asn,
+        "path_pattern": args.path_pattern,
+        "siem_available": siem_available,
+    }
+
+    scope_artifact = {
+        "artifact_id": "incident-scope-1",
+        "schema_version": "bot_incident_scope.v1",
+        "scope": scope_meta,
+        "window_confirmation": window_confirmation,
+        "volume_timeseries": volume_timeseries,
+        "top_targeted_hosts": _incident_dimension_rows(
+            hosts_rows, total_current=total_current
+        ),
+        "top_targeted_path_patterns": _incident_dimension_rows(
+            path_rows, total_current=total_current
+        ),
+        "status_mix": _incident_status_rows(
+            status_rows, total_current=total_current
+        ),
+        "country_mix": _incident_dimension_rows(
+            country_rows, total_current=total_current
+        ),
+        "siem_action_mix": (
+            _incident_dimension_rows(siem_action_rows, total_current=total_current)
+            if siem_available
+            else None
+        ),
+        "siem_policy_mix": (
+            _incident_dimension_rows(siem_policy_rows, total_current=total_current)
+            if siem_available
+            else None
+        ),
+        "siem_bot_type_mix": (
+            _incident_dimension_rows(
+                siem_bot_type_rows, total_current=total_current
+            )
+            if siem_available
+            else None
+        ),
+        "edge_action_mix": (
+            _incident_dimension_rows(
+                edge_action_mix_rows, total_current=total_current
+            )
+            if raw_drilldown_available
+            else None
+        ),
+        "deny_rule_mix": (
+            _incident_dimension_rows(
+                deny_rule_mix_rows, total_current=total_current
+            )
+            if raw_drilldown_available
+            else None
+        ),
+        "dashboard_url": _resolve_dashboard_url(args),
+        "limitations": limitations_scope,
+    }
+
+    # --- Step 4: phase-2 actor queries ------------------------------------
+    # Two-step pattern per field: ``topK(N)`` (Filtered Space-Saving,
+    # O(K) memory) yields the candidate list, then a scoped metrics
+    # GROUP BY computes per-actor stats bounded to that list. Replaces
+    # the v1 single-shot ``GROUP BY field ORDER BY count() DESC LIMIT N``
+    # that OOM'd at scale on high-cardinality fields like ``client_ip``.
+    actor_rankings: list[dict] = []
+    current_candidates_by_field: dict[str, list[str]] = {}
+    if raw_drilldown_available and fields_resolved:
+        for field in fields_resolved:
+            topk_path = sample_dir / f"{args.report}-phase2-{field}-topk.json"
+            topk_rows, hop = _capture_sql_to_rows(
+                args,
+                _incident_actor_topk_sql(
+                    field, start, end, args.host, args.asn, args.path_pattern, top_n,
+                ),
+                topk_path,
+                label=f"actors_topk:{field}",
+            )
+            if hop is not None:
+                return _emit_handoff_packet(
+                    hop, args, granularity, baseline_start,
+                    artifact=f"actors_topk_{field}",
+                )
+            candidates = (
+                [str(v) for v in (topk_rows[0].get("candidates") or []) if v]
+                if topk_rows else []
+            )
+            current_candidates_by_field[field] = candidates
+            if not candidates:
+                actor_rankings.append(
+                    {
+                        "field": field,
+                        "field_label": _INCIDENT_FIELD_LABELS.get(
+                            field, field.replace("_", " ").title()
+                        ),
+                        "rows": [],
+                    }
+                )
+                continue
+
+            metrics_path = sample_dir / f"{args.report}-phase2-{field}.json"
+            rows, hop = _capture_sql_to_rows(
+                args,
+                _incident_actor_scoped_metrics_sql(
+                    field, candidates, start, end,
+                    args.host, args.asn, args.path_pattern,
+                    full_metrics=True,
+                ),
+                metrics_path,
+                label=f"actors:{field}",
+            )
+            if hop is not None:
+                return _emit_handoff_packet(
+                    hop, args, granularity, baseline_start,
+                    artifact=f"actors_{field}",
+                )
+            actor_rankings.append(
+                {
+                    "field": field,
+                    "field_label": _INCIDENT_FIELD_LABELS.get(
+                        field, field.replace("_", " ").title()
+                    ),
+                    "rows": _incident_actor_rows(rows),
+                }
+            )
+
+    actors_artifact = {
+        "artifact_id": "incident-actors-1",
+        "schema_version": "bot_incident_actors.v1",
+        "scope": scope_meta,
+        "raw_drilldown_available": raw_drilldown_available,
+        "raw_table": "akamai.logs",
+        "fields_resolved": fields_resolved,
+        "fields_unresolved": fields_unresolved,
+        "top_n": top_n,
+        "actor_rankings": actor_rankings,
+        "limitations": limitations_actors,
+    }
+
+    # --- Step 4b: baseline-actor queries + suspicious-target heuristics ----
+    # Same two-step pattern over the baseline window. The baseline
+    # topK is its own candidate set (matches the v1 baseline GROUP BY
+    # LIMIT N semantics — the heuristic's ``new_in_window`` primitive
+    # interprets "value not in baseline_actor_rows_by_field" as
+    # "value not in baseline's top-N", which the existing tests pin).
+    baseline_actor_rows_by_field: dict[str, dict[str, dict]] = {}
+    action_targets_limitations: list[str] = []
+    if raw_drilldown_available and fields_resolved:
+        for field in fields_resolved:
+            baseline_topk_path = (
+                sample_dir / f"{args.report}-phase2-{field}-baseline-topk.json"
+            )
+            topk_rows, hop = _capture_sql_to_rows(
+                args,
+                _incident_actor_topk_baseline_sql(
+                    field, baseline_start, start,
+                    args.host, args.asn, args.path_pattern, top_n,
+                ),
+                baseline_topk_path,
+                label=f"actors_baseline_topk:{field}",
+            )
+            if hop is not None:
+                return _emit_handoff_packet(
+                    hop, args, granularity, baseline_start,
+                    artifact=f"actors_baseline_topk_{field}",
+                )
+            baseline_candidates = (
+                [str(v) for v in (topk_rows[0].get("candidates") or []) if v]
+                if topk_rows else []
+            )
+            if not baseline_candidates:
+                baseline_actor_rows_by_field[field] = {}
+                continue
+
+            baseline_path = (
+                sample_dir / f"{args.report}-phase2-{field}-baseline.json"
+            )
+            rows, hop = _capture_sql_to_rows(
+                args,
+                _incident_actor_scoped_metrics_baseline_sql(
+                    field, baseline_candidates, baseline_start, start,
+                    args.host, args.asn, args.path_pattern,
+                ),
+                baseline_path,
+                label=f"actors_baseline:{field}",
+            )
+            if hop is not None:
+                return _emit_handoff_packet(
+                    hop, args, granularity, baseline_start,
+                    artifact=f"actors_baseline_{field}",
+                )
+            baseline_actor_rows_by_field[field] = {
+                str(row["value"]): {
+                    "requests": float(row.get("requests") or 0),
+                    "req_429": float(row.get("req_429") or 0),
+                    "req_5xx": float(row.get("req_5xx") or 0),
+                }
+                for row in rows
+                if row.get("value") is not None
+            }
+
+        # --- Step 4c: joint cooccurrence queries ---------------------------
+        # When the relevant marginal rankings exist, fire bounded joint
+        # GROUP BYs scoped to current-window top-K candidate sets:
+        #   - client_ip × user_agent: feeds the disjoint-cohort finding
+        #     (Finding 03) and the cohort_topology block in the IOC export.
+        #   - client_ip × request_path: feeds per-indicator scope qualifiers
+        #     (``seen_at`` on actor indicators, ``seen_with`` on target
+        #     indicators) in the IOC export — a SOAR consumer reads them
+        #     to compose path-scoped blocks instead of site-wide ones.
+        # Each query is bounded to top_n × top_n cells.
+        cooccurrence: dict[str, list[dict]] = {}
+        ip_candidates = current_candidates_by_field.get("client_ip") or []
+        ua_candidates = current_candidates_by_field.get("user_agent") or []
+        path_candidates = current_candidates_by_field.get("request_path") or []
+
+        for (
+            pair_label,
+            field_a,
+            field_b,
+            candidates_a,
+            candidates_b,
+            key_a,
+            key_b,
+            b_required,
+        ) in (
+            (
+                "client_ip__user_agent",
+                "client_ip", "user_agent",
+                ip_candidates, ua_candidates,
+                "ip", "ua",
+                True,
+            ),
+            (
+                "client_ip__request_path",
+                "client_ip", "request_path",
+                ip_candidates, path_candidates,
+                "ip", "path",
+                True,
+            ),
+            (
+                # ``action_applied`` is small-cardinality (Allow / Deny
+                # / Monitor / Tarpit) so no topK candidate set is needed
+                # — the joint GROUP BY stays bounded by len(ip_candidates)
+                # × ~5 actions. ``b_required=False`` lets the SQL skip
+                # the second IN clause when the candidate list is empty.
+                "client_ip__action_applied",
+                "client_ip", "action_applied",
+                ip_candidates, [],
+                "ip", "action",
+                False,
+            ),
+        ):
+            if not candidates_a:
+                continue
+            if b_required and not candidates_b:
+                continue
+            cooccur_path = (
+                sample_dir
+                / f"{args.report}-phase2-{pair_label}-cooccurrence.json"
+            )
+            rows, hop = _capture_sql_to_rows(
+                args,
+                _incident_actor_cooccurrence_sql(
+                    field_a, field_b,
+                    candidates_a, candidates_b,
+                    start, end,
+                    args.host, args.asn, args.path_pattern,
+                ),
+                cooccur_path,
+                label=f"actors_cooccurrence:{pair_label}",
+            )
+            if hop is not None:
+                return _emit_handoff_packet(
+                    hop, args, granularity, baseline_start,
+                    artifact=f"actors_cooccurrence_{pair_label}",
+                )
+            cooccurrence[pair_label] = [
+                {
+                    key_a: str(row.get("value_a") or ""),
+                    key_b: str(row.get("value_b") or ""),
+                    "requests": int(float(row.get("requests") or 0)),
+                }
+                for row in rows
+                if row.get("value_a") and row.get("value_b")
+            ]
+        if cooccurrence:
+            actors_artifact["actor_cooccurrence"] = cooccurrence
+
+        suspicious_targets = _compute_suspicious_targets(
+            scope_artifact,
+            actors_artifact,
+            baseline_actor_rows_by_field,
+        )
+    else:
+        suspicious_targets = []
+        action_targets_limitations.append(
+            "Suspicious-target heuristics produced no flagged rows because "
+            "the cluster has no raw access log; only summary-level scope "
+            "evidence is available."
+        )
+
+    action_targets_artifact = _build_action_targets_artifact(
+        scope_meta,
+        suspicious_targets,
+        heuristic_version="v2",
+        limitations=action_targets_limitations,
+    )
+
+    # --- Step 5: evidence packet ------------------------------------------
+    evidence_packet = {
+        "schema_version": "bot_report_evidence.v1",
+        "report_type": args.report,
+        "cluster": args.cluster,
+        "database": args.database,
+        "granularity": granularity,
+        "current_window": {"start": args.start, "end": args.end},
+        "baseline_windows": [
+            {
+                "start": baseline_start.isoformat().replace("+00:00", "Z"),
+                "end": args.start,
+            }
+        ],
+        "scope": {
+            "host": args.host,
+            "asn": args.asn,
+            "path_pattern": args.path_pattern,
+        },
+        "window_confirmation": window_confirmation,
+        "top_targeted_hosts": scope_artifact["top_targeted_hosts"],
+        "top_targeted_path_patterns": scope_artifact["top_targeted_path_patterns"],
+        "status_mix": scope_artifact["status_mix"],
+        "country_mix": scope_artifact["country_mix"],
+        "siem_action_mix": scope_artifact["siem_action_mix"],
+        "siem_policy_mix": scope_artifact["siem_policy_mix"],
+        "siem_bot_type_mix": scope_artifact["siem_bot_type_mix"],
+        "actor_rankings": actor_rankings,
+        "raw_drilldown_available": raw_drilldown_available,
+        "siem_available": siem_available,
+        "suspicious_targets": suspicious_targets,
+        "heuristic_version": "v2",
+        "limitations": (
+            limitations_scope + limitations_actors + action_targets_limitations
+        ),
+        "interpretation_contract": INCIDENT_INTERPRETATION_CONTRACT,
+    }
+    evidence_packet = humanize_evidence_packet(evidence_packet)
+
+    if args.mode == "evidence":
+        output_path.write_text(
+            json.dumps(evidence_packet, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        print(
+            json.dumps(
+                {
+                    "cluster": args.cluster,
+                    "database": args.database,
+                    "granularity": granularity,
+                    "mode": args.mode,
+                    "output": str(output_path),
+                    "siem_available": siem_available,
+                    "raw_drilldown_available": raw_drilldown_available,
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+
+    # --- Step 6: build wrapper + render -----------------------------------
+    wrapper = build_report_wrapper(
+        args=args,
+        artifacts=[scope_artifact, actors_artifact, action_targets_artifact],
+        analyst_note=analyst_note_from_args(args),
+    )
+    wrapper_path = sample_dir / f"{args.report}-wrapper.json"
+    wrapper_path.write_text(
+        json.dumps(wrapper, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    render_cmd = [
+        "uv",
+        "run",
+        "python",
+        "skills/bot-insights/scripts/render_report.py",
+        "--file",
+        str(wrapper_path),
+        "--format",
+        args.format,
+        "--output",
+        str(output_path),
+    ]
+    if args.title:
+        render_cmd.extend(["--title", args.title])
+    run(render_cmd, cwd=PUBLIC_SKILLS)
+
+    print(
+        json.dumps(
+            {
+                "cluster": args.cluster,
+                "database": args.database,
+                "granularity": granularity,
+                "mode": args.mode,
+                "output": str(output_path),
+                "siem_available": siem_available,
+                "raw_drilldown_available": raw_drilldown_available,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+class _IncidentHandoff(Exception):
+    """Propagate a capture MCP handoff packet out of nested helpers."""
+
+    def __init__(self, packet: dict, label: str) -> None:
+        super().__init__(label)
+        self.packet = packet
+        self.label = label
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="bot-insights-report",
@@ -2036,6 +4451,7 @@ def parse_args() -> argparse.Namespace:
             "soc_triage",
             "crawler_governance",
             "edge_ops_impact",
+            "incident_report",
         ),
         default="executive_posture",
         help="Report type to generate.",
@@ -2152,6 +4568,35 @@ def parse_args() -> argparse.Namespace:
         help="Optional comma-separated scorecard domains to evaluate.",
     )
     parser.add_argument(
+        "--asn",
+        default=None,
+        help="Optional client ASN scope filter for incident_report.",
+    )
+    parser.add_argument(
+        "--path-pattern",
+        default=None,
+        help=(
+            "Optional path-pattern scope filter for incident_report "
+            "(requestPathPattern bucket for summary queries; SQL LIKE for "
+            "raw drilldown)."
+        ),
+    )
+    parser.add_argument(
+        "--fields",
+        default=None,
+        help=(
+            "Comma-separated akamai.logs column names to rank in the "
+            "incident_report actors section. Default: "
+            f"{_INCIDENT_DEFAULT_FIELDS}."
+        ),
+    )
+    parser.add_argument(
+        "--top-n",
+        type=int,
+        default=10,
+        help="Top-N row cap for incident_report dimension and actor queries.",
+    )
+    parser.add_argument(
         "--analyst-notes",
         help="LLM interpretation prose to include in the final report wrapper.",
     )
@@ -2251,6 +4696,19 @@ def main() -> int:
         else DEFAULT_SAMPLE_ROOT / args.cluster
     )
     sample_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.report == "incident_report":
+        output_path = Path(args.output).expanduser().resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        return _run_incident_report(
+            args,
+            start,
+            end,
+            baseline_start,
+            sample_dir,
+            output_path,
+        )
+
     raw_path = sample_dir / f"{args.report}-raw.json"
     artifact_path = sample_dir / f"{args.report}-artifact.json"
     timeseries_raw_path = sample_dir / f"{args.report}-timeseries-raw.json"
