@@ -18,6 +18,31 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from report_engine import humanize as _humanize  # noqa: E402
 from report_engine.theme import DOMAIN_LABELS as _DOMAIN_LABELS  # noqa: E402
 
+# Heuristic-ladder calibration constants (suspicious-target thresholds,
+# anomaly rate floors, automation-UA pattern, severity-rank table, and
+# the quant/concentration flag partitions). Lifted to ``heuristics`` so
+# tuning against real incidents is one focused file change. Imported
+# under their original names so every call site in this module keeps
+# working without touching the heuristic body.
+from heuristics import (  # noqa: E402
+    _ANOMALY_CURRENT_ERROR_RATE_MIN,
+    _ANOMALY_ERROR_RATE_RATIO_MIN,
+    _ANOMALY_MIN_REQUESTS,
+    _AUTOMATION_UA_PATTERN,
+    _SEVERITY_RANK,
+    _SUSPICIOUS_ASN_CLUSTER_MIN_IPS,
+    _SUSPICIOUS_BOTNET_CLUSTER_SHARE_MIN,
+    _SUSPICIOUS_CONCENTRATION_FLAGS,
+    _SUSPICIOUS_NEW_ACTOR_REQUESTS_MIN,
+    _SUSPICIOUS_NEW_ACTOR_VOLUME_SHARE_MIN,
+    _SUSPICIOUS_QUANT_FLAGS,
+    _SUSPICIOUS_RATE_429_SHARE_MIN,
+    _SUSPICIOUS_RATE_429_TOTAL_MIN,
+    _SUSPICIOUS_SINGLE_PATH_REQUESTS_MIN,
+    _SUSPICIOUS_VOLUME_SHARE_MIN,
+    _is_templated_catchall_path,
+)
+
 
 # Root of the hydrolix-ai-toolkit checkout that hosts this script.
 # Derived from __file__ so the orchestrator continues to work from a
@@ -2102,83 +2127,13 @@ INCIDENT_INTERPRETATION_CONTRACT: dict[str, list[str]] = {
 }
 
 
-# Heuristic-ladder constants. Lifted to module scope so calibration
-# against real incidents is a one-line change. See
-# ``references/incident-analysis.md`` and the Phase-2 design for the
-# rationale behind each floor.
-_SUSPICIOUS_VOLUME_SHARE_MIN = 0.05  # 5% of in-window requests
-_SUSPICIOUS_RATE_429_SHARE_MIN = 0.10  # 10% of in-window 429s
-_SUSPICIOUS_RATE_429_TOTAL_MIN = 100  # de-noise tiny windows
-_SUSPICIOUS_SINGLE_PATH_REQUESTS_MIN = 1000  # floor on single-path concentration
-_SUSPICIOUS_ASN_CLUSTER_MIN_IPS = 3  # cluster requires >= 3 flagged IPs
-# Fleet-level volume floor for the ``botnet_member`` cross-row flag.
-# Individual IPs in a botnet fan-out attack rarely cross the
-# ``high_volume_share`` 5% bar — share is split across thousands of
-# nodes. The cluster's *combined* share is the honest quant signal at
-# the fleet level. Calibrated against the Expedia 2026-04-19 incident:
-# the AS24940 Hetzner cluster of 3 flagged IPs ran at 0.70% of the
-# window with verified ASN attribution — clearly malicious, but a 1%
-# floor missed it. 0.5% catches genuine ~3-IP VPS clusters without
-# tripping on noise (a 50M-req cluster in a 10B-req window is real).
-_SUSPICIOUS_BOTNET_CLUSTER_SHARE_MIN = 0.005
-
-# Magnitude floor for the ``high_volume_new_actor`` flag on lone
-# (non-clustered) new client IPs. ``new_in_window`` alone is a
-# categorical signal — a brand-new IP doing 1 request and one doing
-# 30M requests both get the same flag, leaving high-volume singletons
-# stuck at severity:low. The cluster pivots (``single_asn_cluster``,
-# ``botnet_member``) only fire when ≥3 flagged peers share an ASN;
-# lone high-volume IPs across distinct ASNs slip through.
-#
-# Calibrated against the Expedia 2026-04-19 incident: 8 lone-ASN
-# new-in-window IPs at 24-30M reqs each in a 10.9B-req window
-# (0.22-0.27% share) carried real signal but stayed at severity:low,
-# action_class:monitor, invisible in the editorial top-10. 0.1% share
-# captures them; the absolute floor (1M reqs) prevents false fires
-# on tiny windows where share% spikes are noise.
-_SUSPICIOUS_NEW_ACTOR_VOLUME_SHARE_MIN = 0.001
-_SUSPICIOUS_NEW_ACTOR_REQUESTS_MIN = 1_000_000
-_AUTOMATION_UA_PATTERN = re.compile(
-    r"\b(curl|python-requests|Go-http-client|wget|libwww|httpx|aiohttp)\b",
-    re.IGNORECASE,
-)
-
-# CMS / SPA routing tables typically collapse high-cardinality URL
-# spaces (every article, every product page, every hotel listing) into
-# a single templated pattern that begins with a placeholder segment
-# like ``/:slug``, ``/:locale/:slug``, or ``/:id``. When the upstream
-# capture aggregates by ``requestPathPattern``, that single bucket
-# inevitably accumulates the highest volume share — but it represents
-# millions of distinct underlying URLs, not a real focal point.
-#
-# Treat any request_path target whose value starts with a placeholder
-# segment as a catch-all bucket: it can still be flagged via volume
-# and 429 primitives, but ``single_path_concentration`` is
-# tautologically true for any ``GROUP BY request_path`` row and gives
-# a false-positive critical-tier flag here. Suppressing it lets real,
-# specific endpoints (``/graphql``, ``/api/v1/auth/login``,
-# ``/login/submit``) keep their critical tier while CMS buckets fall
-# to high — visible, but no longer dominating the ranking.
-_TEMPLATED_CATCHALL_PATH_PATTERN = re.compile(r"^/:[A-Za-z_][\w]*")
-
-
-def _is_templated_catchall_path(value: str) -> bool:
-    """Return True if ``value`` is a CMS-bucket templated path pattern
-    whose leading segment is a placeholder (``/:slug``, ``/:locale``,
-    ``/:id/...``). Used by the suspicious-target heuristic to suppress
-    the tautological ``single_path_concentration`` flag for such
-    patterns."""
-    return bool(_TEMPLATED_CATCHALL_PATH_PATTERN.match(value or ""))
-
-# Anomaly primitive: an actor's current-window error rate
-# (req_429+req_5xx)/requests is at least N× its own baseline error rate,
-# with absolute floors to de-noise the long tail. Applies across all
-# entity types (cohort, IP, ASN, UA, path, country) — wherever a baseline
-# error rate is known.
-_ANOMALY_ERROR_RATE_RATIO_MIN = 3.0   # current >= 3× baseline
-_ANOMALY_CURRENT_ERROR_RATE_MIN = 0.05  # current rate >= 5%
-_ANOMALY_MIN_REQUESTS = 1000  # de-noise tiny actors
-
+# Heuristic-ladder thresholds, the automation-UA pattern, and the
+# templated-catchall path helper live in ``heuristics``; imported at
+# the top of this module under their original names. The taxonomy
+# tables below (field-to-target-type, ATT&CK mapping, individual vs.
+# aggregate fields, target kind) stay here because they're not
+# calibration knobs — changing them is a schema or contract change,
+# not a tuning change.
 _SUSPICIOUS_TARGET_TYPE_BY_FIELD = {
     "client_ip": "client_ip",
     "asn": "asn",
@@ -2311,18 +2266,6 @@ _INDIVIDUAL_ENTITY_FIELDS = frozenset(
     {"client_ip", "asn", "user_agent", "request_path"}
 )
 
-_SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-
-# Quantitative flags — concentration in *amount* (volume or 429 share),
-# distinct from concentration in *shape* (single path, single ASN cluster)
-# and from identification signals (automation_user_agent, new_in_window).
-# `critical` requires one flag from each of (quantitative) AND
-# (concentration in shape), so a single-dimension actor never gets the
-# top tier.
-_SUSPICIOUS_QUANT_FLAGS = frozenset(
-    {"high_volume_share", "high_rate_429_share", "botnet_member",
-     "high_volume_new_actor"}
-)
 
 # Role taxonomy for flagged signals. An ``actor`` is the WHO of the
 # attack — the entity originating traffic. A ``target`` is the WHAT —
@@ -2409,9 +2352,6 @@ def _suspicious_action_class(
         # Behavioral grouping, not directly actionable.
         return "monitor"
     return "monitor"
-_SUSPICIOUS_CONCENTRATION_FLAGS = frozenset(
-    {"single_path_concentration", "single_asn_cluster"}
-)
 
 
 _INCIDENT_DEFAULT_FIELDS = (
@@ -3296,6 +3236,429 @@ def _incident_actor_rows(
     return out
 
 
+def _evaluate_share_flags(
+    *,
+    field: str,
+    value: str,
+    is_individual: bool,
+    requests: float,
+    share: float,
+    share_429: float,
+    total_429: float,
+    distinct_paths: int,
+) -> list[str]:
+    """Share-based primitives. Apply only to individual-entity fields —
+    on aggregate fields (cohort, country) they would fire on every
+    major value by construction and produce noise. The
+    ``single_path_concentration`` flag is suppressed for CMS-bucket
+    templated patterns (``/:slug``, ``/:locale/...``) on the
+    ``request_path`` field, where distinct_paths == 1 is tautological.
+    """
+    if not is_individual:
+        return []
+    flags: list[str] = []
+    if share >= _SUSPICIOUS_VOLUME_SHARE_MIN:
+        flags.append("high_volume_share")
+    if (
+        total_429 >= _SUSPICIOUS_RATE_429_TOTAL_MIN
+        and share_429 >= _SUSPICIOUS_RATE_429_SHARE_MIN
+    ):
+        flags.append("high_rate_429_share")
+    if (
+        distinct_paths == 1
+        and requests >= _SUSPICIOUS_SINGLE_PATH_REQUESTS_MIN
+        and not (
+            field == "request_path"
+            and _is_templated_catchall_path(value)
+        )
+    ):
+        flags.append("single_path_concentration")
+    if field == "user_agent" and _AUTOMATION_UA_PATTERN.search(value):
+        flags.append("automation_user_agent")
+    return flags
+
+
+def _evaluate_novelty_flags(
+    *,
+    field: str,
+    value: str,
+    baseline_data: dict[str, dict],
+    share: float,
+    requests: float,
+) -> list[str]:
+    """Absence-based primitives. ``new_in_window`` fires when ``value``
+    is missing from the baseline. ``high_volume_new_actor`` is the
+    magnitude-aware companion: a lone new IP doing high absolute
+    volume carries real signal even without a peer cluster, capping
+    the asymmetry where ``new_in_window`` alone treats a 100-req new
+    IP the same as a 30M-req one. Scoped to ``client_ip`` because
+    that's where the gap matters operationally — lone high-volume
+    new UAs / paths are surfaced through other primitives.
+    """
+    if not value or value in baseline_data:
+        return []
+    flags = ["new_in_window"]
+    if (
+        field == "client_ip"
+        and share >= _SUSPICIOUS_NEW_ACTOR_VOLUME_SHARE_MIN
+        and requests >= _SUSPICIOUS_NEW_ACTOR_REQUESTS_MIN
+    ):
+        flags.append("high_volume_new_actor")
+    return flags
+
+
+def _evaluate_anomaly(
+    baseline_row: dict | None,
+    *,
+    requests: float,
+    current_error_rate: float,
+    clean_number,
+) -> tuple[list[str], dict]:
+    """Baseline-rate departure check. Returns ``(["anomaly"], extras)``
+    when the actor's current error rate is at least N× its own
+    baseline (with absolute floors); otherwise ``([], {})``. Extras
+    carry the rendered baseline rate + current rate + ratio so the
+    renderer can show "Browser cohort error rate 11.4% vs ~0.5%
+    baseline (22× departure)" instead of just naming the flag.
+    """
+    if baseline_row is None:
+        return [], {}
+    baseline_requests = baseline_row.get("requests") or 0
+    baseline_errors = (
+        (baseline_row.get("req_429") or 0)
+        + (baseline_row.get("req_5xx") or 0)
+    )
+    baseline_error_rate = (
+        baseline_errors / baseline_requests if baseline_requests > 0 else 0.0
+    )
+    if not (
+        baseline_error_rate > 0
+        and current_error_rate >= _ANOMALY_CURRENT_ERROR_RATE_MIN
+        and requests >= _ANOMALY_MIN_REQUESTS
+        and current_error_rate / baseline_error_rate >= _ANOMALY_ERROR_RATE_RATIO_MIN
+    ):
+        return [], {}
+    return (
+        ["anomaly"],
+        {
+            "baseline_error_rate_pct": clean_number(round(100.0 * baseline_error_rate, 2)),
+            "current_error_rate_pct": clean_number(round(100.0 * current_error_rate, 2)),
+            "error_rate_ratio": clean_number(
+                round(current_error_rate / baseline_error_rate, 2)
+            ),
+        },
+    )
+
+
+def _evaluate_ranking_row(
+    *,
+    row: dict,
+    row_idx: int,
+    ranking_idx: int,
+    field: str,
+    target_type: str,
+    is_individual: bool,
+    baseline_data: dict[str, dict],
+    total_current: float,
+    total_429: float,
+    baselines_mod,
+) -> dict | None:
+    """Run every per-row primitive against one actor-ranking row.
+
+    Returns an ``intermediate`` entry (the unflagged-clean dict that
+    feeds cross-row pivots + final tier assignment), or ``None`` if
+    no flags fire. ``intermediate`` carries pre-computed share %s
+    and the captured ASN attribution so the cross-row pivots don't
+    re-derive them.
+    """
+    value = str(row.get("value") or "")
+    requests = float(baselines_mod.to_number(row.get("requests")) or 0)
+    req_429 = float(baselines_mod.to_number(row.get("req_429")) or 0)
+    req_5xx = float(baselines_mod.to_number(row.get("req_5xx")) or 0)
+    distinct_paths = int(baselines_mod.to_number(row.get("distinct_paths")) or 0)
+
+    share = requests / total_current if total_current > 0 else 0.0
+    share_429 = req_429 / total_429 if total_429 > 0 else 0.0
+    current_error_rate = (
+        (req_429 + req_5xx) / requests if requests > 0 else 0.0
+    )
+
+    flags: list[str] = _evaluate_share_flags(
+        field=field,
+        value=value,
+        is_individual=is_individual,
+        requests=requests,
+        share=share,
+        share_429=share_429,
+        total_429=total_429,
+        distinct_paths=distinct_paths,
+    )
+    flags.extend(
+        _evaluate_novelty_flags(
+            field=field,
+            value=value,
+            baseline_data=baseline_data,
+            share=share,
+            requests=requests,
+        )
+    )
+    anomaly_flags, supporting_extras = _evaluate_anomaly(
+        baseline_data.get(value),
+        requests=requests,
+        current_error_rate=current_error_rate,
+        clean_number=baselines_mod.clean_number,
+    )
+    flags.extend(anomaly_flags)
+
+    if not flags:
+        return None
+
+    # Per-row ASN attribution feeds the single_asn_cluster +
+    # botnet_member pivots. Absence triggers the coarse-count fallback
+    # so the heuristic stays backward-compatible with legacy producers
+    # that don't carry IP -> ASN attribution.
+    row_asn = row.get("asn")
+    row_asn_org = row.get("asn_org") or row.get("asn_name") or ""
+    return {
+        "field": field,
+        "ranking_idx": ranking_idx,
+        "row_idx": row_idx,
+        "target_type": target_type,
+        "value": value,
+        "flags": flags,
+        "requests": requests,
+        "share_pct": baselines_mod.clean_number(round(100.0 * share, 2)),
+        "req_429": req_429,
+        "req_429_share_pct": baselines_mod.clean_number(round(100.0 * share_429, 2)),
+        "distinct_paths": distinct_paths,
+        "supporting_extras": supporting_extras,
+        "asn": row_asn if row_asn not in ("", None) else None,
+        "asn_org": str(row_asn_org) if row_asn_org else "",
+    }
+
+
+def _apply_asn_grouped_pivots(
+    flagged_client_ips: list[dict],
+    total_current: float,
+    *,
+    clean_number,
+) -> None:
+    """Per-ASN grouping path. Rows without an ASN are excluded from
+    clustering entirely — they're attribution-unknown and shouldn't
+    claim membership in any specific cluster. Mutates rows in place.
+    """
+    groups: dict[object, list[dict]] = {}
+    for row in flagged_client_ips:
+        asn = row.get("asn")
+        if asn in (None, "", 0):
+            continue
+        groups.setdefault(asn, []).append(row)
+    for asn, members in groups.items():
+        if len(members) < _SUSPICIOUS_ASN_CLUSTER_MIN_IPS:
+            continue
+        asn_org = next(
+            (m.get("asn_org") for m in members if m.get("asn_org")), ""
+        )
+        for row in members:
+            if "single_asn_cluster" not in row["flags"]:
+                row["flags"].append("single_asn_cluster")
+            extras = row.setdefault("supporting_extras", {})
+            extras["asn_cluster_id"] = asn
+            if asn_org:
+                extras["asn_cluster_org"] = asn_org
+            extras["asn_cluster_size"] = len(members)
+        if total_current <= 0:
+            continue
+        cluster_requests = sum(m["requests"] for m in members)
+        cluster_share = cluster_requests / total_current
+        if cluster_share < _SUSPICIOUS_BOTNET_CLUSTER_SHARE_MIN:
+            continue
+        cluster_share_pct = clean_number(round(100.0 * cluster_share, 2))
+        for row in members:
+            if "botnet_member" not in row["flags"]:
+                row["flags"].append("botnet_member")
+            extras = row.setdefault("supporting_extras", {})
+            extras["botnet_cluster_requests"] = int(cluster_requests)
+            extras["botnet_cluster_share_pct"] = cluster_share_pct
+            extras["botnet_cluster_size"] = len(members)
+
+
+def _apply_unverified_cluster_pivots(
+    flagged_client_ips: list[dict],
+    total_current: float,
+    *,
+    clean_number,
+) -> None:
+    """Legacy fallback for producers without per-row ASN attribution.
+    Uses the coarse count + total-share rule and marks the
+    supporting_extras so downstream consumers can tell this is an
+    approximation, not a verified same-ASN cluster. Mutates rows in
+    place.
+    """
+    for row in flagged_client_ips:
+        if "single_asn_cluster" not in row["flags"]:
+            row["flags"].append("single_asn_cluster")
+        extras = row.setdefault("supporting_extras", {})
+        extras["asn_cluster_attribution"] = "unverified"
+        extras["asn_cluster_size"] = len(flagged_client_ips)
+    if total_current <= 0:
+        return
+    cluster_requests = sum(r["requests"] for r in flagged_client_ips)
+    cluster_share = cluster_requests / total_current
+    if cluster_share < _SUSPICIOUS_BOTNET_CLUSTER_SHARE_MIN:
+        return
+    cluster_share_pct = clean_number(round(100.0 * cluster_share, 2))
+    for row in flagged_client_ips:
+        if "botnet_member" not in row["flags"]:
+            row["flags"].append("botnet_member")
+        extras = row.setdefault("supporting_extras", {})
+        extras["botnet_cluster_requests"] = int(cluster_requests)
+        extras["botnet_cluster_share_pct"] = cluster_share_pct
+        extras["botnet_cluster_size"] = len(flagged_client_ips)
+
+
+def _apply_cluster_pivots(
+    intermediate: list[dict],
+    total_current: float,
+    *,
+    clean_number,
+) -> None:
+    """Cross-row pivots that add ``single_asn_cluster`` (shape) and
+    ``botnet_member`` (magnitude) flags to flagged client_ip rows.
+    Routes through per-ASN grouping when the producer carries ASN
+    attribution, falling back to the coarse count + total-share rule
+    when no row carries an ``asn`` field.
+    """
+    flagged_client_ips = [r for r in intermediate if r["field"] == "client_ip"]
+    have_asn_attribution = any(
+        r.get("asn") not in (None, "", 0) for r in flagged_client_ips
+    )
+    if have_asn_attribution:
+        _apply_asn_grouped_pivots(
+            flagged_client_ips, total_current, clean_number=clean_number,
+        )
+    elif len(flagged_client_ips) >= _SUSPICIOUS_ASN_CLUSTER_MIN_IPS:
+        _apply_unverified_cluster_pivots(
+            flagged_client_ips, total_current, clean_number=clean_number,
+        )
+
+
+def _assign_severity(
+    flag_set: set[str],
+    *,
+    cross_field_corroboration: bool,
+) -> tuple[str, str]:
+    """Tier mapping → ``(severity, confidence)``. Anomaly is a
+    baseline-corroborated signal so it counts as 2 toward the
+    effective flag count: an anomaly-alone finding reaches
+    ``severity: high``, share-based singles stay at ``medium``.
+    ``critical`` additionally requires one flag from each of
+    (quantitative) AND (concentration in shape) so a single-dimension
+    actor never reaches the top tier.
+    """
+    flag_count = len(flag_set)
+    effective_flag_count = flag_count + (1 if "anomaly" in flag_set else 0)
+    if (
+        effective_flag_count >= 3
+        and bool(flag_set & _SUSPICIOUS_QUANT_FLAGS)
+        and bool(flag_set & _SUSPICIOUS_CONCENTRATION_FLAGS)
+    ):
+        return "critical", "high" if cross_field_corroboration else "medium"
+    if effective_flag_count >= 2:
+        return "high", "high" if cross_field_corroboration else "medium"
+    if flag_set & _SUSPICIOUS_QUANT_FLAGS:
+        return "medium", "low"
+    return "low", "low"
+
+
+def _build_target_entry(row: dict, field_appearance: dict[str, int]) -> dict:
+    """Project an ``intermediate`` row into a final
+    ``bot_incident_action_targets.v1`` ``targets`` entry — tier
+    assignment, supporting payload, evidence_refs, and the
+    descriptive (not prescriptive) action_class.
+    """
+    flag_set = set(row["flags"])
+    cross_field_corroboration = field_appearance.get(row["value"], 0) >= 2
+    severity, confidence = _assign_severity(
+        flag_set, cross_field_corroboration=cross_field_corroboration,
+    )
+    supporting = {
+        "requests": int(row["requests"]),
+        "share_pct": row["share_pct"],
+        "req_429": int(row["req_429"]),
+        "req_429_share_pct": row["req_429_share_pct"],
+        "distinct_paths": row["distinct_paths"],
+    }
+    supporting.update(row.get("supporting_extras") or {})
+    return {
+        "target_type": row["target_type"],
+        "target_value": row["value"],
+        "kind": _TARGET_KIND_BY_TYPE.get(row["target_type"], "actor"),
+        "action_class": _suspicious_action_class(
+            row["target_type"], severity, row["flags"],
+        ),
+        "reason_flags": list(row["flags"]),
+        "attack_techniques": _attack_techniques_for_flags(row["flags"]),
+        "severity": severity,
+        "supporting": supporting,
+        "suggested_action_hint": "review",
+        "confidence": confidence,
+        "evidence_refs": [
+            {
+                "artifact": "bot_incident_actors.v1",
+                "json_pointer": (
+                    f"/actor_rankings/{row['ranking_idx']}/rows/"
+                    f"{row['row_idx']}"
+                ),
+            }
+        ],
+    }
+
+
+def _evaluate_all_rankings(
+    rankings: list[dict],
+    baseline_actor_rows_by_field: dict[str, dict[str, dict]],
+    *,
+    total_current: float,
+    total_429: float,
+    baselines_mod,
+) -> tuple[list[dict], dict[str, int]]:
+    """Walk every actor ranking, evaluate each row's heuristic flags,
+    and return (intermediate flagged rows, value→appearance count).
+    Rankings whose field isn't in the target-type taxonomy are
+    skipped silently — that's the contract for unknown producers.
+    """
+    field_appearance: dict[str, int] = {}
+    intermediate: list[dict] = []
+    for ranking_idx, ranking in enumerate(rankings):
+        field = ranking.get("field") or ""
+        target_type = _SUSPICIOUS_TARGET_TYPE_BY_FIELD.get(field)
+        if target_type is None:
+            continue
+        baseline_data = baseline_actor_rows_by_field.get(field, {})
+        is_individual = field in _INDIVIDUAL_ENTITY_FIELDS
+        for row_idx, row in enumerate(ranking.get("rows") or []):
+            entry = _evaluate_ranking_row(
+                row=row,
+                row_idx=row_idx,
+                ranking_idx=ranking_idx,
+                field=field,
+                target_type=target_type,
+                is_individual=is_individual,
+                baseline_data=baseline_data,
+                total_current=total_current,
+                total_429=total_429,
+                baselines_mod=baselines_mod,
+            )
+            if entry is None:
+                continue
+            field_appearance[entry["value"]] = (
+                field_appearance.get(entry["value"], 0) + 1
+            )
+            intermediate.append(entry)
+    return intermediate, field_appearance
+
+
 def _compute_suspicious_targets(
     scope_artifact: dict,
     actors_artifact: dict,
@@ -3327,319 +3690,22 @@ def _compute_suspicious_targets(
     import baselines as baselines_mod
 
     window = scope_artifact.get("window_confirmation") or {}
-    total_current = float(
-        baselines_mod.to_number(window.get("requests")) or 0
-    )
-    rate_429_pct = float(
-        baselines_mod.to_number(window.get("rate_429_pct")) or 0
-    )
+    total_current = float(baselines_mod.to_number(window.get("requests")) or 0)
+    rate_429_pct = float(baselines_mod.to_number(window.get("rate_429_pct")) or 0)
     total_429 = total_current * rate_429_pct / 100.0
 
-    rankings = actors_artifact.get("actor_rankings") or []
-    field_appearance: dict[str, int] = {}
-    intermediate: list[dict] = []
-
-    for ranking_idx, ranking in enumerate(rankings):
-        field = ranking.get("field") or ""
-        target_type = _SUSPICIOUS_TARGET_TYPE_BY_FIELD.get(field)
-        if target_type is None:
-            continue
-        baseline_data = baseline_actor_rows_by_field.get(field, {})
-        is_individual = field in _INDIVIDUAL_ENTITY_FIELDS
-        for row_idx, row in enumerate(ranking.get("rows") or []):
-            value = str(row.get("value") or "")
-            requests = float(
-                baselines_mod.to_number(row.get("requests")) or 0
-            )
-            req_429 = float(baselines_mod.to_number(row.get("req_429")) or 0)
-            req_5xx = float(baselines_mod.to_number(row.get("req_5xx")) or 0)
-            distinct_paths = int(
-                baselines_mod.to_number(row.get("distinct_paths")) or 0
-            )
-
-            share = requests / total_current if total_current > 0 else 0.0
-            share_429 = req_429 / total_429 if total_429 > 0 else 0.0
-            current_error_rate = (
-                (req_429 + req_5xx) / requests if requests > 0 else 0.0
-            )
-
-            flags: list[str] = []
-            supporting_extras: dict = {}
-
-            # Share-based primitives apply only to individual-entity fields.
-            # On aggregate fields (cohort, country) they would fire on every
-            # major value by construction and produce noise.
-            if is_individual:
-                if share >= _SUSPICIOUS_VOLUME_SHARE_MIN:
-                    flags.append("high_volume_share")
-                if (
-                    total_429 >= _SUSPICIOUS_RATE_429_TOTAL_MIN
-                    and share_429 >= _SUSPICIOUS_RATE_429_SHARE_MIN
-                ):
-                    flags.append("high_rate_429_share")
-                if (
-                    distinct_paths == 1
-                    and requests >= _SUSPICIOUS_SINGLE_PATH_REQUESTS_MIN
-                    # For the request_path field itself, distinct_paths
-                    # is tautologically 1 because the GROUP BY column
-                    # *is* the path — every row has exactly one
-                    # distinct path. Suppress the flag for CMS-bucket
-                    # templated patterns (``/:slug``, ``/:locale/...``)
-                    # so they don't reach critical purely on this
-                    # tautology. Specific endpoints like ``/graphql``
-                    # or ``/api/v1/auth/login`` still satisfy the
-                    # check.
-                    and not (
-                        field == "request_path"
-                        and _is_templated_catchall_path(value)
-                    )
-                ):
-                    flags.append("single_path_concentration")
-                if field == "user_agent" and _AUTOMATION_UA_PATTERN.search(
-                    value
-                ):
-                    flags.append("automation_user_agent")
-
-            # Baseline-relative primitives apply to all fields. new_in_window
-            # is absence-based; anomaly is rate-departure-based. Both
-            # generalize across individual entities and aggregates.
-            if value and value not in baseline_data:
-                flags.append("new_in_window")
-                # Magnitude-aware companion: a lone new IP doing
-                # high absolute volume carries real signal even
-                # without a peer cluster. Caps the asymmetry where
-                # ``new_in_window`` alone is categorical (a 100-req
-                # new IP and a 30M-req new IP get the same flag).
-                # Scoped to ``client_ip`` because that's where the
-                # gap matters operationally — lone high-volume new
-                # UAs / paths are surfaced through other primitives.
-                if (
-                    field == "client_ip"
-                    and share >= _SUSPICIOUS_NEW_ACTOR_VOLUME_SHARE_MIN
-                    and requests >= _SUSPICIOUS_NEW_ACTOR_REQUESTS_MIN
-                ):
-                    flags.append("high_volume_new_actor")
-
-            baseline_row = baseline_data.get(value)
-            if baseline_row is not None:
-                baseline_requests = baseline_row.get("requests") or 0
-                baseline_errors = (
-                    (baseline_row.get("req_429") or 0)
-                    + (baseline_row.get("req_5xx") or 0)
-                )
-                baseline_error_rate = (
-                    baseline_errors / baseline_requests
-                    if baseline_requests > 0
-                    else 0.0
-                )
-                if (
-                    baseline_error_rate > 0
-                    and current_error_rate >= _ANOMALY_CURRENT_ERROR_RATE_MIN
-                    and requests >= _ANOMALY_MIN_REQUESTS
-                    and current_error_rate / baseline_error_rate
-                    >= _ANOMALY_ERROR_RATE_RATIO_MIN
-                ):
-                    flags.append("anomaly")
-                    supporting_extras["baseline_error_rate_pct"] = (
-                        baselines_mod.clean_number(
-                            round(100.0 * baseline_error_rate, 2)
-                        )
-                    )
-                    supporting_extras["current_error_rate_pct"] = (
-                        baselines_mod.clean_number(
-                            round(100.0 * current_error_rate, 2)
-                        )
-                    )
-                    supporting_extras["error_rate_ratio"] = (
-                        baselines_mod.clean_number(
-                            round(
-                                current_error_rate / baseline_error_rate, 2
-                            )
-                        )
-                    )
-
-            if not flags:
-                continue
-
-            field_appearance[value] = field_appearance.get(value, 0) + 1
-            # Capture per-row ASN attribution when the producer supplies
-            # it. Used downstream by the single_asn_cluster + botnet_member
-            # pivots; absence triggers the coarse-count fallback so the
-            # heuristic remains backward-compatible with legacy producers
-            # that don't carry IP -> ASN attribution.
-            row_asn = row.get("asn")
-            row_asn_org = row.get("asn_org") or row.get("asn_name") or ""
-            intermediate.append(
-                {
-                    "field": field,
-                    "ranking_idx": ranking_idx,
-                    "row_idx": row_idx,
-                    "target_type": target_type,
-                    "value": value,
-                    "flags": flags,
-                    "requests": requests,
-                    "share_pct": baselines_mod.clean_number(round(100.0 * share, 2)),
-                    "req_429": req_429,
-                    "req_429_share_pct": baselines_mod.clean_number(
-                        round(100.0 * share_429, 2)
-                    ),
-                    "distinct_paths": distinct_paths,
-                    "supporting_extras": supporting_extras,
-                    "asn": row_asn if row_asn not in ("", None) else None,
-                    "asn_org": str(row_asn_org) if row_asn_org else "",
-                }
-            )
-
-    # Cross-row pivots: single_asn_cluster (shape) + botnet_member
-    # (magnitude). Both rest on grouping flagged client_ip rows into
-    # ASN clusters. When the producer carries per-row ASN attribution
-    # (a non-empty ``asn`` field on at least one flagged client_ip
-    # row), the grouping is exact: an IP is a single_asn_cluster
-    # member only when its own ASN has >= N flagged peers, and a
-    # botnet_member only when that same ASN's combined share crosses
-    # the fleet floor. When NO row carries an ``asn`` field, the
-    # producer is a legacy caller without GeoIP attribution; we fall
-    # back to the coarse total-count + total-share rule (the v2
-    # behavior) so existing consumers keep working.
-    flagged_client_ips = [r for r in intermediate if r["field"] == "client_ip"]
-    have_asn_attribution = any(
-        r.get("asn") not in (None, "", 0) for r in flagged_client_ips
+    intermediate, field_appearance = _evaluate_all_rankings(
+        actors_artifact.get("actor_rankings") or [],
+        baseline_actor_rows_by_field,
+        total_current=total_current,
+        total_429=total_429,
+        baselines_mod=baselines_mod,
+    )
+    _apply_cluster_pivots(
+        intermediate, total_current, clean_number=baselines_mod.clean_number,
     )
 
-    if have_asn_attribution:
-        # Per-ASN grouping. Rows without an ASN are excluded from
-        # clustering entirely — they're attribution-unknown and
-        # honestly shouldn't claim membership in any specific cluster.
-        groups: dict[object, list[dict]] = {}
-        for row in flagged_client_ips:
-            asn = row.get("asn")
-            if asn in (None, "", 0):
-                continue
-            groups.setdefault(asn, []).append(row)
-        for asn, members in groups.items():
-            if len(members) < _SUSPICIOUS_ASN_CLUSTER_MIN_IPS:
-                continue
-            asn_org = next((m.get("asn_org") for m in members if m.get("asn_org")), "")
-            for row in members:
-                if "single_asn_cluster" not in row["flags"]:
-                    row["flags"].append("single_asn_cluster")
-                extras = row.setdefault("supporting_extras", {})
-                extras["asn_cluster_id"] = asn
-                if asn_org:
-                    extras["asn_cluster_org"] = asn_org
-                extras["asn_cluster_size"] = len(members)
-            if total_current <= 0:
-                continue
-            cluster_requests = sum(m["requests"] for m in members)
-            cluster_share = cluster_requests / total_current
-            if cluster_share < _SUSPICIOUS_BOTNET_CLUSTER_SHARE_MIN:
-                continue
-            cluster_share_pct = baselines_mod.clean_number(
-                round(100.0 * cluster_share, 2)
-            )
-            for row in members:
-                if "botnet_member" not in row["flags"]:
-                    row["flags"].append("botnet_member")
-                extras = row.setdefault("supporting_extras", {})
-                extras["botnet_cluster_requests"] = int(cluster_requests)
-                extras["botnet_cluster_share_pct"] = cluster_share_pct
-                extras["botnet_cluster_size"] = len(members)
-    elif len(flagged_client_ips) >= _SUSPICIOUS_ASN_CLUSTER_MIN_IPS:
-        # Fallback: legacy producer with no per-row ASN attribution.
-        # Use the coarse count + total-share rule. Flag the
-        # supporting_extras so downstream consumers can tell this is
-        # an approximation, not a verified same-ASN cluster.
-        for row in flagged_client_ips:
-            if "single_asn_cluster" not in row["flags"]:
-                row["flags"].append("single_asn_cluster")
-            extras = row.setdefault("supporting_extras", {})
-            extras["asn_cluster_attribution"] = "unverified"
-            extras["asn_cluster_size"] = len(flagged_client_ips)
-        if total_current > 0:
-            cluster_requests = sum(r["requests"] for r in flagged_client_ips)
-            cluster_share = cluster_requests / total_current
-            if cluster_share >= _SUSPICIOUS_BOTNET_CLUSTER_SHARE_MIN:
-                cluster_share_pct = baselines_mod.clean_number(
-                    round(100.0 * cluster_share, 2)
-                )
-                for row in flagged_client_ips:
-                    if "botnet_member" not in row["flags"]:
-                        row["flags"].append("botnet_member")
-                    extras = row.setdefault("supporting_extras", {})
-                    extras["botnet_cluster_requests"] = int(cluster_requests)
-                    extras["botnet_cluster_share_pct"] = cluster_share_pct
-                    extras["botnet_cluster_size"] = len(flagged_client_ips)
-
-    targets: list[dict] = []
-    for row in intermediate:
-        flag_set = set(row["flags"])
-        flag_count = len(row["flags"])
-        cross_field_corroboration = field_appearance.get(row["value"], 0) >= 2
-
-        # Anomaly is a baseline-corroborated signal — the comparison to
-        # the entity's own past is built in. It carries more analytical
-        # weight than a share-based flag (which only compares across the
-        # current window). Counting it as 2 toward severity tiering means
-        # an anomaly-alone finding (1 flag) reaches severity: high, while
-        # share-based singles stay at medium.
-        effective_flag_count = flag_count + (1 if "anomaly" in flag_set else 0)
-
-        critical_rule = (
-            effective_flag_count >= 3
-            and bool(flag_set & _SUSPICIOUS_QUANT_FLAGS)
-            and bool(flag_set & _SUSPICIOUS_CONCENTRATION_FLAGS)
-        )
-        if critical_rule:
-            severity = "critical"
-            confidence = "high" if cross_field_corroboration else "medium"
-        elif effective_flag_count >= 2:
-            severity = "high"
-            confidence = "high" if cross_field_corroboration else "medium"
-        elif flag_set & _SUSPICIOUS_QUANT_FLAGS:
-            severity = "medium"
-            confidence = "low"
-        else:
-            severity = "low"
-            confidence = "low"
-
-        supporting = {
-            "requests": int(row["requests"]),
-            "share_pct": row["share_pct"],
-            "req_429": int(row["req_429"]),
-            "req_429_share_pct": row["req_429_share_pct"],
-            "distinct_paths": row["distinct_paths"],
-        }
-        # Anomaly-specific evidence: baseline error rate + current rate +
-        # the ratio that fired the primitive. Surfaced so the renderer
-        # can show "Browser cohort error rate 11.4% vs ~0.5% baseline
-        # (22× departure)" instead of just naming the flag.
-        supporting.update(row.get("supporting_extras") or {})
-        targets.append(
-            {
-                "target_type": row["target_type"],
-                "target_value": row["value"],
-                "kind": _TARGET_KIND_BY_TYPE.get(row["target_type"], "actor"),
-                "action_class": _suspicious_action_class(
-                    row["target_type"], severity, row["flags"],
-                ),
-                "reason_flags": list(row["flags"]),
-                "attack_techniques": _attack_techniques_for_flags(row["flags"]),
-                "severity": severity,
-                "supporting": supporting,
-                "suggested_action_hint": "review",
-                "confidence": confidence,
-                "evidence_refs": [
-                    {
-                        "artifact": "bot_incident_actors.v1",
-                        "json_pointer": (
-                            f"/actor_rankings/{row['ranking_idx']}/rows/"
-                            f"{row['row_idx']}"
-                        ),
-                    }
-                ],
-            }
-        )
-
+    targets = [_build_target_entry(row, field_appearance) for row in intermediate]
     targets.sort(
         key=lambda t: (
             _SEVERITY_RANK.get(t["severity"], 99),

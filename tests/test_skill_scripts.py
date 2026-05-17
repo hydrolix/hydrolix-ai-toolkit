@@ -667,6 +667,13 @@ class BotInsightsScriptTests(unittest.TestCase):
                 # generated output is committed so report rendering itself
                 # stays fully offline. Not an artifact-producing script.
                 "build_editorial_fonts.py",
+                # Heuristic-ladder constants extracted from
+                # ``bot_insights_report.py``. Pure Python constants
+                # (thresholds, frozensets, a compiled UA regex). No I/O.
+                # The ``_AUTOMATION_UA_PATTERN`` regex carries the
+                # literal token ``curl`` because that's a UA string we
+                # flag, not a command this module runs.
+                "heuristics.py",
             }
         ]
         blocked_import_roots = {
