@@ -21,7 +21,7 @@ from .risk import (
     _severity_ladder,
 )
 from .targets import (
-    SUSPICIOUS_TARGETS_DISPLAY_CAP,
+    SUSPICIOUS_TARGETS_DISPLAY_CAP,  # noqa: F401 - re-exported public symbol
     _attack_aggregation,
     _suspicious_targets_view,
 )
@@ -324,14 +324,13 @@ def _build_orientation_block() -> dict:
 
 def _build_suspicious_targets_visible(suspicious_targets: list[dict]) -> dict:
     """Pre-slice the suspicious-targets list for the masthead's visible/hidden split."""
+    from config import active_thresholds
+
+    cap = active_thresholds().display.suspicious_targets_cap
     return {
         "suspicious_targets": suspicious_targets,
-        "suspicious_targets_visible": suspicious_targets[
-            :SUSPICIOUS_TARGETS_DISPLAY_CAP
-        ],
-        "suspicious_targets_hidden_count": max(
-            0, len(suspicious_targets) - SUSPICIOUS_TARGETS_DISPLAY_CAP
-        ),
+        "suspicious_targets_visible": suspicious_targets[:cap],
+        "suspicious_targets_hidden_count": max(0, len(suspicious_targets) - cap),
     }
 
 

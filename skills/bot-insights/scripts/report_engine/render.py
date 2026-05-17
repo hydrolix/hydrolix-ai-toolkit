@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -118,8 +119,20 @@ def build_env(
         autoescape = False  # md_escape filter is the escaping boundary
     else:
         autoescape = select_autoescape(["html"])
+    # Resolve the Jinja2 search path. Out-of-tree template overrides
+    # may be prepended via the ``BOT_INSIGHTS_TEMPLATES_PATH`` env var
+    # (colon-separated list); the first match wins, so a brand kit can
+    # shadow a built-in template by exposing the same relative name.
+    template_dirs: list[str] = []
+    oot_templates = os.environ.get("BOT_INSIGHTS_TEMPLATES_PATH", "").strip()
+    if oot_templates:
+        for entry in oot_templates.split(":"):
+            entry = entry.strip()
+            if entry:
+                template_dirs.append(str(Path(entry).expanduser()))
+    template_dirs.append(str(TEMPLATES_DIR))
     env = Environment(
-        loader=FileSystemLoader(str(TEMPLATES_DIR)),
+        loader=FileSystemLoader(template_dirs),
         autoescape=autoescape,
         undefined=StrictUndefined,
         trim_blocks=True,
@@ -418,13 +431,25 @@ def main() -> None:
     )
     ap.add_argument(
         "--palette",
-        choices=sorted(theme.PALETTES),
         default="tableau",
         help=(
             "Visual palette. tableau (default) is the historic Tableau-10 "
             "BI palette; cloudscape is AWS Cloudscape's incident-console "
-            "palette; carbon is IBM Carbon's enterprise palette. Each "
-            "ships light + dark variants."
+            "palette; carbon is IBM Carbon's enterprise palette. Custom "
+            "palettes loaded via --palette-file become selectable here by "
+            "their registered name. Each ships light + dark variants."
+        ),
+    )
+    ap.add_argument(
+        "--palette-file",
+        type=Path,
+        default=None,
+        help=(
+            "Path to a JSON palette descriptor "
+            "(``{\"name\": ..., \"light\": {...}, \"dark\": {...}}``). The "
+            "file's declared name is registered in the palette registry "
+            "before ``--palette`` is resolved, so out-of-tree brand kits "
+            "can be referenced by name without editing the report engine."
         ),
     )
     ap.add_argument(
@@ -450,7 +475,35 @@ def main() -> None:
             "underlying timestamps are stored in UTC."
         ),
     )
+    ap.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help=(
+            "Path to a threshold-override file (YAML/TOML/JSON). Loaded "
+            "into the active-thresholds singleton before render runs so "
+            "display caps (suspicious_targets_cap, exec_actions_cap, "
+            "exec_impact_tiles_cap) and risk-score bands honor the "
+            "override. See skills/bot-insights/config/defaults.yaml for "
+            "the full tunable surface."
+        ),
+    )
     args = ap.parse_args()
+    if args.config is not None:
+        import sys as _sys
+        _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
+        if str(_SCRIPTS_DIR) not in _sys.path:
+            _sys.path.insert(0, str(_SCRIPTS_DIR))
+        from config import load_thresholds, set_active_thresholds
+
+        set_active_thresholds(load_thresholds(args.config))
+    if args.palette_file is not None:
+        theme.load_palette_file(args.palette_file)
+    if args.palette not in theme.PALETTES:
+        raise SystemExit(
+            f"Unknown palette {args.palette!r}. Available: "
+            f"{sorted(theme.PALETTES)}"
+        )
     render(
         args.artifact,
         args.out,

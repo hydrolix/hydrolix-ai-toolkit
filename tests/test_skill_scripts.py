@@ -678,6 +678,12 @@ class BotInsightsScriptTests(unittest.TestCase):
                 # literal token ``curl`` because that's a UA string we
                 # flag, not a command this module runs.
                 "heuristics.py",
+                # Threshold-config layer (Phase 6a). Pure dataclasses +
+                # a small YAML/TOML/JSON file loader. Carries the
+                # default ``automation_ua_pattern`` regex including the
+                # ``curl`` UA token for the same reason as
+                # heuristics.py — UA-string vocabulary, not a shell-out.
+                "config.py",
             }
         ]
         blocked_import_roots = {

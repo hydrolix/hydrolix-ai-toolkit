@@ -19,7 +19,17 @@ Seven sections, in order:
 
 from __future__ import annotations
 
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
+
+# Make ``config`` (under scripts/) importable when this module is loaded
+# from report_engine.contexts.
+_SCRIPTS_DIR = Path(__file__).resolve().parents[3]
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+from config import DEFAULT_THRESHOLDS, active_thresholds  # noqa: E402
 
 from . import incident_report as _ir
 
@@ -44,14 +54,17 @@ CONFIDENCE_CAVEAT_DEFAULT = (
 
 # Cap actions surfaced to the exec audience. The analyst report uses
 # the same upstream generator; this view truncates so a busy reader
-# can scan the list in one breath.
-EXEC_ACTIONS_CAP = 5
+# can scan the list in one breath. The constant surfaces the default
+# value for legacy importers; ``prepare()`` reads
+# ``active_thresholds().display.exec_actions_cap`` at call time so a
+# runtime ``--config`` override applies without re-importing.
+EXEC_ACTIONS_CAP = DEFAULT_THRESHOLDS.display.exec_actions_cap
 
 # Cap on KPI tiles surfaced in the Measured-impact section. The
 # upstream ``_impact_view`` builds 6 tiles for the analyst view; the
 # exec view drops the "Top path share" tile (the top-affected sentence
 # under the strip already names the path) so the visual lands at 5.
-EXEC_IMPACT_TILES_CAP = 5
+EXEC_IMPACT_TILES_CAP = DEFAULT_THRESHOLDS.display.exec_impact_tiles_cap
 
 # Wrapper analyst-note routing. ``executive_impact`` and
 # ``current_status`` slot keys are intentionally shared with
@@ -96,8 +109,9 @@ def prepare(artifact: dict) -> dict:
     full_actions = _ir._recommended_actions_view(
         suspicious_targets, scope_art.get("dashboard_url") or "", None
     )
-    recommended_actions = full_actions[:EXEC_ACTIONS_CAP]
-    impact_tiles = list(impact.get("tiles") or [])[:EXEC_IMPACT_TILES_CAP]
+    display = active_thresholds().display
+    recommended_actions = full_actions[:display.exec_actions_cap]
+    impact_tiles = list(impact.get("tiles") or [])[:display.exec_impact_tiles_cap]
     top_affected = impact.get("top_affected")
 
     windows = {

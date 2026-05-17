@@ -11,11 +11,20 @@ Every constant carries the rationale for its current value; see
 ``references/incident-analysis.md`` for the full calibration narrative.
 Treat these as load-bearing — the conservative-by-design contract spelled
 out in ``references/pitfalls.md`` rests on them.
+
+Phase 6a: the named constants below still exist as importable symbols
+for backward compatibility, but each is now sourced from
+``config.DEFAULT_THRESHOLDS``. Operators tune them by passing a
+``--config /path/to/overrides.yaml`` flag to the producer / renderer
+CLI — see ``skills/bot-insights/config/defaults.yaml`` for the full
+documented surface.
 """
 
 from __future__ import annotations
 
 import re
+
+from config import DEFAULT_THRESHOLDS
 
 
 # ---------------------------------------------------------------------------
@@ -23,11 +32,19 @@ import re
 # Tuned to surface genuine outliers without firing on background traffic.
 # ---------------------------------------------------------------------------
 
-_SUSPICIOUS_VOLUME_SHARE_MIN = 0.05  # 5% of in-window requests
-_SUSPICIOUS_RATE_429_SHARE_MIN = 0.10  # 10% of in-window 429s
-_SUSPICIOUS_RATE_429_TOTAL_MIN = 100  # de-noise tiny windows
-_SUSPICIOUS_SINGLE_PATH_REQUESTS_MIN = 1000  # floor on single-path concentration
-_SUSPICIOUS_ASN_CLUSTER_MIN_IPS = 3  # cluster requires >= 3 flagged IPs
+_SUSPICIOUS_VOLUME_SHARE_MIN = DEFAULT_THRESHOLDS.suspicious_targets.volume_share_min
+_SUSPICIOUS_RATE_429_SHARE_MIN = (
+    DEFAULT_THRESHOLDS.suspicious_targets.rate_429_share_min
+)
+_SUSPICIOUS_RATE_429_TOTAL_MIN = (
+    DEFAULT_THRESHOLDS.suspicious_targets.rate_429_total_min
+)
+_SUSPICIOUS_SINGLE_PATH_REQUESTS_MIN = (
+    DEFAULT_THRESHOLDS.suspicious_targets.single_path_requests_min
+)
+_SUSPICIOUS_ASN_CLUSTER_MIN_IPS = (
+    DEFAULT_THRESHOLDS.suspicious_targets.asn_cluster_min_ips
+)
 
 # Fleet-level volume floor for the ``botnet_member`` cross-row flag.
 # Individual IPs in a botnet fan-out attack rarely cross the
@@ -38,7 +55,9 @@ _SUSPICIOUS_ASN_CLUSTER_MIN_IPS = 3  # cluster requires >= 3 flagged IPs
 # window with verified ASN attribution — clearly malicious, but a 1%
 # floor missed it. 0.5% catches genuine ~3-IP VPS clusters without
 # tripping on noise (a 50M-req cluster in a 10B-req window is real).
-_SUSPICIOUS_BOTNET_CLUSTER_SHARE_MIN = 0.005
+_SUSPICIOUS_BOTNET_CLUSTER_SHARE_MIN = (
+    DEFAULT_THRESHOLDS.suspicious_targets.botnet_cluster_share_min
+)
 
 # Magnitude floor for the ``high_volume_new_actor`` flag on lone
 # (non-clustered) new client IPs. ``new_in_window`` alone is a
@@ -54,8 +73,12 @@ _SUSPICIOUS_BOTNET_CLUSTER_SHARE_MIN = 0.005
 # action_class:monitor, invisible in the editorial top-10. 0.1% share
 # captures them; the absolute floor (1M reqs) prevents false fires
 # on tiny windows where share% spikes are noise.
-_SUSPICIOUS_NEW_ACTOR_VOLUME_SHARE_MIN = 0.001
-_SUSPICIOUS_NEW_ACTOR_REQUESTS_MIN = 1_000_000
+_SUSPICIOUS_NEW_ACTOR_VOLUME_SHARE_MIN = (
+    DEFAULT_THRESHOLDS.suspicious_targets.new_actor_volume_share_min
+)
+_SUSPICIOUS_NEW_ACTOR_REQUESTS_MIN = (
+    DEFAULT_THRESHOLDS.suspicious_targets.new_actor_requests_min
+)
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +87,7 @@ _SUSPICIOUS_NEW_ACTOR_REQUESTS_MIN = 1_000_000
 
 # Common scripted-client UA tokens. Hits trigger ``automation_user_agent``.
 _AUTOMATION_UA_PATTERN = re.compile(
-    r"\b(curl|python-requests|Go-http-client|wget|libwww|httpx|aiohttp)\b",
+    DEFAULT_THRESHOLDS.suspicious_targets.automation_ua_pattern,
     re.IGNORECASE,
 )
 
@@ -104,9 +127,9 @@ def _is_templated_catchall_path(value: str) -> bool:
 # error rate is known.
 # ---------------------------------------------------------------------------
 
-_ANOMALY_ERROR_RATE_RATIO_MIN = 3.0   # current >= 3× baseline
-_ANOMALY_CURRENT_ERROR_RATE_MIN = 0.05  # current rate >= 5%
-_ANOMALY_MIN_REQUESTS = 1000  # de-noise tiny actors
+_ANOMALY_ERROR_RATE_RATIO_MIN = DEFAULT_THRESHOLDS.anomaly.error_rate_ratio_min
+_ANOMALY_CURRENT_ERROR_RATE_MIN = DEFAULT_THRESHOLDS.anomaly.current_error_rate_min
+_ANOMALY_MIN_REQUESTS = DEFAULT_THRESHOLDS.anomaly.min_requests
 
 
 # ---------------------------------------------------------------------------

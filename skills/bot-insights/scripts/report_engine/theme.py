@@ -275,6 +275,69 @@ PALETTES = {
 }
 
 
+def register_palette(
+    name: str, light: dict[str, str], dark: dict[str, str] | None = None
+) -> None:
+    """Register a runtime palette under ``name``.
+
+    Used by the ``--palette-file`` CLI flag so out-of-tree brand kits
+    can plug in without editing this module. ``dark`` defaults to the
+    light palette when omitted — viable for single-tone brands that
+    do not ship a separate dark variant.
+    """
+    PALETTES[name] = (light, dark if dark is not None else light)
+
+
+def load_palette_file(path) -> str:
+    """Load a JSON palette descriptor + register it. Returns the
+    registered palette name.
+
+    File shape:
+    ``{"name": "hydrolix-brand", "extends": "tableau", "light": {...}, "dark": {...}}``
+
+    ``name`` is the value subsequent ``--palette <name>`` invocations
+    reference. ``light`` is required.
+
+    When ``extends`` is supplied (must be a registered palette name),
+    ``light`` and ``dark`` overlay onto that base palette — only
+    overridden tokens need to be specified. Without ``extends``,
+    ``light`` / ``dark`` are used as-is and the renderer's templates
+    will raise on any token the file omits.
+
+    ``dark`` is optional; when absent the (possibly extended) light
+    palette is reused for both variants.
+    """
+    import json
+    from pathlib import Path
+
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    name = data.get("name")
+    light = data.get("light")
+    if not isinstance(name, str) or not name:
+        raise ValueError(
+            f"Palette file {path}: top-level 'name' must be a non-empty string."
+        )
+    if not isinstance(light, dict) or not light:
+        raise ValueError(
+            f"Palette file {path}: 'light' must be a non-empty token map."
+        )
+    dark = data.get("dark")
+    if dark is not None and not isinstance(dark, dict):
+        raise ValueError(f"Palette file {path}: 'dark' must be a token map or null.")
+    extends = data.get("extends")
+    if extends is not None:
+        if extends not in PALETTES:
+            raise ValueError(
+                f"Palette file {path}: 'extends' references unknown palette "
+                f"{extends!r}. Available: {sorted(PALETTES)}."
+            )
+        base_light, base_dark = PALETTES[extends]
+        light = {**base_light, **light}
+        dark = {**base_dark, **(dark or {})}
+    register_palette(name, light, dark)
+    return name
+
+
 # Convenience: just the band-primary hues, by band name
 BAND_COLORS = {
     "observe": PALETTE["observe"],

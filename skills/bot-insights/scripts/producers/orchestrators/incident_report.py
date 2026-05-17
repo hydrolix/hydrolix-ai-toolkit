@@ -1003,10 +1003,16 @@ def _incident_phase2_actors_and_heuristic(
             args, ctx, current_candidates_by_field,
             start=start, end=end, sample_dir=sample_dir,
         )
+        # Read the active thresholds (primed by ``producers.cli.main``
+        # from ``--config`` before this orchestrator runs) so an
+        # operator override propagates into the heuristic ladder.
+        from config import active_thresholds
+
         ctx.suspicious_targets = _compute_suspicious_targets(
             ctx.scope_artifact,
             ctx.actors_artifact,
             baseline_actor_rows_by_field,
+            thresholds=active_thresholds(),
         )
     else:
         ctx.suspicious_targets = []

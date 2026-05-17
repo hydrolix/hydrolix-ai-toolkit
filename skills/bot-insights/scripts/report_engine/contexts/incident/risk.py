@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
-from .labels import (
+import sys
+from pathlib import Path
+
+# Make ``config`` (under scripts/) importable when this module is loaded
+# from report_engine.contexts.incident.
+_SCRIPTS_DIR = Path(__file__).resolve().parents[4]
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+from config import DEFAULT_THRESHOLDS, Thresholds, active_thresholds  # noqa: E402
+
+from .labels import (  # noqa: E402
     CRITICALITY_TONE,
     SPIKE_FLAG_LABELS,
 )
@@ -29,23 +40,12 @@ _SEVERITY_ORDER = {
 }
 
 
-_RISK_WEIGHTS = {
-    "critical": 30,
-    "high": 15,
-    "elevated": 8,
-    "medium": 4,
-    "review": 4,  # v1 vocabulary, weighted with medium
-    "low": 1,
-}
-
-
-_RISK_BANDS = {
-    "critical": (75, 100),
-    "high":     (50, 74),
-    "elevated": (35, 49),
-    "medium":   (20, 34),
-    "low":      ( 0, 19),
-}
+# Backwards-compatibility imports: external callers that read
+# ``_RISK_WEIGHTS`` / ``_RISK_BANDS`` directly continue to see the
+# default values. Operator overrides take effect when the caller
+# threads a :class:`Thresholds` instance through ``_risk_score``.
+_RISK_WEIGHTS = dict(DEFAULT_THRESHOLDS.risk_score.weights)
+_RISK_BANDS = dict(DEFAULT_THRESHOLDS.risk_score.bands)
 
 
 _SEVERITY_LADDER_STEPS = ("low", "medium", "elevated", "high", "critical")
@@ -321,7 +321,12 @@ def _deterministic_summary(
     }
 
 
-def _risk_score(deterministic_summary: dict, suspicious_targets: list[dict]) -> dict:
+def _risk_score(
+    deterministic_summary: dict,
+    suspicious_targets: list[dict],
+    *,
+    thresholds: Thresholds | None = None,
+) -> dict:
     """Compute the editorial Risk Score (0–100, **higher is worse**).
 
     Two-step calculation, deliberately simple so a reader can audit it
@@ -361,14 +366,21 @@ def _risk_score(deterministic_summary: dict, suspicious_targets: list[dict]) -> 
     baseline-window actor data, so a "vs prior window" comparison
     cannot be honestly computed. Adding it is deferred to Phase 3.
     """
+    # Renderer-side consumers read from the active-thresholds singleton
+    # (the renderer's main() primes it from --config before render()
+    # runs). Producer-side callers can still pass an explicit
+    # thresholds= override for unit testing or direct invocation.
+    t = thresholds if thresholds is not None else active_thresholds()
+    weights = t.risk_score.weights
+    bands = t.risk_score.bands
     level = deterministic_summary.get("level") or "low"
     counts: dict[str, int] = {}
     for target in suspicious_targets or []:
         sev = target.get("severity") or "review"
         counts[sev] = counts.get(sev, 0) + 1
-    penalty = sum(_RISK_WEIGHTS.get(sev, 0) * count for sev, count in counts.items())
+    penalty = sum(weights.get(sev, 0) * count for sev, count in counts.items())
     raw_score = 100.0 * penalty / (50.0 + penalty)
-    band_min, band_max = _RISK_BANDS.get(level, (0, 100))
+    band_min, band_max = bands.get(level, (0, 100))
     clamped = max(band_min, min(band_max, raw_score))
     return {
         "value": int(round(clamped)),

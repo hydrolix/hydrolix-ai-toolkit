@@ -1,0 +1,95 @@
+# Bot Insights threshold defaults — documentation of the tunable surface.
+#
+# This file is NOT auto-loaded at runtime. The runtime defaults live in
+# `skills/bot-insights/scripts/config.py` (the Thresholds dataclass
+# defaults). This file mirrors those values verbatim so analysts can see
+# every tunable + its current default + a comment explaining what it
+# does, without having to read Python.
+#
+# To apply an override at runtime, pass:
+#   --config /path/to/my-overrides.yaml
+# to either the producer (`scripts/render_report.py`) or the renderer
+# (`scripts/report_engine/render.py`). Only the keys you override need
+# to be present; anything omitted falls back to the defaults below.
+
+heuristics:
+  suspicious_targets:
+    # 5% of in-window requests — promotes a row from "observed" to
+    # "flagged" on the `high_volume_share` primitive. Applies only to
+    # individual-entity fields (client_ip, user_agent, asn,
+    # request_path).
+    volume_share_min: 0.05
+
+    # 10% of in-window 429s + an absolute floor (`rate_429_total_min`)
+    # — paired to de-noise tiny windows where a 100% share is one
+    # blocked request.
+    rate_429_share_min: 0.10
+    rate_429_total_min: 100
+
+    # Floor on the `single_path_concentration` flag. Combined with
+    # distinct_paths == 1. Suppressed for CMS-bucket templated paths
+    # (`/:slug`, `/:locale/...`) where distinct_paths == 1 is
+    # tautological by construction.
+    single_path_requests_min: 1000
+
+    # Cluster requires >= N flagged IPs on the same ASN before
+    # `single_asn_cluster` fires.
+    asn_cluster_min_ips: 3
+
+    # Combined-share floor for the `botnet_member` flag — calibrated
+    # against the Expedia 2026-04-19 incident (3-IP AS24940 Hetzner
+    # cluster at 0.70% combined share).
+    botnet_cluster_share_min: 0.005
+
+    # `high_volume_new_actor` (lone new-in-window IP with significant
+    # absolute volume). Both floors must clear.
+    new_actor_volume_share_min: 0.001
+    new_actor_requests_min: 1_000_000
+
+    # Automation-UA pattern — case-insensitive regex applied to
+    # user_agent values. Hits emit `automation_user_agent`. Defaults
+    # match the curated common-scripted-client token list.
+    automation_ua_pattern: '\b(curl|python-requests|Go-http-client|wget|libwww|httpx|aiohttp)\b'
+
+  anomaly:
+    # An actor's current-window error rate
+    # ((req_429+req_5xx)/requests) must be at least N× its own
+    # baseline error rate AND clear the absolute floors below.
+    error_rate_ratio_min: 3.0
+    current_error_rate_min: 0.05
+    min_requests: 1000
+
+  risk_score:
+    # Penalty contribution per severity tier — feeds the hyperbolic
+    # raw-score formula in contexts/incident/risk.py:_risk_score.
+    weights:
+      critical: 30
+      high: 15
+      elevated: 8
+      medium: 4
+      review: 4  # v1 vocabulary, weighted with medium
+      low: 1
+    # Per-level [min, max] clamp for the displayed Risk Score —
+    # guarantees the score and the verdict pill point the same way.
+    bands:
+      critical: [75, 100]
+      high:     [50, 74]
+      elevated: [35, 49]
+      medium:   [20, 34]
+      low:      [0, 19]
+
+  # Per-row rules disabled at runtime. Names match the reason_flag
+  # vocabulary emitted by the heuristic ladder. Cross-row pivots
+  # (`single_asn_cluster`, `botnet_member`) are also honored — see
+  # producers/suspicious_targets/rules.py.
+  disabled_rules: []
+
+display:
+  # Suspicious-target rows surfaced in the analyst-view masthead.
+  # Excess rows fall under a hidden-count footer.
+  suspicious_targets_cap: 10
+  # Recommended-action rows in the executive view (analyst view is
+  # uncapped — see contexts/incident/actions.py).
+  exec_actions_cap: 5
+  # KPI tile cap in the executive view's Measured-impact strip.
+  exec_impact_tiles_cap: 5

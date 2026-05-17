@@ -1666,3 +1666,107 @@ class TestIncidentExecutiveView:
         )
         capped = upstream[: mod.EXEC_ACTIONS_CAP]
         assert len(capped) <= mod.EXEC_ACTIONS_CAP == 5
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 extension seam tests
+# ---------------------------------------------------------------------------
+
+
+def test_palette_file_registers_palette_with_extends(tmp_path):
+    """``theme.load_palette_file`` registers a palette so subsequent
+    ``--palette <name>`` lookups succeed; ``extends`` overlays over a
+    base palette so a brand kit only has to spell out the tokens it
+    actually overrides."""
+    import json
+
+    from report_engine import theme
+
+    palette_file = tmp_path / "brand.json"
+    palette_file.write_text(
+        json.dumps(
+            {
+                "name": "brand-test",
+                "extends": "tableau",
+                "light": {"observe": "#abcdef"},
+            }
+        )
+    )
+    try:
+        name = theme.load_palette_file(palette_file)
+        assert name == "brand-test"
+        assert "brand-test" in theme.PALETTES
+        light, _dark = theme.PALETTES["brand-test"]
+        # Overridden token sticks.
+        assert light["observe"] == "#abcdef"
+        # Non-overridden tokens fall through to the tableau base.
+        assert light["bg"] == theme.PALETTES["tableau"][0]["bg"]
+    finally:
+        theme.PALETTES.pop("brand-test", None)
+
+
+def test_palette_file_rejects_unknown_extends(tmp_path):
+    import json
+
+    from report_engine import theme
+
+    palette_file = tmp_path / "bad.json"
+    palette_file.write_text(
+        json.dumps(
+            {
+                "name": "x",
+                "extends": "no-such-palette",
+                "light": {"observe": "#000"},
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="unknown palette"):
+        theme.load_palette_file(palette_file)
+
+
+def test_out_of_tree_context_registers_via_env_path(tmp_path, monkeypatch):
+    """Dropping a context module on ``BOT_INSIGHTS_CONTEXTS_PATH``
+    registers it in ``REPORT_TYPE_REGISTRY`` without code changes."""
+    contexts_dir = tmp_path / "oot"
+    contexts_dir.mkdir()
+    (contexts_dir / "phase6_smoke_report.py").write_text(
+        '"""Phase 6 OOT smoke test context."""\n'
+        'SCHEMA = "bot_phase6_smoke.v1"\n'
+        'REPORT_TYPE = "phase6_smoke_report"\n'
+        'TEMPLATE = "reports/phase6_smoke_report.html"\n'
+        "NOTE_ID_TO_SLOT = {}\n"
+        "def assemble(artifacts):\n"
+        "    return artifacts[0] if artifacts else {}\n"
+        "def prepare(artifact):\n"
+        '    return {"title": "smoke"}\n'
+    )
+    monkeypatch.setenv("BOT_INSIGHTS_CONTEXTS_PATH", str(contexts_dir))
+    # Force a fresh import so the env var is honored at module load.
+    import importlib
+
+    from report_engine import contexts
+
+    contexts_reloaded = importlib.reload(contexts)
+    try:
+        assert "phase6_smoke_report" in contexts_reloaded.REPORT_TYPE_REGISTRY
+        assert (
+            contexts_reloaded.REPORT_TYPE_REGISTRY["phase6_smoke_report"].SCHEMA
+            == "bot_phase6_smoke.v1"
+        )
+    finally:
+        # Reset the registry back to the built-in modules for downstream tests.
+        monkeypatch.delenv("BOT_INSIGHTS_CONTEXTS_PATH", raising=False)
+        importlib.reload(contexts_reloaded)
+
+
+def test_register_rejects_module_missing_required_attrs():
+    """``register`` raises on a module that doesn't expose the required surface."""
+    from types import ModuleType
+
+    from report_engine import contexts
+
+    bogus = ModuleType("bogus_module")
+    bogus.SCHEMA = "x"  # type: ignore[attr-defined]
+    # Missing REPORT_TYPE / TEMPLATE / assemble / prepare
+    with pytest.raises(TypeError, match="missing required attribute"):
+        contexts.register(bogus)

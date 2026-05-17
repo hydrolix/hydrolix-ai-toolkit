@@ -16,33 +16,36 @@ Decomposed into:
   - Orchestrators: ``_evaluate_all_rankings`` (the inner loop) and
     ``_compute_suspicious_targets`` (the top-level entry point).
 
-Calibration constants (threshold floors, automation UA pattern,
-severity rank, quant/concentration flag partitions) come from the
-top-level ``heuristics`` module. Contract-level lookup tables
-(target type by field, individual-entity set, target kind,
-ATT&CK mapping, action class) come from
-``producers.suspicious_targets.taxonomy``.
+Per-row primitives are now data-driven (Phase 6b): each
+``reason_flag`` lives in ``producers.suspicious_targets.rules`` as a
+:class:`Rule` instance with an explicit evaluator + ``applies_to`` set.
+The slimmed ``_evaluate_share_flags`` / ``_evaluate_novelty_flags`` /
+``_evaluate_anomaly`` wrappers below dispatch to the registry; the
+cross-row pivots (``single_asn_cluster``, ``botnet_member``) stay as
+post-pass mutators because they read list-wide state, not per-row
+state. The orchestrator still honors ``thresholds.disabled_rules`` for
+those pivots.
+
+Threshold floors flow through an explicit ``thresholds: Thresholds``
+parameter (Phase 6a). ``None`` falls back to
+:data:`config.DEFAULT_THRESHOLDS`, which mirrors the historic Python
+constants exactly — absence of a ``--config`` file produces identical
+output to the pre-Phase-6a baseline.
 """
 
 from __future__ import annotations
 
+from config import DEFAULT_THRESHOLDS, Thresholds
 from heuristics import (
-    _ANOMALY_CURRENT_ERROR_RATE_MIN,
-    _ANOMALY_ERROR_RATE_RATIO_MIN,
-    _ANOMALY_MIN_REQUESTS,
-    _AUTOMATION_UA_PATTERN,
     _SEVERITY_RANK,
-    _SUSPICIOUS_ASN_CLUSTER_MIN_IPS,
-    _SUSPICIOUS_BOTNET_CLUSTER_SHARE_MIN,
     _SUSPICIOUS_CONCENTRATION_FLAGS,
-    _SUSPICIOUS_NEW_ACTOR_REQUESTS_MIN,
-    _SUSPICIOUS_NEW_ACTOR_VOLUME_SHARE_MIN,
     _SUSPICIOUS_QUANT_FLAGS,
-    _SUSPICIOUS_RATE_429_SHARE_MIN,
-    _SUSPICIOUS_RATE_429_TOTAL_MIN,
-    _SUSPICIOUS_SINGLE_PATH_REQUESTS_MIN,
-    _SUSPICIOUS_VOLUME_SHARE_MIN,
     _is_templated_catchall_path,
+)
+from producers.suspicious_targets.rules import (
+    RuleContext,
+    active_rules,
+    disabled,
 )
 from producers.suspicious_targets.taxonomy import (
     _INDIVIDUAL_ENTITY_FIELDS,
@@ -51,6 +54,54 @@ from producers.suspicious_targets.taxonomy import (
     _attack_techniques_for_flags,
     _suspicious_action_class,
 )
+
+
+def _resolve(thresholds: Thresholds | None) -> Thresholds:
+    return thresholds if thresholds is not None else DEFAULT_THRESHOLDS
+
+
+def _build_ua_pattern(thresholds: Thresholds):
+    """Compile the active automation-UA pattern once per row. Done here
+    (vs. importing ``heuristics._AUTOMATION_UA_PATTERN``) so an
+    operator overriding ``automation_ua_pattern`` in their config gets
+    the override applied without restarting the process."""
+    import re
+
+    return re.compile(
+        thresholds.suspicious_targets.automation_ua_pattern, re.IGNORECASE
+    )
+
+
+def _build_rule_context(
+    *,
+    field: str,
+    value: str,
+    is_individual: bool,
+    requests: float,
+    share: float,
+    share_429: float,
+    total_429: float,
+    distinct_paths: int,
+    current_error_rate: float,
+    baseline_data: dict,
+    baseline_row: dict | None,
+    automation_ua_pattern,
+) -> RuleContext:
+    return RuleContext(
+        field=field,
+        value=value,
+        is_individual=is_individual,
+        requests=requests,
+        share=share,
+        share_429=share_429,
+        total_429=total_429,
+        distinct_paths=distinct_paths,
+        current_error_rate=current_error_rate,
+        baseline_data=baseline_data,
+        baseline_row=baseline_row,
+        automation_ua_pattern=automation_ua_pattern,
+        is_templated_catchall_path=_is_templated_catchall_path,
+    )
 
 
 def _evaluate_share_flags(
@@ -63,36 +114,42 @@ def _evaluate_share_flags(
     share_429: float,
     total_429: float,
     distinct_paths: int,
+    thresholds: Thresholds | None = None,
 ) -> list[str]:
-    """Share-based primitives. Apply only to individual-entity fields —
-    on aggregate fields (cohort, country) they would fire on every
-    major value by construction and produce noise. The
-    ``single_path_concentration`` flag is suppressed for CMS-bucket
-    templated patterns (``/:slug``, ``/:locale/...``) on the
-    ``request_path`` field, where distinct_paths == 1 is tautological.
+    """Share-based primitives (registry-driven).
+
+    Thin wrapper that builds a :class:`RuleContext` and asks the
+    registry which share-based rules fire. The set of "share-based"
+    rules is determined by name — every builtin that isn't novelty or
+    anomaly — so out-of-tree share-tier rules registered through
+    :func:`producers.suspicious_targets.rules.register_rule` are
+    automatically picked up here.
     """
-    if not is_individual:
-        return []
-    flags: list[str] = []
-    if share >= _SUSPICIOUS_VOLUME_SHARE_MIN:
-        flags.append("high_volume_share")
-    if (
-        total_429 >= _SUSPICIOUS_RATE_429_TOTAL_MIN
-        and share_429 >= _SUSPICIOUS_RATE_429_SHARE_MIN
-    ):
-        flags.append("high_rate_429_share")
-    if (
-        distinct_paths == 1
-        and requests >= _SUSPICIOUS_SINGLE_PATH_REQUESTS_MIN
-        and not (
-            field == "request_path"
-            and _is_templated_catchall_path(value)
-        )
-    ):
-        flags.append("single_path_concentration")
-    if field == "user_agent" and _AUTOMATION_UA_PATTERN.search(value):
-        flags.append("automation_user_agent")
-    return flags
+    t = _resolve(thresholds)
+    ctx = _build_rule_context(
+        field=field,
+        value=value,
+        is_individual=is_individual,
+        requests=requests,
+        share=share,
+        share_429=share_429,
+        total_429=total_429,
+        distinct_paths=distinct_paths,
+        current_error_rate=0.0,
+        baseline_data={},
+        baseline_row=None,
+        automation_ua_pattern=_build_ua_pattern(t),
+    )
+    return _fire_rules(
+        ctx,
+        thresholds=t,
+        accept={
+            "high_volume_share",
+            "high_rate_429_share",
+            "single_path_concentration",
+            "automation_user_agent",
+        },
+    )
 
 
 def _evaluate_novelty_flags(
@@ -102,26 +159,34 @@ def _evaluate_novelty_flags(
     baseline_data: dict[str, dict],
     share: float,
     requests: float,
+    thresholds: Thresholds | None = None,
 ) -> list[str]:
-    """Absence-based primitives. ``new_in_window`` fires when ``value``
-    is missing from the baseline. ``high_volume_new_actor`` is the
-    magnitude-aware companion: a lone new IP doing high absolute
-    volume carries real signal even without a peer cluster, capping
-    the asymmetry where ``new_in_window`` alone treats a 100-req new
-    IP the same as a 30M-req one. Scoped to ``client_ip`` because
-    that's where the gap matters operationally — lone high-volume
-    new UAs / paths are surfaced through other primitives.
+    """Novelty primitives (registry-driven).
+
+    ``new_in_window`` fires when ``value`` is missing from the
+    baseline; ``high_volume_new_actor`` is the magnitude-aware
+    companion scoped to ``client_ip``.
     """
-    if not value or value in baseline_data:
-        return []
-    flags = ["new_in_window"]
-    if (
-        field == "client_ip"
-        and share >= _SUSPICIOUS_NEW_ACTOR_VOLUME_SHARE_MIN
-        and requests >= _SUSPICIOUS_NEW_ACTOR_REQUESTS_MIN
-    ):
-        flags.append("high_volume_new_actor")
-    return flags
+    t = _resolve(thresholds)
+    ctx = _build_rule_context(
+        field=field,
+        value=value,
+        is_individual=field in _INDIVIDUAL_ENTITY_FIELDS,
+        requests=requests,
+        share=share,
+        share_429=0.0,
+        total_429=0.0,
+        distinct_paths=0,
+        current_error_rate=0.0,
+        baseline_data=baseline_data,
+        baseline_row=None,
+        automation_ua_pattern=_build_ua_pattern(t),
+    )
+    return _fire_rules(
+        ctx,
+        thresholds=t,
+        accept={"new_in_window", "high_volume_new_actor"},
+    )
 
 
 def _evaluate_anomaly(
@@ -130,31 +195,41 @@ def _evaluate_anomaly(
     requests: float,
     current_error_rate: float,
     clean_number,
+    thresholds: Thresholds | None = None,
 ) -> tuple[list[str], dict]:
-    """Baseline-rate departure check. Returns ``(["anomaly"], extras)``
-    when the actor's current error rate is at least N× its own
-    baseline (with absolute floors); otherwise ``([], {})``. Extras
-    carry the rendered baseline rate + current rate + ratio so the
-    renderer can show "Browser cohort error rate 11.4% vs ~0.5%
-    baseline (22× departure)" instead of just naming the flag.
+    """Baseline-rate departure check (registry-driven). Returns
+    ``(["anomaly"], extras)`` when the ``anomaly`` rule fires;
+    otherwise ``([], {})``. Extras are computed here (not on the rule)
+    because they carry rendering-only fields the orchestrator stitches
+    into the row's ``supporting_extras`` map.
     """
-    if baseline_row is None:
+    t = _resolve(thresholds)
+    ctx = _build_rule_context(
+        field="",  # field-agnostic for anomaly; applies_to gates per ranking
+        value="",
+        is_individual=False,
+        requests=requests,
+        share=0.0,
+        share_429=0.0,
+        total_429=0.0,
+        distinct_paths=0,
+        current_error_rate=current_error_rate,
+        baseline_data={},
+        baseline_row=baseline_row,
+        automation_ua_pattern=_build_ua_pattern(t),
+    )
+    fired = _fire_rules(ctx, thresholds=t, accept={"anomaly"})
+    if not fired:
         return [], {}
-    baseline_requests = baseline_row.get("requests") or 0
+    # extras must be derived here — the rule body is a pure bool.
+    baseline_requests = (baseline_row or {}).get("requests") or 0
     baseline_errors = (
-        (baseline_row.get("req_429") or 0)
-        + (baseline_row.get("req_5xx") or 0)
+        ((baseline_row or {}).get("req_429") or 0)
+        + ((baseline_row or {}).get("req_5xx") or 0)
     )
     baseline_error_rate = (
         baseline_errors / baseline_requests if baseline_requests > 0 else 0.0
     )
-    if not (
-        baseline_error_rate > 0
-        and current_error_rate >= _ANOMALY_CURRENT_ERROR_RATE_MIN
-        and requests >= _ANOMALY_MIN_REQUESTS
-        and current_error_rate / baseline_error_rate >= _ANOMALY_ERROR_RATE_RATIO_MIN
-    ):
-        return [], {}
     return (
         ["anomaly"],
         {
@@ -165,6 +240,35 @@ def _evaluate_anomaly(
             ),
         },
     )
+
+
+def _fire_rules(
+    ctx: RuleContext,
+    *,
+    thresholds: Thresholds,
+    accept: set[str],
+) -> list[str]:
+    """Walk the registry and return every accepted rule that fires for
+    ``ctx``. ``accept`` partitions the registry into the share /
+    novelty / anomaly groups the orchestrator queries — keeps the
+    three legacy entry points behavior-preserving while letting
+    out-of-tree rules opt into a specific group by name.
+    """
+    out: list[str] = []
+    for rule in active_rules():
+        if rule.name not in accept:
+            continue
+        if disabled(rule.name, thresholds):
+            continue
+        if ctx.field and ctx.field not in rule.applies_to and rule.name != "anomaly":
+            # ``anomaly`` is field-agnostic from the orchestrator's
+            # standpoint (the ranking loop already gates it).
+            continue
+        if rule.requires_baseline and ctx.baseline_row is None:
+            continue
+        if rule.evaluator(ctx, thresholds):
+            out.append(rule.name)
+    return out
 
 
 def _evaluate_ranking_row(
@@ -179,6 +283,7 @@ def _evaluate_ranking_row(
     total_current: float,
     total_429: float,
     baselines_mod,
+    thresholds: Thresholds | None = None,
 ) -> dict | None:
     """Run every per-row primitive against one actor-ranking row.
 
@@ -188,6 +293,7 @@ def _evaluate_ranking_row(
     and the captured ASN attribution so the cross-row pivots don't
     re-derive them.
     """
+    t = _resolve(thresholds)
     value = str(row.get("value") or "")
     requests = float(baselines_mod.to_number(row.get("requests")) or 0)
     req_429 = float(baselines_mod.to_number(row.get("req_429")) or 0)
@@ -209,6 +315,7 @@ def _evaluate_ranking_row(
         share_429=share_429,
         total_429=total_429,
         distinct_paths=distinct_paths,
+        thresholds=t,
     )
     flags.extend(
         _evaluate_novelty_flags(
@@ -217,6 +324,7 @@ def _evaluate_ranking_row(
             baseline_data=baseline_data,
             share=share,
             requests=requests,
+            thresholds=t,
         )
     )
     anomaly_flags, supporting_extras = _evaluate_anomaly(
@@ -224,6 +332,7 @@ def _evaluate_ranking_row(
         requests=requests,
         current_error_rate=current_error_rate,
         clean_number=baselines_mod.clean_number,
+        thresholds=t,
     )
     flags.extend(anomaly_flags)
 
@@ -254,16 +363,31 @@ def _evaluate_ranking_row(
     }
 
 
+# ---------------------------------------------------------------------------
+# Cross-row pivots. These rules emit ``single_asn_cluster`` and
+# ``botnet_member`` based on ranking-wide state, not per-row state, so
+# they stay as post-pass mutators rather than registry entries. The
+# pivots still honor ``thresholds.disabled_rules`` — the orchestrator
+# checks the disabled set before appending flags.
+# ---------------------------------------------------------------------------
+
 def _apply_asn_grouped_pivots(
     flagged_client_ips: list[dict],
     total_current: float,
     *,
     clean_number,
+    thresholds: Thresholds | None = None,
 ) -> None:
     """Per-ASN grouping path. Rows without an ASN are excluded from
     clustering entirely — they're attribution-unknown and shouldn't
     claim membership in any specific cluster. Mutates rows in place.
     """
+    t = _resolve(thresholds)
+    st = t.suspicious_targets
+    single_asn_off = disabled("single_asn_cluster", t)
+    botnet_off = disabled("botnet_member", t)
+    if single_asn_off and botnet_off:
+        return
     groups: dict[object, list[dict]] = {}
     for row in flagged_client_ips:
         asn = row.get("asn")
@@ -271,24 +395,25 @@ def _apply_asn_grouped_pivots(
             continue
         groups.setdefault(asn, []).append(row)
     for asn, members in groups.items():
-        if len(members) < _SUSPICIOUS_ASN_CLUSTER_MIN_IPS:
+        if len(members) < st.asn_cluster_min_ips:
             continue
         asn_org = next(
             (m.get("asn_org") for m in members if m.get("asn_org")), ""
         )
-        for row in members:
-            if "single_asn_cluster" not in row["flags"]:
-                row["flags"].append("single_asn_cluster")
-            extras = row.setdefault("supporting_extras", {})
-            extras["asn_cluster_id"] = asn
-            if asn_org:
-                extras["asn_cluster_org"] = asn_org
-            extras["asn_cluster_size"] = len(members)
-        if total_current <= 0:
+        if not single_asn_off:
+            for row in members:
+                if "single_asn_cluster" not in row["flags"]:
+                    row["flags"].append("single_asn_cluster")
+                extras = row.setdefault("supporting_extras", {})
+                extras["asn_cluster_id"] = asn
+                if asn_org:
+                    extras["asn_cluster_org"] = asn_org
+                extras["asn_cluster_size"] = len(members)
+        if total_current <= 0 or botnet_off:
             continue
         cluster_requests = sum(m["requests"] for m in members)
         cluster_share = cluster_requests / total_current
-        if cluster_share < _SUSPICIOUS_BOTNET_CLUSTER_SHARE_MIN:
+        if cluster_share < st.botnet_cluster_share_min:
             continue
         cluster_share_pct = clean_number(round(100.0 * cluster_share, 2))
         for row in members:
@@ -305,6 +430,7 @@ def _apply_unverified_cluster_pivots(
     total_current: float,
     *,
     clean_number,
+    thresholds: Thresholds | None = None,
 ) -> None:
     """Legacy fallback for producers without per-row ASN attribution.
     Uses the coarse count + total-share rule and marks the
@@ -312,17 +438,23 @@ def _apply_unverified_cluster_pivots(
     approximation, not a verified same-ASN cluster. Mutates rows in
     place.
     """
-    for row in flagged_client_ips:
-        if "single_asn_cluster" not in row["flags"]:
-            row["flags"].append("single_asn_cluster")
-        extras = row.setdefault("supporting_extras", {})
-        extras["asn_cluster_attribution"] = "unverified"
-        extras["asn_cluster_size"] = len(flagged_client_ips)
-    if total_current <= 0:
+    t = _resolve(thresholds)
+    single_asn_off = disabled("single_asn_cluster", t)
+    botnet_off = disabled("botnet_member", t)
+    if single_asn_off and botnet_off:
+        return
+    if not single_asn_off:
+        for row in flagged_client_ips:
+            if "single_asn_cluster" not in row["flags"]:
+                row["flags"].append("single_asn_cluster")
+            extras = row.setdefault("supporting_extras", {})
+            extras["asn_cluster_attribution"] = "unverified"
+            extras["asn_cluster_size"] = len(flagged_client_ips)
+    if total_current <= 0 or botnet_off:
         return
     cluster_requests = sum(r["requests"] for r in flagged_client_ips)
     cluster_share = cluster_requests / total_current
-    if cluster_share < _SUSPICIOUS_BOTNET_CLUSTER_SHARE_MIN:
+    if cluster_share < t.suspicious_targets.botnet_cluster_share_min:
         return
     cluster_share_pct = clean_number(round(100.0 * cluster_share, 2))
     for row in flagged_client_ips:
@@ -339,6 +471,7 @@ def _apply_cluster_pivots(
     total_current: float,
     *,
     clean_number,
+    thresholds: Thresholds | None = None,
 ) -> None:
     """Cross-row pivots that add ``single_asn_cluster`` (shape) and
     ``botnet_member`` (magnitude) flags to flagged client_ip rows.
@@ -346,17 +479,20 @@ def _apply_cluster_pivots(
     attribution, falling back to the coarse count + total-share rule
     when no row carries an ``asn`` field.
     """
+    t = _resolve(thresholds)
     flagged_client_ips = [r for r in intermediate if r["field"] == "client_ip"]
     have_asn_attribution = any(
         r.get("asn") not in (None, "", 0) for r in flagged_client_ips
     )
     if have_asn_attribution:
         _apply_asn_grouped_pivots(
-            flagged_client_ips, total_current, clean_number=clean_number,
+            flagged_client_ips, total_current,
+            clean_number=clean_number, thresholds=t,
         )
-    elif len(flagged_client_ips) >= _SUSPICIOUS_ASN_CLUSTER_MIN_IPS:
+    elif len(flagged_client_ips) >= t.suspicious_targets.asn_cluster_min_ips:
         _apply_unverified_cluster_pivots(
-            flagged_client_ips, total_current, clean_number=clean_number,
+            flagged_client_ips, total_current,
+            clean_number=clean_number, thresholds=t,
         )
 
 
@@ -439,12 +575,14 @@ def _evaluate_all_rankings(
     total_current: float,
     total_429: float,
     baselines_mod,
+    thresholds: Thresholds | None = None,
 ) -> tuple[list[dict], dict[str, int]]:
     """Walk every actor ranking, evaluate each row's heuristic flags,
     and return (intermediate flagged rows, value→appearance count).
     Rankings whose field isn't in the target-type taxonomy are
     skipped silently — that's the contract for unknown producers.
     """
+    t = _resolve(thresholds)
     field_appearance: dict[str, int] = {}
     intermediate: list[dict] = []
     for ranking_idx, ranking in enumerate(rankings):
@@ -466,6 +604,7 @@ def _evaluate_all_rankings(
                 total_current=total_current,
                 total_429=total_429,
                 baselines_mod=baselines_mod,
+                thresholds=t,
             )
             if entry is None:
                 continue
@@ -480,6 +619,8 @@ def _compute_suspicious_targets(
     scope_artifact: dict,
     actors_artifact: dict,
     baseline_actor_rows_by_field: dict[str, dict[str, dict]],
+    *,
+    thresholds: Thresholds | None = None,
 ) -> list[dict]:
     """Run the heuristic ladder mechanically against the actor rankings.
 
@@ -506,6 +647,7 @@ def _compute_suspicious_targets(
     """
     import baselines as baselines_mod
 
+    t = _resolve(thresholds)
     window = scope_artifact.get("window_confirmation") or {}
     total_current = float(baselines_mod.to_number(window.get("requests")) or 0)
     rate_429_pct = float(baselines_mod.to_number(window.get("rate_429_pct")) or 0)
@@ -517,9 +659,11 @@ def _compute_suspicious_targets(
         total_current=total_current,
         total_429=total_429,
         baselines_mod=baselines_mod,
+        thresholds=t,
     )
     _apply_cluster_pivots(
-        intermediate, total_current, clean_number=baselines_mod.clean_number,
+        intermediate, total_current,
+        clean_number=baselines_mod.clean_number, thresholds=t,
     )
 
     targets = [_build_target_entry(row, field_appearance) for row in intermediate]

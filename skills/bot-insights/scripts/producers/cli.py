@@ -254,6 +254,18 @@ def parse_args() -> argparse.Namespace:
         "--analyst-notes-file",
         help="Read LLM interpretation prose from a file for the final report wrapper.",
     )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help=(
+            "Path to a threshold-override file (YAML/TOML/JSON). Overlays onto "
+            "the dataclass defaults defined in scripts/config.py; any key "
+            "omitted falls through to its default. See "
+            "skills/bot-insights/config/defaults.yaml for the full tunable "
+            "surface."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -268,6 +280,12 @@ def main() -> int:
     load_raw_query_result = _bir.load_raw_query_result
 
     args = parse_args()
+    # Prime the active-thresholds singleton from --config so renderer-side
+    # display caps and risk-score bands honor the override when the
+    # producer drives both capture and render in one process.
+    from config import load_thresholds, set_active_thresholds
+
+    set_active_thresholds(load_thresholds(args.config))
     start = parse_time(args.start, "start")
     end = parse_time(args.end, "end")
     window = end - start
