@@ -57,7 +57,6 @@ def _render_via_engine(
         return None
 
     try:
-        from report_engine import findings as findings_mod
         from report_engine import render as engine_render
         from report_engine.contexts import REPORT_TYPE_REGISTRY
     except ImportError as exc:
@@ -80,6 +79,7 @@ def _render_via_engine(
         )
 
     try:
+        renderer = engine_render._renderer()
         artifact = module.assemble(artifacts)
     except (ValueError, KeyError) as exc:
         raise ReportError(f"{report_type} engine assembly failed: {exc}") from exc
@@ -88,31 +88,16 @@ def _render_via_engine(
         notes,
         getattr(module, "NOTE_ID_TO_SLOT", {}),
     )
-    template_ctx = module.prepare(artifact)
-    template_ctx["notes_by_slot"] = notes_by_slot
-    # Apply the same post_prepare + finding_overrides treatment the
-    # direct engine path uses (``report_engine.render.render``). Without
-    # these, scorecard_entity_review's analyst-note dedupe and the
-    # wrapper's ``finding_overrides`` analyst-note slot are no-ops in
-    # production routing — features that only fire via the direct
-    # engine entry would silently disappear.
-    if hasattr(module, "post_prepare"):
-        module.post_prepare(template_ctx)
-    template_ctx["mode"] = "full"
-    # ``report_type`` lets shared templates (e.g. base.html's
-    # `_styles_editorial.css` include guard) emit per-report assets.
-    # Keep in lockstep with report_engine.render.render(); the engine
-    # path sets the same key right after the prepare() call.
-    template_ctx["report_type"] = module.REPORT_TYPE
-    overrides_note = notes_by_slot.get("finding_overrides")
-    if overrides_note and "findings" in template_ctx:
-        template_ctx["findings"] = findings_mod.apply_finding_overrides(
-            template_ctx["findings"],
-            overrides_note.get("text"),
-        )
-
+    template_ctx = renderer.prepare_context(
+        module,
+        artifact,
+        notes_by_slot,
+        mode="full",
+    )
     env = engine_render.build_env(
-        output_format=output_format, palette=palette, theme_mode=theme_mode
+        output_format=output_format,
+        palette=palette,
+        theme_mode=theme_mode,
     )
     template = env.get_template(engine_render.template_for(module, output_format))
     return template.render(**template_ctx)
