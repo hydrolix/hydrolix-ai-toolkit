@@ -300,13 +300,21 @@ single banner explaining the limitation — Section A still applies.
 
 ## Dashboard handoff
 
-The orchestrator reads an optional `BI_INCIDENT_DASHBOARD_URL` from the
-cluster's env file (`~/.config/hydrolix/clusters/<cluster>.env`). The
-URL template may carry `{start}`, `{end}`, `{host}`, `{asn}`, and
-`{path_pattern}` placeholders. Capture substitutes the active scope
-mechanically and writes the resolved URL into the scope artifact.
-When unset, the renderer omits the handoff block — it never invents a
-URL.
+The orchestrator reads optional Grafana link settings from the cluster's env
+file (`~/.config/hydrolix/clusters/<cluster>.env`) or process env.
+`BI_INCIDENT_DASHBOARD_URL` is the highest-precedence full URL template
+override and may carry `{start}`, `{end}`, `{host}`, `{asn}`, and
+`{path_pattern}` placeholders. Deployments that want to keep host and path
+separate can instead provide both `BI_INCIDENT_GRAFANA_HOSTNAME` and
+`BI_INCIDENT_DASHBOARD_PATH`, or pass `--grafana-hostname` and
+`--grafana-dashboard-path`. Structured mode appends Grafana `from` / `to`
+params plus repeated `var-filter` params for the active `reqHost`, `asn`, and
+`requestPathPattern` scopes.
+
+Capture writes the resolved URL into the scope artifact. When neither a full
+template nor a complete hostname/path pair is configured, the renderer omits
+the handoff block — it never invents a URL or assumes a canonical dashboard
+path.
 
 ## Deployment-availability behavior
 

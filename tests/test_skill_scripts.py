@@ -15,6 +15,7 @@ import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import parse_qsl, urlsplit
 from unittest import mock
 
 
@@ -599,6 +600,9 @@ class BotInsightsCaptureScriptTests(unittest.TestCase):
 class BotInsightsScriptTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        bot_insights_scripts = ROOT / "skills/bot-insights/scripts"
+        if str(bot_insights_scripts) not in sys.path:
+            sys.path.insert(0, str(bot_insights_scripts))
         # M3.3 routed wrapper-mode rendering through the report_engine
         # by default. The wrapper-mode regression tests in this class
         # assert on legacy-renderer output markers (``## Movers``,
@@ -859,6 +863,106 @@ class BotInsightsScriptTests(unittest.TestCase):
         ):
             args = self.bot_insights_report.parse_args()
             self.assertTrue(args.fleet)
+
+    def _incident_dashboard_args(self, **overrides):
+        values = {
+            "cluster": "__unit_test_missing_cluster__",
+            "start": "2026-05-13T14:00:00Z",
+            "end": "2026-05-13T17:00:00Z",
+            "host": "www.example.com",
+            "asn": "64512",
+            "path_pattern": "/checkout/*",
+            "grafana_hostname": None,
+            "grafana_dashboard_path": None,
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
+    def test_incident_dashboard_url_template_wins(self) -> None:
+        args = self._incident_dashboard_args(
+            grafana_hostname="dashboards.example.com",
+            grafana_dashboard_path="/d/not-used/not-used?orgId=9",
+        )
+        with mock.patch.dict(
+            os.environ,
+            {
+                "BI_INCIDENT_DASHBOARD_URL": (
+                    "https://template.example/d/incident"
+                    "?from={start}&to={end}&host={host}&asn={asn}"
+                    "&path={path_pattern}"
+                )
+            },
+            clear=True,
+        ):
+            url = self.bot_insights_report._resolve_dashboard_url(args)
+
+        self.assertEqual(
+            url,
+            (
+                "https://template.example/d/incident"
+                "?from=2026-05-13T14:00:00Z&to=2026-05-13T17:00:00Z"
+                "&host=www.example.com&asn=64512&path=/checkout/*"
+            ),
+        )
+
+    def test_incident_dashboard_url_from_hostname_and_path(self) -> None:
+        args = self._incident_dashboard_args(
+            grafana_hostname="dashboards.example.net",
+            grafana_dashboard_path="/d/custom-uid/bot-investigation?orgId=7",
+        )
+        with mock.patch.dict(os.environ, {}, clear=True):
+            url = self.bot_insights_report._resolve_dashboard_url(args)
+
+        split = urlsplit(url)
+        self.assertEqual(split.scheme, "https")
+        self.assertEqual(split.netloc, "dashboards.example.net")
+        self.assertEqual(split.path, "/d/custom-uid/bot-investigation")
+        self.assertNotIn("289c9eb636bc56f5fffeab9d-with-ds2", url)
+        self.assertNotIn("dashboards.trafficpeak.live", url)
+        params = parse_qsl(split.query, keep_blank_values=True)
+        self.assertEqual(params[:3], [
+            ("orgId", "7"),
+            ("from", "2026-05-13T14:00:00Z"),
+            ("to", "2026-05-13T17:00:00Z"),
+        ])
+
+    def test_incident_dashboard_url_appends_encoded_scope_filters(self) -> None:
+        args = self._incident_dashboard_args(
+            host="store.example.com",
+            asn=15169,
+            path_pattern="/api/search?q=*",
+            grafana_hostname="https://grafana.example.net/",
+            grafana_dashboard_path=(
+                "/d/custom-uid/bot-investigation?orgId=2&theme=light"
+            ),
+        )
+        with mock.patch.dict(os.environ, {}, clear=True):
+            url = self.bot_insights_report._resolve_dashboard_url(args)
+
+        self.assertIn("var-filter=reqHost%7C%3D%7Cstore.example.com", url)
+        self.assertIn("var-filter=asn%7C%3D%7C15169", url)
+        self.assertIn(
+            "var-filter=requestPathPattern%7C%3D%7C%2Fapi%2Fsearch%3Fq%3D%2A",
+            url,
+        )
+        params = parse_qsl(urlsplit(url).query, keep_blank_values=True)
+        self.assertEqual(params.count(("var-filter", "reqHost|=|store.example.com")), 1)
+        self.assertEqual(params.count(("var-filter", "asn|=|15169")), 1)
+        self.assertEqual(
+            params.count(("var-filter", "requestPathPattern|=|/api/search?q=*")),
+            1,
+        )
+
+    def test_incident_dashboard_url_empty_without_configuration(self) -> None:
+        args = self._incident_dashboard_args(
+            grafana_hostname=None,
+            grafana_dashboard_path=None,
+        )
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(
+                self.bot_insights_report._resolve_dashboard_url(args),
+                "",
+            )
 
     def test_fleet_evidence_packet_uses_aggregates(self) -> None:
         """The fleet packet builder emits fleet-shaped fields (band

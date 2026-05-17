@@ -221,7 +221,7 @@ _From AI assistant._
 
 ## Continue investigating
 
-[Open the linked Grafana dashboard](https://grafana.example.com/d/bot-incident?var-cluster=demo&var-host=www.example.com&from=2026-05-13T14:00:00Z&to=2026-05-13T17:00:00Z) — pre-scoped to this window and scope filters for further drilldown.
+[Open the linked Grafana dashboard](https://dashboards.example.net/d/custom-uid/bot-investigation?orgId=2&from=2026-05-13T14%3A00%3A00Z&to=2026-05-13T17%3A00%3A00Z&var-filter=reqHost%7C%3D%7Cwww.example.com) — pre-scoped to this window and scope filters for further drilldown.
 
 ## Indicators of Compromise
 
