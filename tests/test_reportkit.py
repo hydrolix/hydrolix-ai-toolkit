@@ -166,3 +166,63 @@ def test_report_renderer_renders_wrapper_payload(tmp_path):
     )
 
     assert rendered == "Hello|Note|example_report|brief"
+
+
+def test_report_renderer_adds_profile_to_context(tmp_path):
+    pytest.importorskip("jinja2")
+    from reportkit.artifacts import ReportRegistry
+    from reportkit.render import ReportRenderer
+
+    template_dir = tmp_path / "templates"
+    (template_dir / "reports").mkdir(parents=True)
+    (template_dir / "reports/example.html").write_text(
+        "{{ report_type }}|{{ profile }}",
+        encoding="utf-8",
+    )
+
+    class Module:
+        SCHEMA = "example_artifact.v1"
+        REPORT_TYPE = "example_report"
+        TEMPLATE = "reports/example.html"
+
+        @staticmethod
+        def assemble(artifacts):
+            return artifacts[0]
+
+        @staticmethod
+        def prepare(artifact):
+            return artifact
+
+    renderer = ReportRenderer(
+        registry=ReportRegistry([Module]),
+        template_paths=[template_dir],
+        wrapper_schema="custom_wrapper.v1",
+    )
+
+    rendered = renderer.render_payload(
+        {
+            "schema_version": "custom_wrapper.v1",
+            "report_type": "example_report",
+            "artifacts": [{"schema_version": "example_artifact.v1"}],
+        },
+        profile="print",
+    )
+
+    assert rendered == "example_report|print"
+
+
+def test_pdf_export_reports_missing_playwright(monkeypatch, tmp_path):
+    import builtins
+    from reportkit.print_export import PrintExportError, render_pdf_from_html
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "playwright.sync_api":
+            raise ImportError("no playwright")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    with pytest.raises(PrintExportError, match="PDF export requires optional Playwright"):
+        render_pdf_from_html("<html><body>ok</body></html>", tmp_path / "out.pdf")

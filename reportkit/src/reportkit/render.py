@@ -202,12 +202,14 @@ class ReportRenderer:
         notes_by_slot: dict[str, dict[str, Any]],
         *,
         mode: str = "full",
+        profile: str = "screen",
     ) -> dict[str, Any]:
         ctx = module.prepare(artifact)
         ctx["notes_by_slot"] = notes_by_slot
         if hasattr(module, "post_prepare"):
             module.post_prepare(ctx)
         ctx["mode"] = mode
+        ctx["profile"] = profile
         ctx["report_type"] = module.REPORT_TYPE
         overrides_note = notes_by_slot.get("finding_overrides")
         if (
@@ -232,13 +234,20 @@ class ReportRenderer:
         palette: str = "tableau",
         theme_mode: str = "auto",
         clock: str = "12",
+        profile: str = "screen",
     ) -> str:
         module, artifact, notes_by_slot = self.resolve(
             data,
             schema_override=schema_override,
             input_kind=input_kind,
         )
-        ctx = self.prepare_context(module, artifact, notes_by_slot, mode=mode)
+        ctx = self.prepare_context(
+            module,
+            artifact,
+            notes_by_slot,
+            mode=mode,
+            profile=profile,
+        )
         env = build_env(
             template_paths=self.template_paths,
             asset_path=self.asset_path,

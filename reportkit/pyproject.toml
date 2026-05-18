@@ -10,6 +10,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+pdf = ["playwright>=1.44"]
 yaml = ["pyyaml>=6.0"]
 dev = ["pytest>=8.0"]
 

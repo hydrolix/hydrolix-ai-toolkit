@@ -224,6 +224,7 @@ def render(
     palette: str = "tableau",
     theme_mode: str = "auto",
     clock: str = "12",
+    profile: str = "screen",
 ) -> None:
     """Render an artifact or wrapper to ``output_format``.
 
@@ -245,6 +246,7 @@ def render(
             palette=palette,
             theme_mode=theme_mode,
             clock=clock,
+            profile=profile,
         )
     except KeyError as exc:
         raise SystemExit(str(exc)) from exc
@@ -285,6 +287,12 @@ def main() -> None:
         choices=["html", "markdown"],
         default="html",
         help="Output format. Markdown renders the sibling .md.j2 template.",
+    )
+    ap.add_argument(
+        "--profile",
+        choices=["screen", "print"],
+        default="screen",
+        help="Rendering profile. Print profile forces light theme unless --theme is explicit.",
     )
     ap.add_argument(
         "--palette",
@@ -369,8 +377,9 @@ def main() -> None:
         args.mode,
         args.format,
         args.palette,
-        args.theme,
+        "light" if args.profile == "print" and args.theme == "auto" else args.theme,
         args.clock,
+        args.profile,
     )
 
 

@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <title>{{ title }}{% if scope.cluster %} — {{ scope.cluster | cluster_display }}{% endif %}</title>
-  <style>{% include "_styles.css" %}{% if report_type in ("incident_report", "incident_executive_view") %}{% include "_styles_editorial.css" %}{% endif %}</style>
+  <style>{% include "_styles.css" %}{% if report_type in ("incident_report", "incident_executive_view", "incident_soc_action_packet", "incident_edge_platform_brief", "incident_detection_engineering") %}{% include "_styles_editorial.css" %}{% endif %}</style>
   {% block head %}{% endblock %}
 </head>
-<body>
+<body{% if profile | default('screen') != 'screen' %} class="profile-{{ profile }}" data-profile="{{ profile }}"{% endif %}>
 <main>
   {% from "macros/report_purpose.html" import report_purpose %}
 

@@ -25,6 +25,7 @@ def _render_via_engine(
     output_format: str = "html",
     palette: str = "tableau",
     theme_mode: str = "auto",
+    profile: str = "screen",
 ) -> str | None:
     """Route rendering through the report_engine for a given wrapper
     ``report_type`` and ``output_format`` (``"html"`` or ``"markdown"``).
@@ -93,6 +94,7 @@ def _render_via_engine(
         artifact,
         notes_by_slot,
         mode="full",
+        profile=profile,
     )
     env = engine_render.build_env(
         output_format=output_format,

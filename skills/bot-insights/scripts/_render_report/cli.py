@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import sys
@@ -27,6 +28,10 @@ from .validators import (
     scan_metadata_warnings,
     validate_report_artifacts,
 )
+
+_REPORTKIT_SRC = Path(__file__).resolve().parents[4] / "reportkit" / "src"
+if str(_REPORTKIT_SRC) not in sys.path:
+    sys.path.insert(0, str(_REPORTKIT_SRC))
 
 __all__ = [
     'parse_args',
@@ -53,9 +58,24 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--format",
-        choices=("markdown", "html"),
+        choices=("markdown", "html", "pdf"),
         default="markdown",
-        help="Output format.",
+        help="Output format. PDF renders print-profile HTML through optional Playwright.",
+    )
+    parser.add_argument(
+        "--profile",
+        choices=("screen", "print"),
+        default="screen",
+        help="Rendering profile. PDF implies print.",
+    )
+    parser.add_argument(
+        "--analysis-mode",
+        choices=("llm", "deterministic", "both"),
+        default="llm",
+        help=(
+            "Render LLM-inclusive notes, deterministic evidence-only output, "
+            "or both as sibling files."
+        ),
     )
     parser.add_argument(
         "--report-type",
@@ -159,6 +179,12 @@ def render(
     # raw-artifact short-circuit at the top of ``_render_via_engine``
     # also depends on.
     render_path = os.environ.get("BOT_INSIGHTS_RENDER_PATH", "auto").lower()
+    output_format = "html" if args.format == "pdf" else args.format
+    profile = "print" if args.format == "pdf" else getattr(args, "profile", "screen")
+    theme_mode = getattr(args, "theme", "auto")
+    if profile == "print" and theme_mode == "auto":
+        theme_mode = "light"
+
     if render_path != "legacy":
         engine_output = _render_via_engine(
             report_type=report_type,
@@ -166,9 +192,10 @@ def render(
             artifacts=artifacts,
             notes=notes,
             ctx=ctx,
-            output_format=args.format,
+            output_format=output_format,
             palette=getattr(args, "palette", "tableau"),
-            theme_mode=getattr(args, "theme", "auto"),
+            theme_mode=theme_mode,
+            profile=profile,
         )
         if engine_output is not None:
             return engine_output, ctx.warnings
@@ -182,7 +209,7 @@ def render(
                 f"None for report_type {report_type!r} — input is not "
                 "a wrapper or engine deps unavailable."
             )
-    if args.format == "html":
+    if output_format == "html":
         return (
             render_html(
                 title,
@@ -215,14 +242,72 @@ def main() -> int:
     args = parse_args()
     try:
         value = json.loads(read_input(args))
-        output, warnings = render(value, args)
-        if args.output:
-            args.output.write_text(output, encoding="utf-8")
-        else:
-            print(output, end="")
-        for warning in warnings:
+        if args.format == "pdf" and args.output is None:
+            raise ReportError("--format pdf requires --output.")
+        if args.analysis_mode == "both" and args.output is None:
+            raise ReportError("--analysis-mode both requires --output.")
+
+        render_jobs = _render_jobs(value, args)
+        all_warnings: list[str] = []
+        for job_value, job_args, output_path in render_jobs:
+            output, warnings = render(job_value, job_args)
+            all_warnings.extend(warnings)
+            if job_args.format == "pdf":
+                from reportkit.print_export import (
+                    PrintExportError,
+                    render_pdf_from_html,
+                )
+
+                try:
+                    render_pdf_from_html(
+                        output,
+                        output_path,
+                        title=getattr(job_args, "title", None),
+                    )
+                except PrintExportError as exc:
+                    raise ReportError(str(exc)) from exc
+            elif output_path:
+                output_path.write_text(output, encoding="utf-8")
+            else:
+                print(output, end="")
+        for warning in all_warnings:
             print(f"WARNING: {warning}", file=sys.stderr)
     except (OSError, ReportError, json.JSONDecodeError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     return 0
+
+
+def _without_analyst_notes(value: Any) -> Any:
+    deterministic = copy.deepcopy(value)
+    if (
+        isinstance(deterministic, dict)
+        and deterministic.get("schema_version") == "bot_report_input.v1"
+    ):
+        deterministic.pop("analyst_notes", None)
+    return deterministic
+
+
+def _mode_output_path(base: Path, mode: str) -> Path:
+    return base.with_name(f"{base.stem}_{mode}{base.suffix}")
+
+
+def _render_jobs(
+    value: Any,
+    args: argparse.Namespace,
+) -> list[tuple[Any, argparse.Namespace, Path | None]]:
+    if args.analysis_mode == "llm":
+        return [(value, args, args.output)]
+    if args.analysis_mode == "deterministic":
+        return [(_without_analyst_notes(value), args, args.output)]
+
+    llm_args = copy.copy(args)
+    deterministic_args = copy.copy(args)
+    llm_args.analysis_mode = "llm"
+    deterministic_args.analysis_mode = "deterministic"
+    llm_args.output = _mode_output_path(args.output, "llm")
+    deterministic_args.output = _mode_output_path(args.output, "deterministic")
+    return [
+        (value, llm_args, llm_args.output),
+        (_without_analyst_notes(value), deterministic_args, deterministic_args.output),
+    ]
