@@ -85,6 +85,28 @@ def test_safe_markdown_rendering_strips_html_and_demotes_h1():
     assert 'href="javascript:' not in rendered
 
 
+def test_reportkit_incident_volume_chart_matches_incident_color_semantics():
+    from reportkit.charts import incident_volume_chart_svg
+
+    svg = incident_volume_chart_svg(
+        [10, 25, 90, 20],
+        baseline=[8, 9, 10, 9],
+        accent="#E15759",
+        accent_fill="#FBE5E6",
+        baseline_color="#4A5A73",
+        peak_label="Peak 90",
+        highlight_start_fraction=0.25,
+        highlight_end_fraction=0.75,
+    )
+
+    assert "<path" not in svg
+    assert 'stroke="#4E79A7" stroke-width="2.2"' in svg
+    assert 'stroke="#E15759" stroke-width="2.2"' not in svg
+    assert 'fill="#E15759" fill-opacity="0.10"' in svg
+    assert svg.count('stroke="#E15759" stroke-width="1" stroke-opacity="0.35"') == 2
+    assert 'fill="#E15759">Peak 90</text>' in svg
+
+
 def test_sql_validation_and_format_json_normalization():
     from reportkit.extract.hydrolix import ensure_format_json, reject_invalid_sql
 

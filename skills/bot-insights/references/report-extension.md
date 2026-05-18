@@ -226,6 +226,12 @@ Use these surfaces for skinning:
 - wrapper metadata such as title, scope label, and analyst note titles when
   the underlying evidence semantics stay unchanged.
 
+For first-party Hydrolix identity in the incident/editorial report family, use
+the brand rendering note: [report-rendering-brand.md](report-rendering-brand.md).
+The key rule is brand for identity and structure, Tableau-style colors for
+meaning. Hydrolix primary teal is non-text chrome on light surfaces; use deep
+teal or navy when text needs a brand tone.
+
 Do not change these as skinning:
 
 - scores;

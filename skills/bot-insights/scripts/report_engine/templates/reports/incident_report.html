@@ -58,53 +58,97 @@
   {% set exec_note = notes_by_slot.get("executive_summary") if notes_by_slot else None %}
   <section id="verdict" class="verdict">
     <div class="verdict-cover">
-      <div class="verdict-main">
-        <div class="kicker section-eyebrow">The Verdict</div>
-        <div class="verdict-pills">
-          <span class="pill pill-{{ deterministic_summary.level_tone }} pill-lg verdict-level-pill">
-            {{ deterministic_summary.level_label }}
-          </span>
-          <span class="pill pill-{{ deterministic_summary.level_tone }} pill-lg print-risk-pill">
-            Risk: {{ risk_score.value }}/100
-          </span>
-          <span class="pill pill-medium pill-lg"
-                title="Aggregate confidence — reflects which evidence sources were available (raw access log, edge-response data). Per-indicator confidence is shown separately on each flagged-target row in the Who Hit It table.">
-            Confidence: {{ deterministic_summary.confidence_label }}
-          </span>
+      <div class="verdict-print-top-row">
+        <div class="verdict-main">
+          <div class="kicker section-eyebrow">The Verdict</div>
+          <div class="verdict-pills">
+            <span class="pill pill-{{ deterministic_summary.level_tone }} pill-lg verdict-level-pill">
+              {{ deterministic_summary.level_label }}
+            </span>
+            <span class="pill pill-{{ deterministic_summary.level_tone }} pill-lg print-risk-pill">
+              Risk: {{ risk_score.value }}/100
+            </span>
+            <span class="pill pill-medium pill-lg"
+                  title="Aggregate confidence — reflects which evidence sources were available (raw access log, edge-response data). Per-indicator confidence is shown separately on each flagged-target row in the Who Hit It table.">
+              Confidence: {{ deterministic_summary.confidence_label }}
+            </span>
+          </div>
+
+          {# 5-step severity ladder. The .is-on / .is-current state +
+             --bar-color come from contexts/incident_report._severity_ladder. #}
+          <div class="severity-ladder" role="img"
+               aria-label="Severity ladder — current level {{ deterministic_summary.level_label }}">
+            <div class="severity-ladder-bars">
+              {% for step in severity_ladder %}
+                <div class="severity-ladder-bar{% if step.on %} is-on{% endif %}{% if step.current %} is-current{% endif %}"
+                     style="--bar-color: {{ step.bar_color }};"></div>
+              {% endfor %}
+            </div>
+            <div class="severity-ladder-labels">
+              {% for step in severity_ladder %}
+                <span{% if step.current %} class="is-current"{% endif %}>{{ step.label }}</span>
+              {% endfor %}
+            </div>
+          </div>
+
+          {% if orientation and orientation.cant_say %}
+            <p class="verdict-caveat">{{ orientation.cant_say }}</p>
+            <p class="verdict-caveat">
+              Confidence labels reflect how much evidence was available.
+              The overall confidence is based on the data sources we had
+              (raw access log and edge actions). Each indicator row carries
+              its own confidence — that may be higher or lower than the
+              overall.
+            </p>
+          {% endif %}
         </div>
 
-        {# 5-step severity ladder. The .is-on / .is-current state +
-           --bar-color come from contexts/incident_report._severity_ladder. #}
-        <div class="severity-ladder" role="img"
-             aria-label="Severity ladder — current level {{ deterministic_summary.level_label }}">
-          <div class="severity-ladder-bars">
-            {% for step in severity_ladder %}
-              <div class="severity-ladder-bar{% if step.on %} is-on{% endif %}{% if step.current %} is-current{% endif %}"
-                   style="--bar-color: {{ step.bar_color }};"></div>
-            {% endfor %}
-          </div>
-          <div class="severity-ladder-labels">
-            {% for step in severity_ladder %}
-              <span{% if step.current %} class="is-current"{% endif %}>{{ step.label }}</span>
-            {% endfor %}
-          </div>
-        </div>
-
-        {% if orientation and orientation.cant_say %}
-          <p class="verdict-caveat">{{ orientation.cant_say }}</p>
-          <p class="verdict-caveat">
-            Confidence labels reflect how much evidence was available.
-            The overall confidence is based on the data sources we had
-            (raw access log and edge actions). Each indicator row carries
-            its own confidence — that may be higher or lower than the
-            overall.
-          </p>
+        {% if impact.volume_chart %}
+          <figure class="impact-chart verdict-volume-timeline">
+            <div class="timeline-title">
+              <span class="kicker section-eyebrow">{{ impact.volume_chart.metric_label }} timeline</span>
+              <span class="timeline-range tnum">Current period vs baseline</span>
+            </div>
+            {{ incident_volume_chart(
+                 impact.volume_chart.current,
+                 baseline=impact.volume_chart.baseline,
+                 accent=editorial.red,
+                 accent_fill=editorial.red_bg,
+                 baseline_color=editorial.mute,
+                 peak_label="Peak " + impact.volume_chart.peak_value_display,
+                 left_label=impact.volume_chart.left_label,
+                 right_label=impact.volume_chart.right_label,
+                 y_axis_label=impact.volume_chart.metric_label,
+                 highlight_start_fraction=impact.volume_chart.incident_highlight_start,
+                 highlight_end_fraction=impact.volume_chart.incident_highlight_end,
+                 secondary_highlight_start_fraction=impact.volume_chart.scoped_analysis_highlight_start,
+                 secondary_highlight_end_fraction=impact.volume_chart.scoped_analysis_highlight_end
+            ) }}
+            <figcaption class="timeline-series-legend">
+              <span><span class="swatch" style="background: {{ editorial.blue }};"></span>Current period</span>
+              {% if impact.volume_chart.baseline %}
+                <span><span class="swatch swatch-baseline"></span>Baseline</span>
+              {% endif %}
+              {% if impact.volume_chart.incident_highlight_start is not none %}
+                <span><span class="swatch swatch-incident"></span>{{ impact.volume_chart.highlight_label }}</span>
+              {% endif %}
+              {% if impact.volume_chart.scoped_analysis_highlight_start is not none %}
+                <span><span class="swatch swatch-scope"></span>{{ impact.volume_chart.incident_window_label }}</span>
+              {% endif %}
+            </figcaption>
+          </figure>
         {% endif %}
+      </div>
 
+      <aside class="verdict-score-card">
+        <div class="kicker section-eyebrow">Risk Score</div>
+        <div class="verdict-score-num tnum">{{ risk_score.value }}<small>/100</small></div>
+      </aside>
+
+      <div class="verdict-interpretation">
         {# Deterministic reasoning trail — kept verbatim from the
            previous template so analysts retain the same audit log,
-           but folded into the verdict card to match the editorial
-           voice. #}
+           while the print cover can place severity/timing first. #}
         <p class="verdict-pills verdict-assessment" style="margin-top: 18px;">
           <span class="kicker section-eyebrow">Assessed with {{ deterministic_summary.confidence }} confidence</span>
         </p>
@@ -116,11 +160,6 @@
           </p>
         {% endif %}
       </div>
-
-      <aside class="verdict-score-card">
-        <div class="kicker section-eyebrow">Risk Score</div>
-        <div class="verdict-score-num tnum">{{ risk_score.value }}<small>/100</small></div>
-      </aside>
     </div>
 
     <ol class="verdict-findings">
@@ -144,42 +183,6 @@
         </li>
       {% endfor %}
     </ol>
-
-    {% if impact.volume_chart %}
-      <figure class="impact-chart verdict-volume-timeline">
-        <div class="timeline-title">
-          <span class="kicker section-eyebrow">{{ impact.volume_chart.metric_label }} timeline</span>
-          <span class="timeline-range tnum">Current period vs baseline</span>
-        </div>
-        {{ incident_volume_chart(
-             impact.volume_chart.current,
-             baseline=impact.volume_chart.baseline,
-             accent=editorial.red,
-             accent_fill=editorial.red_bg,
-             baseline_color=editorial.mute,
-             peak_label="Peak " + impact.volume_chart.peak_value_display,
-             left_label=impact.volume_chart.left_label,
-             right_label=impact.volume_chart.right_label,
-             y_axis_label=impact.volume_chart.metric_label,
-             highlight_start_fraction=impact.volume_chart.incident_highlight_start,
-             highlight_end_fraction=impact.volume_chart.incident_highlight_end,
-             secondary_highlight_start_fraction=impact.volume_chart.scoped_analysis_highlight_start,
-             secondary_highlight_end_fraction=impact.volume_chart.scoped_analysis_highlight_end
-        ) }}
-        <figcaption class="timeline-series-legend">
-          <span><span class="swatch" style="background: {{ editorial.red }};"></span>Current period</span>
-          {% if impact.volume_chart.baseline %}
-            <span><span class="swatch swatch-baseline"></span>Baseline</span>
-          {% endif %}
-          {% if impact.volume_chart.incident_highlight_start is not none %}
-            <span><span class="swatch swatch-incident"></span>{{ impact.volume_chart.highlight_label }}</span>
-          {% endif %}
-          {% if impact.volume_chart.scoped_analysis_highlight_start is not none %}
-            <span><span class="swatch swatch-scope"></span>{{ impact.volume_chart.incident_window_label }}</span>
-          {% endif %}
-        </figcaption>
-      </figure>
-    {% endif %}
 
     <div class="score-methodology" aria-label="How the score was calculated">
       <div class="score-methodology-head">
@@ -277,7 +280,7 @@
                secondary_highlight_end_fraction=impact.volume_chart.scoped_analysis_highlight_end
           ) }}
           <figcaption class="impact-chart-legend">
-            <span><span class="swatch" style="background: {{ editorial.red }};"></span>Current window</span>
+            <span><span class="swatch" style="background: {{ editorial.blue }};"></span>Current window</span>
             {% if impact.volume_chart.baseline %}
               <span><span class="swatch swatch-baseline"></span>Baseline (avg ~{{ impact.volume_chart.baseline_avg_display }})</span>
             {% endif %}

@@ -392,7 +392,13 @@
   align-items: start;
   margin-bottom: 24px;
 }
+.brief-incident .verdict-print-top-row {
+  display: contents;
+}
 .brief-incident .verdict-main {
+  grid-column: 1 / -1;
+}
+.brief-incident .verdict-interpretation {
   grid-column: 1 / -1;
 }
 .brief-incident .verdict-narrative {
@@ -1665,30 +1671,85 @@
   .brief-incident .verdict-cover {
     display: block;
   }
+  .brief-incident .verdict-print-top-row {
+    display: grid;
+    grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+    gap: 10pt;
+    align-items: stretch;
+    margin-bottom: 15pt;
+  }
+  .brief-incident .verdict-main {
+    grid-column: auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 126pt;
+    box-sizing: border-box;
+    background: #fff;
+    border: 1px solid #dfe4ea;
+    padding: 9pt 9pt 7pt;
+  }
   .brief-incident .verdict-score-card { display: none; }
   .brief-incident .verdict-level-pill { display: none; }
   .brief-incident .print-risk-pill { display: inline-block; }
-  .brief-incident .verdict-pills { margin: 8pt 0 10pt; }
-  .brief-incident .severity-ladder { margin-top: 10pt; }
+  .brief-incident .verdict-pills {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4pt;
+    margin: 8pt 0 10pt;
+  }
+  .brief-incident .verdict-main .pill-lg {
+    padding: 2.4pt 7pt;
+    font-size: 7.6pt;
+    line-height: 1.1;
+    letter-spacing: 0.11em;
+    border-radius: 999px;
+  }
+  .brief-incident .severity-ladder { margin-top: auto; }
   .brief-incident .severity-ladder-bars {
-    gap: 5pt;
+    gap: 4pt;
     margin-bottom: 6pt;
   }
-  .brief-incident .severity-ladder-bar { height: 8pt; }
+  .brief-incident .severity-ladder-bar { height: 6.5pt; }
   .brief-incident .severity-ladder-labels { gap: 4pt; }
-  .brief-incident .severity-ladder-labels span { font-size: 7.2pt; }
+  .brief-incident .severity-ladder-labels span { font-size: 6.7pt; }
+  .brief-incident .severity-ladder-bar.is-current::after {
+    top: -11pt;
+    border-left-width: 4pt;
+    border-right-width: 4pt;
+    border-top-width: 5.5pt;
+  }
   .brief-incident .verdict-caveat { display: none; }
   .brief-incident .verdict-assessment { display: none; }
   .brief-incident .verdict-narrative {
     display: block;
     max-width: none;
   }
+  .brief-incident .verdict-interpretation {
+    display: block;
+    margin: 0 0 10pt;
+    padding: 7pt 9pt 7pt 10pt;
+    background: #f8fafc;
+    border: 1px solid #dfe4ea;
+    border-left: 3pt solid #9a3330;
+    box-sizing: border-box;
+  }
   .brief-incident .verdict-narrative.prose {
-    font-size: 8.4pt;
-    line-height: 1.34;
+    font-size: 8.2pt;
+    line-height: 1.38;
+    color: #26313d;
   }
   .brief-incident .verdict-narrative.prose p {
-    margin: 0 0 5pt;
+    margin: 0;
+  }
+  .brief-incident .verdict-narrative.prose strong:first-child {
+    display: block;
+    margin-bottom: 3pt;
+    font-family: var(--mono-editorial);
+    font-size: 7.1pt;
+    line-height: 1.1;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #5b1f1e;
   }
   .brief-incident .verdict-narrative.prose ul,
   .brief-incident .verdict-narrative.prose ol {
@@ -1740,11 +1801,17 @@
     font-size: 6.8pt;
   }
   .brief-incident .verdict-volume-timeline {
-    display: block;
-    margin-top: 10pt;
-    padding: 7pt 7pt 5pt;
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    min-height: 126pt;
+    box-sizing: border-box;
+    padding: 9pt 9pt 6pt;
   }
-  .brief-incident .verdict-volume-timeline .timeline-title { margin-bottom: 5pt; }
+  .brief-incident .verdict-volume-timeline .timeline-title {
+    align-items: baseline;
+    margin-bottom: 4pt;
+  }
   .brief-incident .verdict-volume-timeline .timeline-range {
     font-size: 7.4pt;
     font-weight: 600;
@@ -1752,13 +1819,15 @@
   }
   .brief-incident .verdict-volume-timeline svg {
     max-width: 100%;
-    max-height: 72pt;
+    max-height: 62pt;
   }
   .brief-incident .timeline-series-legend {
     display: flex;
-    gap: 10pt;
+    flex-wrap: wrap;
+    gap: 4pt 8pt;
+    margin-top: auto;
     padding: 3pt 0 0;
-    font-size: 7pt;
+    font-size: 6.8pt;
     color: #333;
   }
   .brief-incident .timeline-series-legend .swatch {

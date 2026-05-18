@@ -12,6 +12,9 @@ import math
 from .theme import BAND_COLORS, PALETTE, band_for_score
 
 
+CURRENT_SERIES_COLOR = "#4E79A7"  # Tableau Blue; categorical, not severity.
+
+
 def score_gauge_svg(score: int, delta_pct: float | None = None) -> str:
     """Half-circle arc gauge with band-zoned arc, big-number readout, and an
     optional delta indicator (`↑ 5.00%` / `↓ 1.00%` / `— 0.00%`) directly
@@ -518,6 +521,7 @@ def incident_volume_chart_svg(
     height: int = 140,
     accent: str = PALETTE["escalate"],
     accent_fill: str = PALETTE["escalate_fill"],
+    current_color: str = CURRENT_SERIES_COLOR,
     baseline_color: str = PALETTE["muted"],
     peak_label: str | None = None,
     left_label: str = "",
@@ -531,9 +535,10 @@ def incident_volume_chart_svg(
     """Attack-shape chart for the incident report's Impact section.
 
     Renders the current window's request-volume series as a thick line
-    with a soft area fill in the accent color. When ``baseline`` is
-    provided, overlays it as a thin dashed line in muted color so the
-    reader sees how far the current window has departed from normal.
+    in a categorical color. When ``baseline`` is provided, overlays it
+    as a thin dashed line in muted color so the reader sees how far the
+    current window has departed from normal. The incident window and
+    peak marker use ``accent`` as the semantic severity cue.
 
     Designed for a C-level read at 6 feet: the shape of the attack is
     the headline, the numbers are secondary. Use ``accent`` matching
@@ -576,17 +581,6 @@ def incident_volume_chart_svg(
         return " ".join(f"{x:.1f},{y:.1f}" for x, y in pts), pts
 
     current_path, current_pts = _points(current)
-    area_path = ""
-    if current_pts:
-        first_x = current_pts[0][0]
-        last_x = current_pts[-1][0]
-        baseline_y = pad_top + plot_h
-        # Build a closed polygon from line + baseline for the area fill
-        area_path = (
-            f"M {first_x:.1f},{baseline_y:.1f} "
-            + " ".join(f"L {x:.1f},{y:.1f}" for x, y in current_pts)
-            + f" L {last_x:.1f},{baseline_y:.1f} Z"
-        )
 
     baseline_polyline = ""
     if have_baseline:
@@ -655,7 +649,7 @@ def incident_volume_chart_svg(
     # for horizontal space. Other callers that relied on the in-SVG
     # label should switch to a CSS-styled label on the containing
     # ``<figure>``.
-    del y_axis_label
+    del accent_fill, y_axis_label
     y_axis = (
         f'<text x="{pad_left - 8:.1f}" y="{pad_top + 4:.1f}" '
         f'text-anchor="end" font-size="10" fill="currentColor" opacity="0.55">{_fmt_compact(vmax)}</text>'
@@ -684,10 +678,9 @@ def incident_volume_chart_svg(
         f'preserveAspectRatio="xMidYMid meet">'
         f"{grid}"
         f"{incident_window}"
-        f'<path d="{area_path}" fill="{accent_fill}" fill-opacity="0.55" />'
         f"{secondary_window}"
         f"{baseline_polyline}"
-        f'<polyline fill="none" stroke="{accent}" stroke-width="2.2" '
+        f'<polyline fill="none" stroke="{current_color}" stroke-width="2.2" '
         f'stroke-linejoin="round" stroke-linecap="round" '
         f'points="{current_path}" />'
         f"{peak_marker}"
