@@ -86,6 +86,54 @@ def assemble(artifacts: list[dict]) -> dict:
     return _ir.assemble(artifacts)
 
 
+def _decision_needed_default(
+    deterministic_summary: dict,
+    suspicious_targets: list[dict],
+    recommended_actions: list[dict],
+    raw_drilldown_available: bool,
+) -> str:
+    """Mechanical fallback sentence for the Decision needed slot.
+
+    Dispatches on ``deterministic_summary.level`` to surface a single
+    plain-text sentence the template can render when no analyst override
+    is present. Output never contains markdown — the template inserts it
+    inside a plain ``<p>``.
+    """
+    level = (deterministic_summary or {}).get("level") or "low"
+    top_target = suspicious_targets[0] if suspicious_targets else None
+    top_action = recommended_actions[0] if recommended_actions else None
+
+    if level == "critical" and raw_drilldown_available and top_target and top_action:
+        return (
+            f"Approve {top_action.get('urgency') or 'the recommended action'} on "
+            f"{top_target.get('target_type_label') or 'top target'}: "
+            f"{top_target.get('target_value') or ''}. "
+            "Confirm the named indicators before the next change-control window."
+        )
+    if level == "critical":
+        return (
+            "Approve raw-log access so the suspicious-actor list resolves to "
+            "named indicators before any policy change."
+        )
+    if level in {"elevated", "high"}:
+        top_flag = None
+        if top_target:
+            labels = top_target.get("reason_flag_labels") or top_target.get("reason_flags") or []
+            top_flag = labels[0] if labels else None
+        if top_flag:
+            return (
+                f"Decide whether the observed {top_flag} warrants a policy "
+                "change or a longer monitoring window before escalating."
+            )
+        return (
+            "Decide whether the observed signal warrants a policy change "
+            "or a longer monitoring window before escalating."
+        )
+    if level == "medium":
+        return "No decision required this window; confirm the next monitoring cadence."
+    return "No new decision flagged this window."
+
+
 def prepare(artifact: dict) -> dict:
     scope_art = artifact["scope"]
     actors_art = artifact["actors"]
@@ -112,7 +160,8 @@ def prepare(artifact: dict) -> dict:
     display = active_thresholds().display
     recommended_actions = full_actions[:display.exec_actions_cap]
     impact_tiles = list(impact.get("tiles") or [])[:display.exec_impact_tiles_cap]
-    top_affected = impact.get("top_affected")
+    top_affected_hosts = impact.get("top_affected_hosts")
+    top_path_pattern = impact.get("top_path_pattern")
 
     windows = {
         "current": {
@@ -156,12 +205,19 @@ def prepare(artifact: dict) -> dict:
         },
         "windows": windows,
         "impact_tiles": impact_tiles,
-        "top_affected": top_affected,
+        "top_affected_hosts": top_affected_hosts,
+        "top_path_pattern": top_path_pattern,
         "recommended_actions": recommended_actions,
         "deterministic_summary": deterministic_summary,
         "incident_status_tone": INCIDENT_STATUS_TONE,
         "incident_status_default": DEFAULT_STATUS,
         "confidence_caveat_default": CONFIDENCE_CAVEAT_DEFAULT,
+        "decision_needed_default": _decision_needed_default(
+            deterministic_summary,
+            suspicious_targets,
+            recommended_actions,
+            bool(actors_art.get("raw_drilldown_available")),
+        ),
         "dashboard_url": scope_art.get("dashboard_url") or "",
         "limitations": limitations,
         "method": {

@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% from "macros/method.html" import method_section %}
+
+{% block header %}{% endblock %}
+{% block hero %}{% endblock %}
+{% block content %}
+<article class="brief-incident incident-stakeholder detection-engineering">
+  <header class="brief-mast">
+    <div class="mast-titles header-titles">
+      <div class="mast-eyebrow">
+        <span class="mast-brand" aria-label="Hydrolix">{{ hydrolix_logotype_svg }}</span>
+        <span class="mast-eyebrow-divider"></span>
+        <span class="kicker section-eyebrow">{{ kicker }}</span>
+      </div>
+      <h1 class="display-xl">{{ headline }}</h1>
+      {% if dek %}<p class="mast-dek dek">{{ dek }}</p>{% endif %}
+    </div>
+  </header>
+
+  <section>
+    <h2>Mechanical rules fired</h2>
+    {% if rule_summary %}
+      <table class="mini-table"><thead><tr><th>Rule signal</th><th class="is-num">Targets</th></tr></thead><tbody>
+      {% for row in rule_summary %}<tr><td>{{ row.rule }}</td><td class="is-num">{{ row.count }}</td></tr>{% endfor %}
+      </tbody></table>
+    {% else %}
+      <p class="muted">No mechanical rule flags were emitted by the action-target artifact.</p>
+    {% endif %}
+  </section>
+
+  <section>
+    <h2>Fields driving confidence</h2>
+    {% if field_rankings %}
+      {% for ranking in field_rankings %}
+        <h3>{{ ranking.field_label }}</h3>
+        {% if ranking.rows %}
+          <table class="mini-table"><thead><tr><th>Value</th><th class="is-num">Requests</th><th class="is-num">429 share</th><th class="is-num">5xx share</th></tr></thead><tbody>
+          {% for row in ranking.rows[:5] %}<tr><td><code>{{ row.value }}</code></td><td class="is-num">{{ row.requests_display }}</td><td class="is-num">{{ row.req_429_share_display }}</td><td class="is-num">{{ row.req_5xx_share_display }}</td></tr>{% endfor %}
+          </tbody></table>
+        {% endif %}
+      {% endfor %}
+    {% else %}
+      <p class="muted">Raw field rankings were unavailable; confidence review is limited to summary-level artifacts.</p>
+    {% endif %}
+  </section>
+
+  <section>
+    <h2>Calibration calls</h2>
+    {% set cc = notes_by_slot.get("calibration_calls") if notes_by_slot else None %}
+    {% if cc %}
+      <div class="prose">{{ markdown_render(cc.text) }}</div>
+    {% else %}
+      <p>{{ calibration_calls.headline }}</p>
+      {% if calibration_calls.calls %}
+        <ul class="calibration-list">
+          {% for call in calibration_calls.calls %}
+            <li><strong>{{ call.verb }}:</strong> <code>{{ call.subject }}</code> — {{ call.rationale }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endif %}
+  </section>
+
+  <section>
+    <h2>Missing coverage</h2>
+    <ul>{% for item in missing_coverage %}<li>{{ item }}</li>{% endfor %}</ul>
+  </section>
+
+  <section>
+    <h2>Follow-up instrumentation</h2>
+    <ul>{% for item in follow_up_instrumentation %}<li>{{ item }}</li>{% endfor %}</ul>
+  </section>
+
+  {{ method_section(method, scope, confidence.reasons) }}
+</article>
+{% endblock %}

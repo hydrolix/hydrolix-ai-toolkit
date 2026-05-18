@@ -10,12 +10,14 @@ Update snapshots after an intentional rendering change:
 from __future__ import annotations
 
 import os
+import json
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -1487,6 +1489,144 @@ def test_incident_executive_view_markdown():
         assert line in actual, f"markdown line missing: {line}"
 
 
+@pytest.mark.parametrize(
+    ("fixture_name", "snapshot_name", "markers"),
+    [
+        (
+            "incident_soc_action_packet.json",
+            "incident_soc_action_packet.html",
+            ("SOC Action Packet", "Suspicious actors", "IOC handoff", "Evidence caveats"),
+        ),
+        (
+            "incident_edge_platform_brief_no_notes.json",
+            "incident_edge_platform_brief_no_notes.html",
+            ("Edge Platform Brief", "Request impact", "429 / 5xx shape", "Policy assessment", "Operational caveats"),
+        ),
+        (
+            "incident_edge_platform_brief_full.json",
+            "incident_edge_platform_brief_full.html",
+            ("Edge Platform Brief", "Request impact", "429 / 5xx shape", "Policy assessment", "Operational caveats"),
+        ),
+        (
+            "incident_detection_engineering_no_notes.json",
+            "incident_detection_engineering_no_notes.html",
+            (
+                "Detection Engineering Review",
+                "Mechanical rules fired",
+                "Fields driving confidence",
+                "Calibration calls",
+                "Follow-up instrumentation",
+            ),
+        ),
+        (
+            "incident_detection_engineering_full.json",
+            "incident_detection_engineering_full.html",
+            (
+                "Detection Engineering Review",
+                "Mechanical rules fired",
+                "Fields driving confidence",
+                "Calibration calls",
+                "Follow-up instrumentation",
+            ),
+        ),
+    ],
+)
+def test_incident_stakeholder_view_html(fixture_name, snapshot_name, markers):
+    fixture = FIXTURES / fixture_name
+    actual = _normalize(_render(fixture))
+    _assert_snapshot(actual, SNAPSHOTS / snapshot_name)
+    for marker in markers:
+        assert marker in actual
+    assert "unavailable" in actual or "No " in actual
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "snapshot_name", "heading"),
+    [
+        (
+            "incident_soc_action_packet.json",
+            "incident_soc_action_packet.md",
+            "# www.example.com — SOC Action Packet",
+        ),
+        (
+            "incident_edge_platform_brief_no_notes.json",
+            "incident_edge_platform_brief_no_notes.md",
+            "# www.example.com — Edge Platform Brief",
+        ),
+        (
+            "incident_edge_platform_brief_full.json",
+            "incident_edge_platform_brief_full.md",
+            "# www.example.com — Edge Platform Brief",
+        ),
+        (
+            "incident_detection_engineering_no_notes.json",
+            "incident_detection_engineering_no_notes.md",
+            "# www.example.com — Detection Engineering Review",
+        ),
+        (
+            "incident_detection_engineering_full.json",
+            "incident_detection_engineering_full.md",
+            "# www.example.com — Detection Engineering Review",
+        ),
+    ],
+)
+def test_incident_stakeholder_view_markdown(fixture_name, snapshot_name, heading):
+    fixture = FIXTURES / fixture_name
+    actual = _render(fixture, "--format", "markdown")
+    _assert_snapshot(actual, SNAPSHOTS / snapshot_name)
+    assert heading in actual
+    assert "## " in actual
+
+
+def test_incident_stakeholder_views_registered_and_legacy_accepted():
+    import render_report
+    from report_engine.contexts import REPORT_TYPE_REGISTRY, incident_report
+
+    expected = {
+        "incident_soc_action_packet",
+        "incident_edge_platform_brief",
+        "incident_detection_engineering",
+    }
+    assert expected <= set(REPORT_TYPE_REGISTRY)
+    assert expected <= set(render_report.REPORT_TYPES)
+    wrapper = json.loads((FIXTURES / "incident_soc_action_packet.json").read_text())
+    args = SimpleNamespace(
+        text=[],
+        file=None,
+        format="markdown",
+        report_type=None,
+        output=None,
+        limit=None,
+        allow_unknown=False,
+        title=None,
+        palette="tableau",
+        theme="auto",
+    )
+    ctx = render_report.ReportContext()
+    artifacts, notes, wrapper_report_type, wrapper_title, wrapper_limit, scope_label, raw_mode = (
+        render_report.load_report_input(wrapper, args, ctx)
+    )
+    report_type, _title, _limit, _scope = render_report.resolve_options(
+        artifacts,
+        wrapper_report_type=wrapper_report_type,
+        wrapper_title=wrapper_title,
+        wrapper_limit=wrapper_limit,
+        scope_label=scope_label,
+        raw_mode=raw_mode,
+        args=args,
+        ctx=ctx,
+    )
+    selected = render_report.validate_report_artifacts(report_type, artifacts, ctx)
+    assert report_type == "incident_soc_action_packet"
+    assert set(selected) == {"scope", "actors", "action_targets"}
+    assert (
+        REPORT_TYPE_REGISTRY["incident_soc_action_packet"].assemble(
+            wrapper["artifacts"]
+        )
+        == incident_report.assemble(wrapper["artifacts"])
+    )
+
+
 class TestIncidentExecutiveView:
     """Direct unit tests on the incident_executive_view context module."""
 
@@ -1556,7 +1696,8 @@ class TestIncidentExecutiveView:
             "scope",
             "windows",
             "impact_tiles",
-            "top_affected",
+            "top_affected_hosts",
+            "top_path_pattern",
             "recommended_actions",
             "deterministic_summary",
             "incident_status_tone",
@@ -1770,3 +1911,94 @@ def test_register_rejects_module_missing_required_attrs():
     # Missing REPORT_TYPE / TEMPLATE / assemble / prepare
     with pytest.raises(TypeError, match="missing required attribute"):
         contexts.register(bogus)
+
+
+def test_render_report_cli_accepts_print_pdf_and_analysis_mode(monkeypatch):
+    import render_report
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "render_report.py",
+            "--profile",
+            "print",
+            "--format",
+            "pdf",
+            "--analysis-mode",
+            "both",
+            "--output",
+            "incident_report_print.pdf",
+        ],
+    )
+
+    args = render_report.parse_args()
+
+    assert args.profile == "print"
+    assert args.format == "pdf"
+    assert args.analysis_mode == "both"
+
+
+def test_render_report_analysis_mode_both_derives_sibling_outputs():
+    from _render_report import cli
+
+    args = SimpleNamespace(
+        analysis_mode="both",
+        output=Path("incident_report_print.pdf"),
+    )
+
+    jobs = cli._render_jobs({"schema_version": "bot_report_input.v1"}, args)
+
+    assert jobs[0][2] == Path("incident_report_print_llm.pdf")
+    assert jobs[1][2] == Path("incident_report_print_deterministic.pdf")
+    assert jobs[1][0] == {"schema_version": "bot_report_input.v1"}
+
+
+def test_render_report_print_profile_forces_light_and_marks_html(monkeypatch):
+    import render_report
+    from _render_report import cli
+
+    monkeypatch.delenv("BOT_INSIGHTS_RENDER_PATH", raising=False)
+    wrapper = json.loads((ROOT / "skills/bot-insights/examples/incident-report.json").read_text())
+    calls = []
+
+    def fake_engine(**kwargs):
+        calls.append(kwargs)
+        return '<body class="profile-print" data-profile="print"></body>'
+
+    monkeypatch.setattr(cli, "_render_via_engine", fake_engine)
+    output, warnings = render_report.render(
+        wrapper,
+        SimpleNamespace(
+            text=[],
+            file=None,
+            format="html",
+            profile="print",
+            report_type=None,
+            output=None,
+            limit=None,
+            allow_unknown=False,
+            title=None,
+            palette="tableau",
+            theme="auto",
+            analysis_mode="llm",
+        ),
+    )
+
+    assert warnings == []
+    assert 'data-profile="print"' in output
+    assert 'class="profile-print"' in output
+    assert calls[0]["profile"] == "print"
+    assert calls[0]["theme_mode"] == "light"
+
+
+def test_render_report_deterministic_mode_removes_analyst_notes(monkeypatch):
+    from _render_report import cli
+
+    wrapper = json.loads((ROOT / "skills/bot-insights/examples/incident-report.json").read_text())
+    assert wrapper["analyst_notes"]
+
+    deterministic = cli._without_analyst_notes(wrapper)
+
+    assert "analyst_notes" not in deterministic
+    assert "analyst_notes" in wrapper

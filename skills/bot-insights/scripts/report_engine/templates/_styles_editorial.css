@@ -325,6 +325,65 @@
 
 /* Verdict */
 .brief-incident .verdict { margin-bottom: 56px; }
+
+/* Stakeholder-lens verdict card (SOC action packet, edge platform brief,
+   detection-engineering review). Lighter-weight than the analyst-view
+   ``.verdict`` card — no risk score gauge, no severity ladder — but
+   shares the editorial paper aesthetic so it stays readable under OS
+   dark mode (the always-light ``--paper-*`` tokens explicitly override
+   the global dark-mode palette). */
+.brief-incident .incident-stakeholder-verdict {
+  background: var(--paper-surface);
+  border: 1px solid var(--paper-rule-soft);
+  border-left: 3px solid var(--paper-red);
+  color: var(--paper-ink);
+  padding: 18px 22px;
+  margin: 0 0 32px;
+}
+.brief-incident .incident-stakeholder-verdict h2,
+.brief-incident .incident-stakeholder-verdict h3 {
+  color: var(--paper-ink);
+  margin: 0 0 10px;
+}
+.brief-incident .incident-stakeholder-verdict h3 {
+  font-size: 13px;
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+  color: var(--paper-mute);
+  margin-top: 18px;
+}
+.brief-incident .incident-stakeholder-verdict p,
+.brief-incident .incident-stakeholder-verdict li {
+  color: var(--paper-ink);
+}
+.brief-incident .incident-stakeholder-verdict ul {
+  margin: 4px 0 0;
+  padding-left: 22px;
+}
+
+/* SOC primary-actor table — mixed text/pill/numeric columns. The base
+   ``.mini-table`` only padding-spaces numeric cells; for the SOC table
+   we additionally separate every column with a horizontal gap so the
+   pill, "Medium", number, and "Why flagged" wrap don't collide. */
+.brief-incident .soc-actor-table th:not(:last-child),
+.brief-incident .soc-actor-table td:not(:last-child) {
+  padding-right: 14px;
+}
+.brief-incident .soc-actor-table td {
+  vertical-align: top;
+}
+.brief-incident .soc-actor-table .target-cooccurrence td {
+  padding-top: 4px;
+  padding-bottom: 12px;
+}
+.brief-incident .soc-actor-table .target-cooccurrence details summary {
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+.brief-incident .soc-actor-table .cooccurrence-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
 .brief-incident .verdict-cover {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

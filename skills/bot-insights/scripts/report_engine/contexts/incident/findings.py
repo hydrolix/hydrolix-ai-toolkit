@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .labels import SPIKE_FLAG_LABELS
+from .labels import REASON_FLAG_LABELS, SPIKE_FLAG_LABELS
 
 __all__ = [
     '_finding_entity',
@@ -85,21 +85,72 @@ def _finding_top_tier_group(
     return None
 
 
-def _finding_ua_automation(ua_targets: list[dict]) -> dict | None:
-    """Finding 02: UA / ASN automation footprint, if distinct."""
+def _finding_ua_footprint(ua_targets: list[dict]) -> dict | None:
+    """Finding 02: UA footprint dispatched on the actual flags that fired.
+
+    The lead used to be a hardcoded "automation tooling" claim — but the
+    UAs that surface here are routinely rotating browser strings, and
+    only the ``automation_user_agent`` flag genuinely identifies tooling
+    UAs (curl, python-requests, ...). Dispatch on the union of
+    ``reason_flags`` across the top-2 UA targets, first match wins.
+    """
     if not ua_targets:
         return None
-    share = sum(float(t.get("share_pct") or 0) for t in ua_targets[:2])
+    top = ua_targets[:2]
+    share = sum(float(t.get("share_pct") or 0) for t in top)
+    flags: set[str] = set()
+    for t in top:
+        for flag in t.get("reason_flags") or []:
+            flags.add(str(flag))
+    flag_labels = ", ".join(
+        REASON_FLAG_LABELS.get(flag, flag) for flag in sorted(flags)
+    ) or "—"
+
+    if "automation_user_agent" in flags:
+        lead = "Automation tooling declared in the user agent."
+        body = (
+            f"These user agents account for ~{share:.0f}% of "
+            "traffic and match curated automation patterns "
+            f"({flag_labels}). The report does not infer intent "
+            "from the identifier — the names below are what the "
+            "requests presented:"
+        )
+    elif "single_path_concentration" in flags:
+        lead = "User agents concentrated on a single path."
+        body = (
+            f"These user agents account for ~{share:.0f}% of "
+            f"traffic and fired {flag_labels}. The report does "
+            "not infer intent — the identifiers below are what "
+            "the requests presented:"
+        )
+    elif "new_in_window" in flags:
+        lead = "User agents new in this window."
+        body = (
+            f"These user agents account for ~{share:.0f}% of "
+            "traffic and were absent from the trailing baseline "
+            f"({flag_labels}). The report does not infer intent:"
+        )
+    elif "high_rate_429_share" in flags:
+        lead = "User agents drawing high 429 share."
+        body = (
+            f"These user agents account for ~{share:.0f}% of "
+            f"traffic and fired {flag_labels}. The report does "
+            "not infer intent — the identifiers below are what "
+            "the requests presented:"
+        )
+    else:
+        lead = "User agents drawing outsized request share."
+        body = (
+            f"These user agents account for ~{share:.0f}% of "
+            f"traffic ({flag_labels}). The report does not infer "
+            "intent — the identifiers below are what the requests "
+            "presented:"
+        )
     return {
         "label": "Finding 02",
-        "lead": "Automation tooling declared in the user agent.",
-        "body": (
-            f"These user agents account for ~{share:.0f}% of "
-            "traffic and match curated automation patterns. The "
-            "report does not infer intent from the identifier — "
-            "the names below are what the requests presented:"
-        ),
-        "entities": [_finding_entity(t) for t in ua_targets[:2]],
+        "lead": lead,
+        "body": body,
+        "entities": [_finding_entity(t) for t in top],
     }
 
 
@@ -263,7 +314,7 @@ def _incident_findings(
 
     candidates = [
         _finding_top_tier_group(crit_ips, crits, highs),
-        _finding_ua_automation(ua_targets),
+        _finding_ua_footprint(ua_targets),
         _finding_third_slot(
             cohort_overlap, anomalies, cohort_targets, spike_flags, suspicious_targets,
         ),

@@ -54,6 +54,7 @@ from producers.runtime import (
     load_raw_query_result,
     run,
 )
+from producers.rendering import render_report_command
 from producers.sql.control_review import (
     control_review_sql,
     control_review_timeseries_sql,
@@ -232,6 +233,21 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--incident-view",
+        choices=(
+            "analyst",
+            "executive",
+            "soc_action_packet",
+            "edge_platform_brief",
+            "detection_engineering",
+        ),
+        default="analyst",
+        help=(
+            "Incident-only render audience. Changes the wrapper report_type "
+            "and template only; evidence capture semantics are unchanged."
+        ),
+    )
+    parser.add_argument(
         "--fields",
         default=None,
         help=(
@@ -366,6 +382,8 @@ def main() -> int:
         # Edge/Ops scorecards evaluate cache_busting and origin_impact domains
         # so SOC/crawler features do not surface as missing edge evidence.
         args.domains = "cache_busting,origin_impact"
+    if args.report != "incident_report" and args.incident_view != "analyst":
+        raise SystemExit("--incident-view is only supported with --report incident_report.")
 
     sample_dir = (
         Path(args.sample_dir).expanduser().resolve()
@@ -375,6 +393,14 @@ def main() -> int:
     sample_dir.mkdir(parents=True, exist_ok=True)
 
     if args.report == "incident_report":
+        incident_report_types = {
+            "analyst": "incident_report",
+            "executive": "incident_executive_view",
+            "soc_action_packet": "incident_soc_action_packet",
+            "edge_platform_brief": "incident_edge_platform_brief",
+            "detection_engineering": "incident_detection_engineering",
+        }
+        args.incident_report_type = incident_report_types[args.incident_view]
         output_path = Path(args.output).expanduser().resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
         return _run_incident_report(
@@ -960,21 +986,15 @@ def main() -> int:
             json.dumps(wrapper, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        render_cmd = [
-            "uv",
-            "run",
-            "python",
-            "skills/bot-insights/scripts/render_report.py",
-            "--file",
-            str(wrapper_path),
-            "--format",
-            args.format,
-            "--output",
-            str(output_path),
-        ]
-        if args.title:
-            render_cmd.extend(["--title", args.title])
-        run(render_cmd, cwd=PUBLIC_SKILLS)
+        run(
+            render_report_command(
+                wrapper_path=wrapper_path,
+                output_path=output_path,
+                output_format=args.format,
+                title=args.title,
+            ),
+            cwd=PUBLIC_SKILLS,
+        )
 
     print(
         json.dumps(

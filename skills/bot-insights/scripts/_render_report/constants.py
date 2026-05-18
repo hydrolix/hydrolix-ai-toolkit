@@ -87,16 +87,21 @@ SUPPORTED_SCHEMAS = {
 KNOWN_UNSUPPORTED_SCHEMAS: set[str] = set()
 
 
-REPORT_TYPES = {
-    "executive_posture",
-    "soc_triage",
-    "control_review",
-    "scorecard_brief",
-    "crawler_governance",
-    "edge_ops_impact",
-    "incident_report",
-    "incident_executive_view",
-}
+try:
+    from report_engine.contexts import REPORT_TYPE_REGISTRY
+except Exception:  # pragma: no cover - defensive fallback for legacy import mode
+    REPORT_TYPES = {
+        "executive_posture",
+        "soc_triage",
+        "control_review",
+        "scorecard_brief",
+        "crawler_governance",
+        "edge_ops_impact",
+        "incident_report",
+        "incident_executive_view",
+    }
+else:
+    REPORT_TYPES = set(REPORT_TYPE_REGISTRY)
 
 
 RESERVED_CHILD_ID = re.compile(r"(#index|#scorecard-\d+)$")

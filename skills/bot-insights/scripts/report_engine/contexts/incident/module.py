@@ -70,8 +70,9 @@ PURPOSE = {
         "the trailing window — severity is qualitative."
     ),
     "cant_say": (
-        "Rule-based scorecard. Mechanical features only — no malicious-intent "
-        "claim or root-cause attribution."
+        "This report describes traffic patterns, not intent. It is built "
+        "from log rules, so it does not claim any actor is malicious or "
+        "attribute a root cause."
     ),
     # Risk-score bands for the orientation legend. Incident risk is
     # higher-is-worse (inverted from scorecard reports), so the legend

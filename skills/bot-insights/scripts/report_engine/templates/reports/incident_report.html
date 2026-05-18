@@ -89,10 +89,11 @@
         {% if orientation and orientation.cant_say %}
           <p class="verdict-caveat">{{ orientation.cant_say }}</p>
           <p class="verdict-caveat">
-            Report-level confidence reflects available evidence sources
-            (raw access log, edge-response). Per-indicator confidence on
-            each flagged-target row is set by the producer per actor and
-            may be lower or higher than the overall.
+            Confidence labels reflect how much evidence was available.
+            The overall confidence is based on the data sources we had
+            (raw access log and edge actions). Each indicator row carries
+            its own confidence — that may be higher or lower than the
+            overall.
           </p>
         {% endif %}
 
@@ -231,13 +232,23 @@
       {% endfor %}
     </dl>
 
-    {% if impact.top_affected %}
+    {% if impact.top_affected_hosts %}
       <p class="impact-lead" style="margin-top: 18px;">
-        Top affected: <strong>{{ impact.top_affected.host }}</strong>
-        <code class="mono">{{ impact.top_affected.path_pattern }}</code> —
-        {{ impact.top_affected.requests_display }} requests
-        ({{ impact.top_affected.share_pct_display }} of window,
-        {{ impact.top_affected.delta_pct_display }} vs baseline).
+        Top affected {{ "host" if impact.top_affected_hosts.hosts | length == 1 else "hosts" }}:
+        {% for h in impact.top_affected_hosts.hosts -%}
+          <strong>{{ h.value }}</strong> ({{ h.share_pct_display }}{% if impact.top_affected_hosts.hosts | length == 1 %}, {{ h.delta_pct_display }} vs baseline{% endif %}){% if not loop.last %}, {% endif %}
+        {%- endfor %}
+        {% if impact.top_affected_hosts.hosts | length > 1 %}
+          — together {{ impact.top_affected_hosts.cumulative_share_pct_display }} of window.
+        {% else %}.{% endif %}
+      </p>
+    {% endif %}
+    {% if impact.top_path_pattern %}
+      <p class="impact-lead">
+        Top path pattern: <code class="mono">{{ impact.top_path_pattern.value }}</code> —
+        {{ impact.top_path_pattern.requests_display }} requests
+        ({{ impact.top_path_pattern.share_pct_display }} of window,
+        {{ impact.top_path_pattern.delta_pct_display }} vs baseline).
       </p>
     {% endif %}
   </section>

@@ -284,10 +284,12 @@ def build_report_wrapper(
     args: argparse.Namespace,
     artifacts: list[dict],
     analyst_note: dict | None = None,
+    report_type: str | None = None,
 ) -> dict:
+    effective_report_type = report_type or args.report
     wrapper = {
         "schema_version": "bot_report_input.v1",
-        "report_type": args.report,
+        "report_type": effective_report_type,
         "title": args.title
         or {
             "executive_posture": "Bot & Edge Movement",
@@ -298,7 +300,15 @@ def build_report_wrapper(
             "soc_triage": "SOC Triage",
             "crawler_governance": "Crawler Governance",
             "edge_ops_impact": "Edge & Origin Cost",
-        }.get(args.report, f"Bot Insights {args.report.replace('_', ' ').title()}"),
+            "incident_report": "Incident Report",
+            "incident_executive_view": "Incident Executive View",
+            "incident_soc_action_packet": "Incident SOC Action Packet",
+            "incident_edge_platform_brief": "Incident Edge Platform Brief",
+            "incident_detection_engineering": "Incident Detection Engineering",
+        }.get(
+            effective_report_type,
+            f"Bot Insights {effective_report_type.replace('_', ' ').title()}",
+        ),
         "scope_label": f"{args.cluster}/{args.database}",
         "artifacts": artifacts,
         "analyst_notes": [analyst_note] if analyst_note else [],
@@ -307,6 +317,13 @@ def build_report_wrapper(
 
 
 def render_template_packet(packet: dict) -> str:
+    contract = packet.get("interpretation_contract") or {}
+    allowed_rules = "\n".join(
+        f"- {item}" for item in contract.get("allowed", []) if item
+    )
+    forbidden_rules = "\n".join(
+        f"- {item}" for item in contract.get("forbidden", []) if item
+    )
     findings = "\n".join(
         f"- {item['title']}: {item['evidence']}"
         for item in packet.get("headline_findings", [])
@@ -366,7 +383,17 @@ def render_template_packet(packet: dict) -> str:
 
 ## Executive Summary
 
-LLM: Write 2-4 concise sentences using only the evidence below. Do not infer root cause.
+LLM: Write concise prose using only the evidence below and the report-specific interpretation contract. Do not infer root cause.
+
+## Interpretation Contract
+
+### Allowed
+
+{allowed_rules or "- Summarize only the fields in this packet."}
+
+### Forbidden
+
+{forbidden_rules or "- Do not invent metrics, causes, or operational facts."}
 
 ## Key Changes
 

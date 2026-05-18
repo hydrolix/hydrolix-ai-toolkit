@@ -125,18 +125,72 @@ def _build_impact_tiles(scope_art: dict, window: dict) -> list[dict]:
     ]
 
 
-def _top_affected_view(scope_art: dict) -> dict | None:
-    """Compose the "top affected" sentence projection, or None when
-    there isn't both a top host and a top path."""
-    hosts_rows = scope_art.get("top_targeted_hosts") or []
-    paths_rows = scope_art.get("top_targeted_path_patterns") or []
-    top_host = hosts_rows[0] if hosts_rows else None
-    top_path = paths_rows[0] if paths_rows else None
-    if not (top_host and top_path):
-        return None
+# Host-concentration projection thresholds. A host is named in the
+# "top affected" line when its window share is at or above
+# ``_HOST_AFFECTED_SHARE_THRESHOLD``; at most ``_HOST_AFFECTED_CAP``
+# hosts are surfaced even if more cross the threshold. When no host
+# crosses the threshold, the projection falls back to the single
+# top-ranked host so the line never collapses to empty when there is
+# meaningful host data.
+_HOST_AFFECTED_SHARE_THRESHOLD = 10.0
+_HOST_AFFECTED_CAP = 5
+
+
+def _projected_host_row(row: dict) -> dict:
     return {
-        "host": str(top_host.get("value") or ""),
-        "path_pattern": str(top_path.get("value") or ""),
+        "value": str(row.get("value") or ""),
+        "requests": _safe_number(row.get("requests")),
+        "requests_display": _format_count(row.get("requests")),
+        "share_pct": _safe_number(row.get("share_pct")),
+        "share_pct_display": _format_pct(row.get("share_pct")),
+        "delta_pct": _safe_number(row.get("delta_vs_baseline_pct")),
+        "delta_pct_display": _format_signed_pct(
+            row.get("delta_vs_baseline_pct")
+        ),
+    }
+
+
+def _top_affected_hosts_view(scope_art: dict) -> dict | None:
+    """Project the list of meaningfully-affected hosts for the
+    "top affected" sentence.
+
+    Returns a dict ``{hosts, cumulative_share_pct_display, is_fallback}``
+    or None when no host data is present. ``hosts`` is the list of
+    rows above the share threshold (capped at ``_HOST_AFFECTED_CAP``).
+    ``is_fallback`` is True when no host crossed the threshold and the
+    projection collapsed to the single top-ranked host.
+    """
+    hosts_rows = scope_art.get("top_targeted_hosts") or []
+    if not hosts_rows:
+        return None
+    above = [
+        row for row in hosts_rows
+        if (row.get("share_pct") or 0) >= _HOST_AFFECTED_SHARE_THRESHOLD
+    ]
+    if above:
+        selected = above[:_HOST_AFFECTED_CAP]
+        is_fallback = False
+    else:
+        selected = hosts_rows[:1]
+        is_fallback = True
+    projected = [_projected_host_row(row) for row in selected]
+    cumulative = sum(row.get("share_pct") or 0 for row in selected)
+    return {
+        "hosts": projected,
+        "cumulative_share_pct_display": _format_pct(cumulative),
+        "is_fallback": is_fallback,
+    }
+
+
+def _top_path_pattern_view(scope_art: dict) -> dict | None:
+    """Project the single top-ranked path-pattern row for the
+    "top path pattern" sentence. Returns None when no rows exist."""
+    paths_rows = scope_art.get("top_targeted_path_patterns") or []
+    if not paths_rows:
+        return None
+    top_path = paths_rows[0]
+    return {
+        "value": str(top_path.get("value") or ""),
         "requests": _safe_number(top_path.get("requests")),
         "requests_display": _format_count(top_path.get("requests")),
         "share_pct": _safe_number(top_path.get("share_pct")),
@@ -166,7 +220,8 @@ def _impact_view(scope_art: dict) -> dict:
     window = scope_art.get("window_confirmation") or {}
     return {
         "tiles": _build_impact_tiles(scope_art, window),
-        "top_affected": _top_affected_view(scope_art),
+        "top_affected_hosts": _top_affected_hosts_view(scope_art),
+        "top_path_pattern": _top_path_pattern_view(scope_art),
         "volume_chart": _volume_chart_view(scope_art),
     }
 

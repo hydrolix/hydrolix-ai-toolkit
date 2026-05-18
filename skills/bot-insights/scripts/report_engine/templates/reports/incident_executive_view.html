@@ -6,10 +6,30 @@
    through a separate template so the page reads as a 1-page brief —
    decision first, evidence underneath. #}
 
+{# Suppress engine header + hero so the editorial brief-mast inside the
+   article carries the masthead — matches the analyst incident_report's
+   look (white paper, no dark band). #}
+{% block header %}{% endblock %}
 {% block hero %}{% endblock %}
 
 {% block content %}
 <article class="brief-incident exec-view">
+
+  {# ══════ MASTHEAD ══════════════════════════════════════════ #}
+  <header class="brief-mast">
+    <div class="mast-titles header-titles">
+      <div class="mast-eyebrow">
+        <span class="mast-brand" aria-label="Hydrolix">{{ hydrolix_logotype_svg }}</span>
+        <span class="mast-eyebrow-divider"></span>
+        <span class="kicker section-eyebrow">{{ kicker }}</span>
+      </div>
+      <h1 class="display-xl">{{ headline }}</h1>
+      {% if windows %}
+        <p class="mast-window-line">{{ windows.current | headline_window_fmt(clock) }}</p>
+      {% endif %}
+      {% if dek %}<p class="mast-dek dek">{{ dek }}</p>{% endif %}
+    </div>
+  </header>
 
   {# 1. Incident status — analyst pill ════════════════════════════ #}
   {% set status_note = notes_by_slot.get("incident_status_level") if notes_by_slot else None %}
@@ -45,14 +65,24 @@
         {% endfor %}
       </dl>
     {% endif %}
-    {% if top_affected %}
+    {% if top_affected_hosts %}
       <p class="impact-lead">
-        Top affected:
-        <strong>{{ top_affected.host }}</strong>
-        <code class="mono">{{ top_affected.path_pattern }}</code> —
-        {{ top_affected.requests_display }}
-        ({{ top_affected.share_pct_display }} of window,
-        {{ top_affected.delta_pct_display }} vs baseline).
+        Top affected {{ "host" if top_affected_hosts.hosts | length == 1 else "hosts" }}:
+        {% for h in top_affected_hosts.hosts -%}
+          <strong>{{ h.value }}</strong> ({{ h.share_pct_display }}{% if top_affected_hosts.hosts | length == 1 %}, {{ h.delta_pct_display }} vs baseline{% endif %}){% if not loop.last %}, {% endif %}
+        {%- endfor %}
+        {% if top_affected_hosts.hosts | length > 1 %}
+          — together {{ top_affected_hosts.cumulative_share_pct_display }} of window.
+        {% else %}.{% endif %}
+      </p>
+    {% endif %}
+    {% if top_path_pattern %}
+      <p class="impact-lead">
+        Top path pattern:
+        <code class="mono">{{ top_path_pattern.value }}</code> —
+        {{ top_path_pattern.requests_display }}
+        ({{ top_path_pattern.share_pct_display }} of window,
+        {{ top_path_pattern.delta_pct_display }} vs baseline).
       </p>
     {% endif %}
   </section>
@@ -102,7 +132,7 @@
     {% if dn %}
       <div class="prose">{{ markdown_render(dn.text) }}</div>
     {% else %}
-      <p class="muted">No decision flagged at this time.</p>
+      <p>{{ decision_needed_default }}</p>
     {% endif %}
   </section>
 

@@ -33,6 +33,14 @@ Do **not** use this report for:
 - Cross-incident comparison.
 - Claims about malicious intent or causality — the report is contractually
   prose-only on those surfaces, and the LLM contract forbids them.
+- Business/customer-impact, WAF-response, prior-wave, latency, or revenue
+  claims unless those facts are explicit fields in the evidence packet or
+  quoted analyst context. The incident artifacts by themselves contain
+  traffic, status, edge-action, actor, and heuristic evidence — not customer
+  funnel or change-management truth.
+- Collapsing infrastructure topology. If the evidence names actors across
+  multiple ASNs, preserve that plurality; "single-ASN" is only valid when
+  all actors named in the claim share the same ASN.
 
 ## CLI
 

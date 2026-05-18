@@ -453,6 +453,21 @@ def duplicate_dedupe_risk(
             INCIDENT_ACTORS_SCHEMA,
             INCIDENT_ACTION_TARGETS_SCHEMA,
         },
+        "incident_soc_action_packet": {
+            INCIDENT_SCOPE_SCHEMA,
+            INCIDENT_ACTORS_SCHEMA,
+            INCIDENT_ACTION_TARGETS_SCHEMA,
+        },
+        "incident_edge_platform_brief": {
+            INCIDENT_SCOPE_SCHEMA,
+            INCIDENT_ACTORS_SCHEMA,
+            INCIDENT_ACTION_TARGETS_SCHEMA,
+        },
+        "incident_detection_engineering": {
+            INCIDENT_SCOPE_SCHEMA,
+            INCIDENT_ACTORS_SCHEMA,
+            INCIDENT_ACTION_TARGETS_SCHEMA,
+        },
     }
     if schema in selection_sensitive_schemas.get(report_type, set()):
         if schema == SCORECARD_SCHEMA and report_type in {
@@ -645,7 +660,13 @@ def validate_report_artifacts(
             "posture": filter_compatible_companion(reference, posture, "posture", ctx),
             "mover": filter_compatible_companion(reference, mover, "mover", ctx),
         }
-    if report_type in ("incident_report", "incident_executive_view"):
+    if report_type in {
+        "incident_report",
+        "incident_executive_view",
+        "incident_soc_action_packet",
+        "incident_edge_platform_brief",
+        "incident_detection_engineering",
+    }:
         scope = require_one(artifacts, INCIDENT_SCOPE_SCHEMA, report_type)
         actors = require_one(artifacts, INCIDENT_ACTORS_SCHEMA, report_type)
         action_targets = require_one(

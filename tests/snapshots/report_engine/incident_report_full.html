@@ -1862,6 +1862,65 @@ footer {
 
 /* Verdict */
 .brief-incident .verdict { margin-bottom: 56px; }
+
+/* Stakeholder-lens verdict card (SOC action packet, edge platform brief,
+   detection-engineering review). Lighter-weight than the analyst-view
+   ``.verdict`` card — no risk score gauge, no severity ladder — but
+   shares the editorial paper aesthetic so it stays readable under OS
+   dark mode (the always-light ``--paper-*`` tokens explicitly override
+   the global dark-mode palette). */
+.brief-incident .incident-stakeholder-verdict {
+  background: var(--paper-surface);
+  border: 1px solid var(--paper-rule-soft);
+  border-left: 3px solid var(--paper-red);
+  color: var(--paper-ink);
+  padding: 18px 22px;
+  margin: 0 0 32px;
+}
+.brief-incident .incident-stakeholder-verdict h2,
+.brief-incident .incident-stakeholder-verdict h3 {
+  color: var(--paper-ink);
+  margin: 0 0 10px;
+}
+.brief-incident .incident-stakeholder-verdict h3 {
+  font-size: 13px;
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+  color: var(--paper-mute);
+  margin-top: 18px;
+}
+.brief-incident .incident-stakeholder-verdict p,
+.brief-incident .incident-stakeholder-verdict li {
+  color: var(--paper-ink);
+}
+.brief-incident .incident-stakeholder-verdict ul {
+  margin: 4px 0 0;
+  padding-left: 22px;
+}
+
+/* SOC primary-actor table — mixed text/pill/numeric columns. The base
+   ``.mini-table`` only padding-spaces numeric cells; for the SOC table
+   we additionally separate every column with a horizontal gap so the
+   pill, "Medium", number, and "Why flagged" wrap don't collide. */
+.brief-incident .soc-actor-table th:not(:last-child),
+.brief-incident .soc-actor-table td:not(:last-child) {
+  padding-right: 14px;
+}
+.brief-incident .soc-actor-table td {
+  vertical-align: top;
+}
+.brief-incident .soc-actor-table .target-cooccurrence td {
+  padding-top: 4px;
+  padding-bottom: 12px;
+}
+.brief-incident .soc-actor-table .target-cooccurrence details summary {
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+.brief-incident .soc-actor-table .cooccurrence-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
 .brief-incident .verdict-cover {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -3237,7 +3296,7 @@ footer {
         <li>
           <div class="finding-label">Finding 02</div>
           <div class="finding-lead">Automation tooling declared in the user agent.</div>
-          <p class="finding-body">These user agents account for ~31% of traffic and match curated automation patterns. The report does not infer intent from the identifier — the names below are what the requests presented:</p>
+          <p class="finding-body">These user agents account for ~31% of traffic and match curated automation patterns (automation user agent, high 429 share, high volume share). The report does not infer intent from the identifier — the names below are what the requests presented:</p>
             <ul class="finding-entities">
                 <li>
                   <code class="finding-entity-value">python-requests/2.31</code>
@@ -3252,7 +3311,7 @@ footer {
         <li>
           <div class="finding-label">Finding 03</div>
           <div class="finding-lead">Behavioral cohort anomaly is the worry.</div>
-          <p class="finding-body">`Browser` shows a behavioral departure from the trailing baseline — consistent with sophisticated automation passing bot-classification.</p>
+          <p class="finding-body"><code>Browser</code> shows a behavioral departure from the trailing baseline — consistent with sophisticated automation passing bot-classification.</p>
         </li>
     </ol>
   </section>
@@ -4064,20 +4123,20 @@ footer {
       <ol class="actions-list">
           <li>
             <span class="num tnum">01</span>
-            <span class="step">Block Client IP `203.0.113.10` at edge for 24h, monitor 429 trajectory</span>
+            <span class="step">Block Client IP <code>203.0.113.10</code> at edge for 24h, monitor 429 trajectory</span>
             <span class="pill pill-mono pill-sm">SOC</span>
             <span class="pill pill-critical pill-sm">now</span>
               <span class="action-effect tnum">Observed volume: 540.00K (12.7% of window).</span>
           </li>
           <li>
             <span class="num tnum">02</span>
-            <span class="step">Enrich the 3 critical target(s) in case management — `203.0.113.10`, `198.51.100.42`, `192.0.2.17`</span>
+            <span class="step">Enrich the 3 critical target(s) in case management — <code>203.0.113.10</code>, <code>198.51.100.42</code>, <code>192.0.2.17</code></span>
             <span class="pill pill-mono pill-sm">Threat Intel</span>
             <span class="pill pill-critical pill-sm">today</span>
           </li>
           <li>
             <span class="num tnum">03</span>
-            <span class="step">Investigate behavioral-anomaly cohort — Traffic cohort `Browser`</span>
+            <span class="step">Investigate behavioral-anomaly cohort — Traffic cohort <code>Browser</code></span>
             <span class="pill pill-mono pill-sm">AppSec</span>
             <span class="pill pill-neutral pill-sm">this week</span>
           </li>
@@ -4490,7 +4549,7 @@ footer {
     </div>
     <div class="right">
       <span class="label">Generated</span>
-      <span class="tnum"><FROZEN-TIMESTAMP></span>
+      <span class="tnum">2026-05-18 02:03 UTC</span>
     </div>
   </footer>
 
@@ -5255,8 +5314,8 @@ footer {
         </div>
         <ul>
             <li>spike flags fired (Volume up, 429 rate up, Bot share up)</li>
-            <li>3 target(s) at severity:critical — Client IP `203.0.113.10`, Client IP `198.51.100.42`, Client IP `192.0.2.17`</li>
-            <li>4 target(s) at severity:high — Client ASN `64500`, Traffic cohort `Browser`, User Agent `python-requests/2.31`</li>
+            <li>3 target(s) at severity:critical — Client IP <code>203.0.113.10</code>, Client IP <code>198.51.100.42</code>, Client IP <code>192.0.2.17</code></li>
+            <li>4 target(s) at severity:high — Client ASN <code>64500</code>, Traffic cohort <code>Browser</code>, User Agent <code>python-requests/2.31</code></li>
         </ul>
       </section>
 
@@ -5324,7 +5383,7 @@ footer {
 </article>
 
   <footer>
-    Generated <FROZEN> · artifact bot_incident_scope.v1  </footer>
+    Generated 2026-05-18 02:03 UTC · artifact bot_incident_scope.v1  </footer>
 </main>
 </body>
 </html>

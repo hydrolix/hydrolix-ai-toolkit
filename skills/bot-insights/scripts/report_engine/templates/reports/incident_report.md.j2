@@ -47,8 +47,12 @@ _Mechanical — derived from artifact data only._
 {% endfor %}
 
 {% endif %}
-{% if impact.top_affected %}
-Top affected: **{{ impact.top_affected.host | md_escape }}** `{{ impact.top_affected.path_pattern | md_escape }}` — {{ impact.top_affected.requests_display | md_escape }} requests ({{ impact.top_affected.share_pct_display | md_escape }} of window, {{ impact.top_affected.delta_pct_display | md_escape }} vs baseline).
+{% if impact.top_affected_hosts %}
+Top affected {{ "host" if impact.top_affected_hosts.hosts | length == 1 else "hosts" }}: {% for h in impact.top_affected_hosts.hosts %}**{{ h.value | md_escape }}** ({{ h.share_pct_display | md_escape }}{% if impact.top_affected_hosts.hosts | length == 1 %}, {{ h.delta_pct_display | md_escape }} vs baseline{% endif %}){% if not loop.last %}, {% endif %}{% endfor %}{% if impact.top_affected_hosts.hosts | length > 1 %} — together {{ impact.top_affected_hosts.cumulative_share_pct_display | md_escape }} of window{% endif %}.
+
+{% endif %}
+{% if impact.top_path_pattern %}
+Top path pattern: `{{ impact.top_path_pattern.value | md_escape }}` — {{ impact.top_path_pattern.requests_display | md_escape }} requests ({{ impact.top_path_pattern.share_pct_display | md_escape }} of window, {{ impact.top_path_pattern.delta_pct_display | md_escape }} vs baseline).
 
 {% endif %}
 ## Suspicious Targets

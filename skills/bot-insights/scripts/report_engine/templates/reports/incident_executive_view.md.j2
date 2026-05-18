@@ -14,8 +14,13 @@
 {% for tile in impact_tiles %}
 - **{{ tile.label }}:** {{ tile.value }}{{ (" (" ~ tile.sub ~ ")") if tile.sub else "" }}
 {% endfor %}
-{% if top_affected %}
-- **Top affected:** `{{ top_affected.host }}` on `{{ top_affected.path_pattern }}` — {{ top_affected.share_pct_display }} of window, {{ top_affected.delta_pct_display }} vs baseline
+{% if top_affected_hosts %}
+- **Top affected {{ "host" if top_affected_hosts.hosts | length == 1 else "hosts" }}:** {% for h in top_affected_hosts.hosts %}`{{ h.value }}` ({{ h.share_pct_display }}{% if top_affected_hosts.hosts | length == 1 %}, {{ h.delta_pct_display }} vs baseline{% endif %}){% if not loop.last %}, {% endif %}{% endfor %}{% if top_affected_hosts.hosts | length > 1 %} — together {{ top_affected_hosts.cumulative_share_pct_display }} of window{% endif %}
+
+{% endif %}
+{% if top_path_pattern %}
+- **Top path pattern:** `{{ top_path_pattern.value }}` — {{ top_path_pattern.share_pct_display }} of window, {{ top_path_pattern.delta_pct_display }} vs baseline
+
 {% endif %}
 
 ## Business / customer impact
@@ -36,7 +41,7 @@
 ## Decision needed
 
 {% set dn = notes_by_slot.get("decision_needed") if notes_by_slot else None -%}
-{{ dn.text if dn else "_No decision flagged._" }}
+{{ dn.text if dn else decision_needed_default }}
 
 ## Confidence and caveat
 

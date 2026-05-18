@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Incident Report — Demo</title>
+  <title>Incident Detection Engineering Review — Demo</title>
   <style>:root {
   --bg: #fafaf9;
   --surface: #ffffff;
@@ -3162,8 +3162,7 @@ footer {
 
 
 
-<article class="brief-incident">
-
+<article class="brief-incident incident-stakeholder detection-engineering">
   <header class="brief-mast">
     <div class="mast-titles header-titles">
       <div class="mast-eyebrow">
@@ -3199,511 +3198,60 @@ footer {
   <rect class="st2" x="172.5" y="39.5" width="7.4" height="28.2"/>
 </svg></span>
         <span class="mast-eyebrow-divider"></span>
-        <span class="kicker section-eyebrow">Bot Insights — incident report</span>
+        <span class="kicker section-eyebrow">Bot Insights - detection engineering</span>
       </div>
       <h1 class="display-xl">www.example.com</h1>
-        <p class="mast-window-line">May 13, 2026 · 2:00–5:00 PM UTC</p>
-      <nav class="mast-anchors" aria-label="Jump to section">
-<a href="#verdict">Verdict</a>
-<a href="#impact">Impact</a>
-<a href="#flagged">Flagged</a>
-<a href="#actions">Actions</a>
-<a href="#evidence">Evidence</a>
-</nav>
-<p class="mast-dek dek">Window-scoped incident confirmation with actor-level drilldown.</p>    </div>
+<p class="mast-dek dek">Detector review of the mechanical rules, fields, confidence drivers, missing coverage, and follow-up instrumentation.</p>    </div>
   </header>
 
-  <section id="verdict" class="verdict">
-    <div class="verdict-cover">
-      <div>
-        <div class="kicker section-eyebrow">The Verdict</div>
-        <div class="verdict-pills">
-          <span class="pill pill-monitor pill-lg">
-            Medium
-          </span>
-          <span class="pill pill-medium pill-lg"
-                title="Aggregate confidence — reflects which evidence sources were available (raw access log, edge-response data). Per-indicator confidence is shown separately on each flagged-target row in the Who Hit It table.">
-            Confidence: Low
-          </span>
-        </div>
-
-        <div class="severity-ladder" role="img"
-             aria-label="Severity ladder — current level Medium">
-          <div class="severity-ladder-bars">
-              <div class="severity-ladder-bar is-on"
-                   style="--bar-color: var(--sev-observe);"></div>
-              <div class="severity-ladder-bar is-on is-current"
-                   style="--bar-color: var(--sev-monitor);"></div>
-              <div class="severity-ladder-bar"
-                   style="--bar-color: var(--sev-elevated);"></div>
-              <div class="severity-ladder-bar"
-                   style="--bar-color: var(--sev-high);"></div>
-              <div class="severity-ladder-bar"
-                   style="--bar-color: var(--sev-critical);"></div>
-          </div>
-          <div class="severity-ladder-labels">
-              <span>Observe</span>
-              <span class="is-current">Monitor</span>
-              <span>Elevated</span>
-              <span>High</span>
-              <span>Critical</span>
-          </div>
-        </div>
-
-          <p class="verdict-caveat">Rule-based scorecard. Mechanical features only — no malicious-intent claim or root-cause attribution.</p>
-          <p class="verdict-caveat">
-            Report-level confidence reflects available evidence sources
-            (raw access log, edge-response). Per-indicator confidence on
-            each flagged-target row is set by the producer per actor and
-            may be lower or higher than the overall.
-          </p>
-
-        <p class="verdict-pills" style="margin-top: 18px;">
-          <span class="kicker section-eyebrow">Assessed with low confidence</span>
-        </p>
-        <p class="finding-body" style="max-width: 720px;">
-          this window shows movement worth investigating; the evidence is not yet decisive.
-        </p>
-      </div>
-
-      <aside class="verdict-score-card">
-        <div class="kicker section-eyebrow">Risk Score</div>
-        <div class="verdict-score-num tnum">20<small>/100</small></div>
-      </aside>
-    </div>
-
-    <ol class="verdict-findings">
-        <li>
-          <div class="finding-label">Finding 01</div>
-          <div class="finding-lead">Spike flags fired without a named actor.</div>
-          <p class="finding-body">Volume up, 429 rate up confirmed at the scope-table level, but the heuristic ladder did not flag any individual target — likely a distributed surge spread across many small contributors.</p>
-        </li>
-        <li>
-          <div class="finding-label">Finding 02</div>
-          <div class="finding-lead">No additional flagged signals in this window.</div>
-          <p class="finding-body">this window shows movement worth investigating; the evidence is not yet decisive.</p>
-        </li>
-        <li>
-          <div class="finding-label">Finding 03</div>
-          <div class="finding-lead">No additional flagged signals in this window.</div>
-          <p class="finding-body">this window shows movement worth investigating; the evidence is not yet decisive.</p>
-        </li>
-    </ol>
+  <section>
+    <h2>Mechanical rules fired</h2>
+      <table class="mini-table"><thead><tr><th>Rule signal</th><th class="is-num">Targets</th></tr></thead><tbody>
+<tr><td>high volume share</td><td class="is-num">6</td></tr><tr><td>high 429 share</td><td class="is-num">5</td></tr><tr><td>automation user agent</td><td class="is-num">3</td></tr><tr><td>single-ASN cluster</td><td class="is-num">3</td></tr><tr><td>single-path concentration</td><td class="is-num">3</td></tr><tr><td>behavioral anomaly</td><td class="is-num">1</td></tr><tr><td>new in window</td><td class="is-num">1</td></tr>      </tbody></table>
   </section>
 
-
-  <section id="impact" class="section section-impact">
-    <div class="section-head">
-      <div class="section-head-rule">
-        <span class="kicker section-eyebrow">Attack Shape</span>
-        <span class="hr"></span>
-      </div>
-      <h2 class="display">When pressure landed, and how hard</h2>
-    </div>
-
-    <dl class="kpis">
-        <div class="kpi">
-          <dt class="kpi-label">Requests</dt>
-          <dd class="kpi-value tnum">2.15M</dd>
-            <dd class="kpi-delta tnum">+210%</dd>
-        </div>
-        <div class="kpi">
-          <dt class="kpi-label">429s served</dt>
-          <dd class="kpi-value tnum">137.60K</dd>
-            <dd class="kpi-delta tnum">6.40% of window</dd>
-        </div>
-        <div class="kpi">
-          <dt class="kpi-label">5xx served</dt>
-          <dd class="kpi-value tnum">19.35K</dd>
-            <dd class="kpi-delta tnum">0.90% of window</dd>
-        </div>
-        <div class="kpi">
-          <dt class="kpi-label">Edge blocks</dt>
-          <dd class="kpi-value tnum">—</dd>
-            <dd class="kpi-delta tnum">no edge block data</dd>
-        </div>
-        <div class="kpi">
-          <dt class="kpi-label">Hosts affected</dt>
-          <dd class="kpi-value tnum">3</dd>
-            <dd class="kpi-delta tnum">in window</dd>
-        </div>
-        <div class="kpi">
-          <dt class="kpi-label">Top path share</dt>
-          <dd class="kpi-value tnum">69.8%</dd>
-            <dd class="kpi-delta tnum">/login/* · +410%</dd>
-        </div>
-    </dl>
-
-      <p class="impact-lead" style="margin-top: 18px;">
-        Top affected: <strong>www.example.com</strong>
-        <code class="mono">/login/*</code> —
-        1.50M requests
-        (69.8% of window,
-        +410% vs baseline).
-      </p>
+  <section>
+    <h2>Fields driving confidence</h2>
+        <h3>Client IP</h3>
+          <table class="mini-table"><thead><tr><th>Value</th><th class="is-num">Requests</th><th class="is-num">429 share</th><th class="is-num">5xx share</th></tr></thead><tbody>
+<tr><td><code>203.0.113.10</code></td><td class="is-num">540.00K</td><td class="is-num">17.0%</td><td class="is-num">0.04%</td></tr><tr><td><code>198.51.100.42</code></td><td class="is-num">420.00K</td><td class="is-num">15.5%</td><td class="is-num">0.02%</td></tr><tr><td><code>192.0.2.17</code></td><td class="is-num">360.00K</td><td class="is-num">11.4%</td><td class="is-num">0.02%</td></tr><tr><td><code>203.0.113.55</code></td><td class="is-num">220.00K</td><td class="is-num">16.4%</td><td class="is-num">0.01%</td></tr><tr><td><code>198.51.100.7</code></td><td class="is-num">180.00K</td><td class="is-num">10.0%</td><td class="is-num">0.01%</td></tr>          </tbody></table>
+        <h3>Client ASN</h3>
+          <table class="mini-table"><thead><tr><th>Value</th><th class="is-num">Requests</th><th class="is-num">429 share</th><th class="is-num">5xx share</th></tr></thead><tbody>
+<tr><td><code>64500</code></td><td class="is-num">1.85M</td><td class="is-num">10.5%</td><td class="is-num">0.05%</td></tr><tr><td><code>64600</code></td><td class="is-num">920.00K</td><td class="is-num">8.50%</td><td class="is-num">0.04%</td></tr><tr><td><code>64700</code></td><td class="is-num">540.00K</td><td class="is-num">7.00%</td><td class="is-num">0.04%</td></tr><tr><td><code>64800</code></td><td class="is-num">310.00K</td><td class="is-num">6.80%</td><td class="is-num">0.03%</td></tr><tr><td><code>64900</code></td><td class="is-num">215.00K</td><td class="is-num">5.10%</td><td class="is-num">0.02%</td></tr>          </tbody></table>
+        <h3>Request Path</h3>
+          <table class="mini-table"><thead><tr><th>Value</th><th class="is-num">Requests</th><th class="is-num">429 share</th><th class="is-num">5xx share</th></tr></thead><tbody>
+<tr><td><code>/login/submit</code></td><td class="is-num">1.45M</td><td class="is-num">15.2%</td><td class="is-num">0.04%</td></tr><tr><td><code>/api/v1/auth/login</code></td><td class="is-num">690.00K</td><td class="is-num">13.3%</td><td class="is-num">0.03%</td></tr><tr><td><code>/login</code></td><td class="is-num">260.00K</td><td class="is-num">5.40%</td><td class="is-num">0.03%</td></tr><tr><td><code>/api/v1/auth/refresh</code></td><td class="is-num">30.00K</td><td class="is-num">4.00%</td><td class="is-num">0.05%</td></tr><tr><td><code>/</code></td><td class="is-num">230.00K</td><td class="is-num">0.35%</td><td class="is-num">0.01%</td></tr>          </tbody></table>
+        <h3>User Agent</h3>
+          <table class="mini-table"><thead><tr><th>Value</th><th class="is-num">Requests</th><th class="is-num">429 share</th><th class="is-num">5xx share</th></tr></thead><tbody>
+<tr><td><code>Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36</code></td><td class="is-num">1.28M</td><td class="is-num">13.1%</td><td class="is-num">0.04%</td></tr><tr><td><code>python-requests/2.31</code></td><td class="is-num">920.00K</td><td class="is-num">15.4%</td><td class="is-num">0.04%</td></tr><tr><td><code>curl/7.88.1</code></td><td class="is-num">410.00K</td><td class="is-num">12.4%</td><td class="is-num">0.03%</td></tr><tr><td><code>Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0</code></td><td class="is-num">380.00K</td><td class="is-num">2.40%</td><td class="is-num">0.03%</td></tr><tr><td><code>Go-http-client/1.1</code></td><td class="is-num">210.00K</td><td class="is-num">9.00%</td><td class="is-num">0.03%</td></tr>          </tbody></table>
+        <h3>Country</h3>
+          <table class="mini-table"><thead><tr><th>Value</th><th class="is-num">Requests</th><th class="is-num">429 share</th><th class="is-num">5xx share</th></tr></thead><tbody>
+<tr><td><code>US</code></td><td class="is-num">2.10M</td><td class="is-num">8.50%</td><td class="is-num">0.02%</td></tr><tr><td><code>DE</code></td><td class="is-num">820.00K</td><td class="is-num">9.50%</td><td class="is-num">0.03%</td></tr><tr><td><code>BR</code></td><td class="is-num">540.00K</td><td class="is-num">10.4%</td><td class="is-num">0.03%</td></tr><tr><td><code>GB</code></td><td class="is-num">320.00K</td><td class="is-num">6.90%</td><td class="is-num">0.03%</td></tr><tr><td><code>FR</code></td><td class="is-num">180.00K</td><td class="is-num">5.00%</td><td class="is-num">0.03%</td></tr>          </tbody></table>
+        <h3>Traffic cohort</h3>
+          <table class="mini-table"><thead><tr><th>Value</th><th class="is-num">Requests</th><th class="is-num">429 share</th><th class="is-num">5xx share</th></tr></thead><tbody>
+<tr><td><code>Bot</code></td><td class="is-num">2.20M</td><td class="is-num">8.90%</td><td class="is-num">0.04%</td></tr><tr><td><code>Browser</code></td><td class="is-num">1.22M</td><td class="is-num">11.4%</td><td class="is-num">2.30%</td></tr><tr><td><code>Unknown</code></td><td class="is-num">364.00K</td><td class="is-num">2.00%</td><td class="is-num">0.27%</td></tr><tr><td><code>Tool</code></td><td class="is-num">360.00K</td><td class="is-num">1.60%</td><td class="is-num">0.07%</td></tr><tr><td><code>AI</code></td><td class="is-num">110.00K</td><td class="is-num">1.90%</td><td class="is-num">0.08%</td></tr>          </tbody></table>
   </section>
 
-  <section id="flagged" class="section section-actors">
-    <div class="section-head">
-      <div class="section-head-rule">
-        <span class="kicker section-eyebrow">Who Hit It</span>
-        <span class="hr"></span>
-        <span class="section-head-count">0 flagged</span>
-      </div>
-      <h2 class="display">Flagged signals, ranked by strength</h2>
-    </div>
-
-      <table class="actors-table" data-state="empty">
-        <tbody>
-          <tr>
-            <td>
-              No targets were flagged by the suspicious-actor heuristics
-              for this window. Either the cluster has no raw access log
-              for this run, or no actor crossed the heuristic
-              thresholds. Scope evidence in <em>Full Evidence</em> below
-              still applies.
-            </td>
-          </tr>
-        </tbody>
-      </table>
-  </section>
-
-  <section class="section section-attack split-2col">
-    <div>
-      <div class="section-head">
-        <div class="section-head-rule">
-          <span class="kicker section-eyebrow">ATT&amp;CK Mapping</span>
-          <span class="hr"></span>
-        </div>
-        <h2 class="display-lg">Consistent with</h2>
-      </div>
-      <p class="attack-note">Techniques the observed signal is consistent with — not an attribution.</p>
-      <div class="attack-list" data-state="empty">
-          <p class="finding-body">No ATT&amp;CK techniques were associated with flagged targets in this window.</p>
-      </div>
-    </div>
-
-    <div>
-      <div class="section-head">
-        <div class="section-head-rule">
-          <span class="kicker section-eyebrow">Top Paths</span>
-          <span class="hr"></span>
-        </div>
-        <h2 class="display-lg">Where they aimed</h2>
-      </div>
-        <table class="mini-table">
-          <thead>
-            <tr>
-              <th scope="col">Path</th>
-              <th scope="col" class="is-num">Reqs</th>
-              <th scope="col" class="is-num">Share</th>
-              <th scope="col" class="is-num">Share bar</th>
-            </tr>
-          </thead>
-          <tbody>
-              <tr>
-                <td><code class="mono">/login/*</code></td>
-                <td class="is-num">1.50M</td>
-                <td class="is-num"><strong>69.8%</strong></td>
-                <td>
-                  <div class="share-cell">
-                    <div class="share-bar">
-                      <i style="width: 100%;"></i>
-                    </div>
-                  </div>
-                </td>
-              </tr>
-              <tr>
-                <td><code class="mono">/api/v1/auth/*</code></td>
-                <td class="is-num">340.00K</td>
-                <td class="is-num"><strong>15.8%</strong></td>
-                <td>
-                  <div class="share-cell">
-                    <div class="share-bar">
-                      <i style="width: 23%;"></i>
-                    </div>
-                  </div>
-                </td>
-              </tr>
-              <tr>
-                <td><code class="mono">/</code></td>
-                <td class="is-num">120.00K</td>
-                <td class="is-num"><strong>5.60%</strong></td>
-                <td>
-                  <div class="share-cell">
-                    <div class="share-bar">
-                      <i style="width: 8%;"></i>
-                    </div>
-                  </div>
-                </td>
-              </tr>
-          </tbody>
-        </table>
-
-    </div>
-  </section>
-
-
-  <section class="section section-geo split-2col">
-    <div>
-      <div class="section-head">
-        <div class="section-head-rule">
-          <span class="kicker section-eyebrow">Top Countries</span>
-          <span class="hr"></span>
-        </div>
-        <h2 class="display-lg">Where it came from</h2>
-      </div>
-        <table class="mini-table">
-          <thead>
-            <tr>
-              <th scope="col">Country</th>
-              <th scope="col" class="is-num">Reqs</th>
-              <th scope="col" class="is-num">Share</th>
-              <th scope="col" class="is-num">Δ vs baseline</th>
-            </tr>
-          </thead>
-          <tbody>
-              <tr>
-                <td><code class="mono">US</code></td>
-                <td class="is-num">1.10M</td>
-                <td class="is-num"><strong>51.2%</strong></td>
-                <td class="is-num">+220%</td>
-              </tr>
-              <tr>
-                <td><code class="mono">DE</code></td>
-                <td class="is-num">380.00K</td>
-                <td class="is-num"><strong>17.7%</strong></td>
-                <td class="is-num">+290%</td>
-              </tr>
-              <tr>
-                <td><code class="mono">BR</code></td>
-                <td class="is-num">250.00K</td>
-                <td class="is-num"><strong>11.6%</strong></td>
-                <td class="is-num">+260%</td>
-              </tr>
-          </tbody>
-        </table>
-    </div>
-
-    <div>
-      <div class="section-head">
-        <div class="section-head-rule">
-          <span class="kicker section-eyebrow">Traffic Cohorts</span>
-          <span class="hr"></span>
-        </div>
-        <h2 class="display-lg">How it was classified</h2>
-      </div>
-      <p class="cohort-framing">
-        Cohort labels are Akamai's bot-manager verdict per request.
-        Suspicious actors above are flagged by the heuristic ladder against
-        per-IP traffic concentration — they are detected regardless of
-        cohort label.
-      </p>
-        <p class="finding-body">No bot-manager cohort aggregation available for this window — the heuristic-actor signal above is unaffected.</p>
-    </div>
-  </section>
-
-
-  <section id="actions" class="section section-actions">
-    <div class="section-head">
-      <div class="section-head-rule">
-        <span class="kicker section-eyebrow">Recommended</span>
-        <span class="hr"></span>
-      </div>
-      <h2 class="display">What to do next</h2>
-    </div>
-      <ol class="actions-list">
-          <li>
-            <span class="num tnum">01</span>
-            <span class="step">Schedule retrospective — review SIEM coverage on affected endpoints</span>
-            <span class="pill pill-mono pill-sm">IR Lead</span>
-            <span class="pill pill-neutral pill-sm">this week</span>
-          </li>
-      </ol>
-      <details class="full-evidence" style="margin-top: 24px;">
-        <summary>Analyst note — next steps narrative</summary>
-        <div class="full-evidence-body prose">
-          <ul>
-<li>Confirm the spike in the linked dashboard against a longer baseline.</li>
-<li>Stand up raw-log access on this cluster so the actors section can populate the next time this scope is investigated.</li>
-</ul>
-
-        </div>
-      </details>
-  </section>
-
-
-
-  <footer class="method">
-    <div>
-      <span class="label">Method</span>
-      Rule-based scorecard. Mechanical features only. No causal claim, no malicious-intent claim.
-    </div>
-    <div>
-      <span class="label">Baseline window</span>
-      <span class="tnum">2026-05-13 11:00-14:00 UTC</span>
-    </div>
-    <div>
-      <span class="label">Schema</span>
-      <span class="mono">bot_incident_scope.v1</span>
-    </div>
-    <div class="right">
-      <span class="label">Generated</span>
-      <span class="tnum">2026-05-18 02:03 UTC</span>
-    </div>
-  </footer>
-
-  <details id="evidence" class="full-evidence">
-    <summary>Full evidence — scope tables, per-field actor rankings, limitations</summary>
-    <div class="full-evidence-body">
-
-      <section>
-        <div class="section-head">
-          <h3 class="display-lg">Section A — Scope confirmation</h3>
-        </div>
-          <div class="kpis" style="grid-template-columns: repeat(4, 1fr);">
-              <div class="kpi">
-                <div class="kpi-label">Requests</div>
-                <div class="kpi-value tnum">2.15M</div>
-              </div>
-              <div class="kpi">
-                <div class="kpi-label">Bot share</div>
-                <div class="kpi-value tnum">64.2%</div>
-              </div>
-              <div class="kpi">
-                <div class="kpi-label">429 rate</div>
-                <div class="kpi-value tnum">6.40%</div>
-              </div>
-              <div class="kpi">
-                <div class="kpi-label">5xx rate</div>
-                <div class="kpi-value tnum">0.90%</div>
-              </div>
-          </div>
-          <p class="finding-body" style="margin-top: 14px;">
-            Spike flags:
-              <span class="pill pill-escalate pill-sm">Volume up</span>
-              <span class="pill pill-escalate pill-sm">429 rate up</span>
-          </p>
-          <p class="finding-body">
-            Scope:
-              <strong>Host</strong> www.example.com · <strong>Granularity</strong> minute            · <strong>SIEM surface</strong> not available
-          </p>
-
-
-          <h4 style="margin-top: 20px;">Top targeted hosts</h4>
-          <table class="mini-table">
-            <thead>
-              <tr>
-                <th>Host</th>
-                <th class="is-num">Requests</th>
-                <th class="is-num">Share</th>
-                <th class="is-num">Δ vs baseline</th>
-              </tr>
-            </thead>
-            <tbody>
-                <tr>
-                  <td>www.example.com</td>
-                  <td class="is-num">2.05M</td>
-                  <td class="is-num">95.3%</td>
-                  <td class="is-num">+210%</td>
-                </tr>
-                <tr>
-                  <td>api.example.com</td>
-                  <td class="is-num">70.00K</td>
-                  <td class="is-num">3.30%</td>
-                  <td class="is-num">+18.0%</td>
-                </tr>
-                <tr>
-                  <td>assets.example.com</td>
-                  <td class="is-num">20.00K</td>
-                  <td class="is-num">0.90%</td>
-                  <td class="is-num">+4.00%</td>
-                </tr>
-            </tbody>
-          </table>
-
-          <h4 style="margin-top: 20px;">Status mix</h4>
-          <table class="mini-table">
-            <thead>
-              <tr>
-                <th>Status</th>
-                <th class="is-num">Requests</th>
-                <th class="is-num">Share</th>
-              </tr>
-            </thead>
-            <tbody>
-                <tr>
-                  <td class="tnum">200</td>
-                  <td class="is-num">1.80M</td>
-                  <td class="is-num">83.7%</td>
-                </tr>
-                <tr>
-                  <td class="tnum">429</td>
-                  <td class="is-num">137.60K</td>
-                  <td class="is-num">6.40%</td>
-                </tr>
-                <tr>
-                  <td class="tnum">401</td>
-                  <td class="is-num">130.00K</td>
-                  <td class="is-num">6.00%</td>
-                </tr>
-                <tr>
-                  <td class="tnum">500</td>
-                  <td class="is-num">19.35K</td>
-                  <td class="is-num">0.90%</td>
-                </tr>
-            </tbody>
-          </table>
-
-      </section>
-
-      <section>
-        <div class="section-head" style="margin-top: 28px;">
-          <h3 class="display-lg">Section B — Per-field actor rankings</h3>
-        </div>
-          <p class="finding-body">
-            The cluster's raw access log was not available for this report,
-            so per-actor rankings are not shown. Scope evidence in Section A
-            above still applies.
-          </p>
-      </section>
-
-        <section>
-          <div class="section-head" style="margin-top: 28px;">
-            <h3 class="display-lg">Analyst narrative</h3>
-          </div>
-            <h4>Executive summary</h4>
-            <div class="prose"><p>Volume on www.example.com is materially up (+210% on the top host) and 429s are spiking on <code>/login/*</code> — both consistent with a login-attack pattern, but per-actor evidence is unavailable on this cluster so naming specific origins is out of reach. The spike flags volume_up + rate_429_up are the only concurring signals, with no SIEM surface and no raw-log breakdown to confirm whether the increase is concentrated on a handful of actors or spread broadly. Escalation should wait on raw-log access for this scope rather than acting on summary evidence alone.</p>
-</div>
-        </section>
-
-        <section>
-          <div class="section-head" style="margin-top: 28px;">
-            <h3 class="display-lg">Limitations</h3>
-          </div>
-          <ul>
-              <li>SIEM policy summary table not present on this cluster; SIEM mixes are not available.</li>
-              <li>akamai.logs is not present on this cluster; per-actor drilldown is not available.</li>
-              <li>Suspicious-target heuristics produced no flagged rows because the cluster has no raw access log; only summary-level scope evidence is available.</li>
-          </ul>
-        </section>
-
-      <section>
-        <div class="section-head" style="margin-top: 28px;">
-          <h3 class="display-lg">Reasoning trail</h3>
-        </div>
-        <ul>
-            <li>spike flags fired (Volume up, 429 rate up)</li>
-            <li>raw-log drilldown unavailable on this cluster, so target naming is out of reach</li>
-            <li>no edge-response signal available (neither SIEM action class nor raw action_applied), so block coverage cannot be cross-checked</li>
+  <section>
+    <h2>Calibration calls</h2>
+      <p>high volume share dominated detector firing; 7 distinct rules fired this window.</p>
+        <ul class="calibration-list">
+            <li><strong>Keep:</strong> <code>high volume share</code> — fired 6 times this window without producing pad findings</li>
+            <li><strong>Watch:</strong> <code>behavioral anomaly</code> — fired on a single target; insufficient evidence to tune</li>
         </ul>
-      </section>
+  </section>
 
-      <section>
-        <div class="section-head" style="margin-top: 28px;">
-          <h3 class="display-lg">Method detail</h3>
-        </div>
-        <section>
+  <section>
+    <h2>Missing coverage</h2>
+    <ul><li>Edge action mix was not present in the incident artifact.</li><li>Deny-rule mix was not present in the incident artifact.</li></ul>
+  </section>
+
+  <section>
+    <h2>Follow-up instrumentation</h2>
+    <ul><li>Emit edge action mix for future incident action review.</li><li>Emit deny-rule mix to connect detector output to policy controls.</li></ul>
+  </section>
+
+  <section>
   <div class="section-eyebrow">Method &amp; caveats</div>
     <h2>What this report is and isn't</h2>
     <p class="prose">
@@ -3719,7 +3267,7 @@ footer {
       <dl class="method">
         <dt>Schema</dt><dd><code>bot_incident_scope.v1</code></dd>
           <dt>Comparison</dt><dd>Previous window</dd>
-          <dt>Producer limit</dt><dd>10 (returned 0, truncated: false)</dd>
+          <dt>Producer limit</dt><dd>10 (returned 35, truncated: false)</dd>
         <dt>Tenant / database</dt><dd>Demo · Akamai</dd>
         <dt>Table</dt><dd><code>akamai.bi_summary_minute</code></dd>
           <dt>Constraints</dt>
@@ -3728,42 +3276,10 @@ footer {
     </details>
 </section>
 
-      </section>
-
-    </div>
-  </details>
-
-    <details class="full-evidence" style="margin-top: 16px;">
-      <summary>Orientation — what this report measures</summary>
-      <div class="full-evidence-body">
-        <section class="purpose-strip" aria-label="Report orientation">
-  <div class="purpose-cell">
-    <div class="purpose-label">What this measures</div>
-    <p>Window-scoped incident shape. Confirms volume, 429%, 5xx%, bot-share and SIEM-blocked share against a trailing equal-length baseline, then ranks actors against the cluster&#39;s raw access log.</p>
-  </div>
-  <div class="purpose-cell">
-    <div class="purpose-label">How to read the score</div>
-    <p>Risk score scales with attack severity; higher is worse. Share percentages and deltas are computed mechanically against the trailing window — severity is qualitative.</p>
-    <ul class="purpose-key">
-      <li><span class="key-dot" style="background: #4E79A7"></span>observe · 0–40</li>
-      <li><span class="key-dot" style="background: #F28E2B"></span>monitor · 40–70</li>
-      <li><span class="key-dot" style="background: #E15759"></span>escalate · 70–90</li>
-      <li><span class="key-dot" style="background: #9F2C2D"></span>critical · 90–100</li>
-    </ul>
-  </div>
-  <div class="purpose-cell">
-    <div class="purpose-label">What this can't say</div>
-    <p>Rule-based scorecard. Mechanical features only — no malicious-intent claim or root-cause attribution.</p>
-  </div>
-</section>
-
-      </div>
-    </details>
-
 </article>
 
   <footer>
-    Generated 2026-05-18 02:03 UTC · artifact bot_incident_scope.v1  </footer>
+    Generated <FROZEN> · artifact bot_incident_scope.v1  </footer>
 </main>
 </body>
 </html>

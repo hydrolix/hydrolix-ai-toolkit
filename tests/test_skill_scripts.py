@@ -823,6 +823,39 @@ class BotInsightsScriptTests(unittest.TestCase):
             1,
         )
 
+    def test_incident_interpretation_contract_blocks_unsupported_inferences(self) -> None:
+        contract = self.bot_insights_report.INCIDENT_INTERPRETATION_CONTRACT
+        allowed = " ".join(contract["allowed"])
+        forbidden = " ".join(contract["forbidden"])
+
+        self.assertIn("count the distinct ASN", allowed)
+        self.assertIn("consistent with credential stuffing", allowed)
+        self.assertIn("business or customer-impact facts", forbidden)
+        self.assertIn("WAF push time", forbidden)
+        self.assertIn("configuration certainty", forbidden)
+        self.assertIn("single-ASN claim", forbidden)
+
+    def test_template_packet_includes_interpretation_contract(self) -> None:
+        packet = {
+            "title": "Incident Evidence",
+            "query_context": {
+                "table_used": "akamai.bi_summary_hour",
+                "cluster": "demo",
+                "database": "akamai",
+                "granularity": "hour",
+            },
+            "interpretation_contract": {
+                "allowed": ["Count distinct ASNs before describing topology."],
+                "forbidden": ["Do not invent WAF push times."],
+            },
+        }
+
+        output = self.bot_insights_report.render_template_packet(packet)
+
+        self.assertIn("## Interpretation Contract", output)
+        self.assertIn("Count distinct ASNs", output)
+        self.assertIn("Do not invent WAF push times", output)
+
     def test_fleet_flag_validates_combinations(self) -> None:
         """--fleet is only valid for scorecard_brief, and mutually
         exclusive with --entity-value. Both rejections fire as
@@ -969,6 +1002,111 @@ class BotInsightsScriptTests(unittest.TestCase):
                 self.bot_insights_report._resolve_dashboard_url(args),
                 "",
             )
+
+    def test_incident_view_cli_maps_to_wrapper_report_type(self) -> None:
+        import producers.cli as cli
+
+        seen = {}
+
+        def fake_run_incident(args, start, end, baseline_start, sample_dir, output_path):
+            seen["incident_view"] = args.incident_view
+            seen["incident_report_type"] = args.incident_report_type
+            return 0
+
+        argv = [
+            "bot-insights-report",
+            "--cluster",
+            "demo",
+            "--database",
+            "akamai",
+            "--report",
+            "incident_report",
+            "--mode",
+            "report",
+            "--incident-view",
+            "soc_action_packet",
+            "--start",
+            "2026-05-02T00:00:00Z",
+            "--end",
+            "2026-05-03T00:00:00Z",
+            "--output",
+            "/tmp/incident.html",
+        ]
+        with (
+            mock.patch.object(sys, "argv", argv),
+            mock.patch.object(cli, "_run_incident_report", side_effect=fake_run_incident),
+        ):
+            self.assertEqual(self.bot_insights_report.main(), 0)
+
+        self.assertEqual(seen["incident_view"], "soc_action_packet")
+        self.assertEqual(seen["incident_report_type"], "incident_soc_action_packet")
+
+    def test_incident_emit_or_render_preserves_artifacts_for_view_variant(self) -> None:
+        import producers.orchestrators.incident_report as incident_orch
+
+        fixture = (
+            ROOT / "tests/fixtures/report_engine/incident_executive_view_no_notes.json"
+        )
+        wrapper_fixture = json.loads(fixture.read_text(encoding="utf-8"))
+        scope, actors, action_targets = wrapper_fixture["artifacts"]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "incident.html"
+            sample_dir = Path(tmpdir) / "sample"
+            sample_dir.mkdir()
+            args = SimpleNamespace(
+                report="incident_report",
+                incident_report_type="incident_detection_engineering",
+                cluster="demo",
+                database="akamai",
+                start="2026-05-02T00:00:00Z",
+                end="2026-05-03T00:00:00Z",
+                host="www.example.com",
+                asn=None,
+                path_pattern=None,
+                mode="report",
+                format="html",
+                title=None,
+                analyst_notes=None,
+                analyst_notes_file=None,
+            )
+            ctx = SimpleNamespace(
+                granularity="hour",
+                window_confirmation=scope["window_confirmation"],
+                scope_artifact=scope,
+                actors_artifact=actors,
+                action_targets_artifact=action_targets,
+                raw_drilldown_available=True,
+                siem_available=True,
+                suspicious_targets=action_targets["targets"],
+                limitations_scope=[],
+                limitations_actors=[],
+                action_targets_limitations=[],
+            )
+            wrapper_seen = {}
+
+            def fake_run(cmd, *, stdout_path=None, cwd=None, allowed_returncodes=()):
+                self.assertIn("--with", cmd)
+                wrapper_path = Path(cmd[cmd.index("--file") + 1])
+                wrapper_seen.update(json.loads(wrapper_path.read_text(encoding="utf-8")))
+                Path(cmd[cmd.index("--output") + 1]).write_text(
+                    "<html>ok</html>", encoding="utf-8"
+                )
+                return ""
+
+            with mock.patch.object(incident_orch, "run", side_effect=fake_run):
+                self.assertEqual(
+                    incident_orch._incident_emit_or_render(
+                        args,
+                        ctx,
+                        baseline_start=datetime(2026, 5, 1, tzinfo=timezone.utc),
+                        sample_dir=sample_dir,
+                        output_path=output,
+                    ),
+                    0,
+                )
+
+        self.assertEqual(wrapper_seen["report_type"], "incident_detection_engineering")
+        self.assertEqual(wrapper_seen["artifacts"], [scope, actors, action_targets])
 
     def test_fleet_evidence_packet_uses_aggregates(self) -> None:
         """The fleet packet builder emits fleet-shaped fields (band

@@ -64,6 +64,7 @@ from producers.runtime import (
     result_rows,
     run,
 )
+from producers.rendering import render_report_command
 from producers.sql.incident import (
     _incident_actor_cooccurrence_sql,
     _incident_actor_scoped_metrics_baseline_sql,
@@ -108,6 +109,11 @@ INCIDENT_INTERPRETATION_CONTRACT: dict[str, list[str]] = {
         "Summarize the incident's shape from the scope-confirmation evidence: "
         "request volume, 429 rate, 5xx rate, bot share, SIEM-blocked share.",
         "Describe actor concentration using the top rows in the actors section.",
+        "When describing infrastructure topology, count the distinct ASN or "
+        "ASN-organization values present in the evidence. Say 'single-ASN' "
+        "only when every named actor in the claim has the same ASN. Otherwise "
+        "use wording such as 'across N hosting ASN clusters' and name the "
+        "ASNs only when they are present in the evidence.",
         "Reference evidence with human-readable labels (Client IP, Client ASN, "
         "Request Path, User Agent, Country, Request host, Status code).",
         "State limitations explicitly when the actors section is empty or SIEM "
@@ -126,6 +132,12 @@ INCIDENT_INTERPRETATION_CONTRACT: dict[str, list[str]] = {
         "present.",
         "Reference at least one target from the action-targets artifact in "
         "the next-steps slot.",
+        "Frame authentication-abuse labels as evidence-bounded pattern "
+        "language. Use 'consistent with credential stuffing' only when the "
+        "evidence contains authentication paths, repeated 429/auth-failure "
+        "style signals, or supplied analyst context. Do not state "
+        "'credential-stuffing attack' as established fact unless the packet "
+        "contains authentication outcome evidence.",
     ],
     "forbidden": [
         "Do not name internal tables (akamai.logs, bi_summary_*, "
@@ -134,6 +146,21 @@ INCIDENT_INTERPRETATION_CONTRACT: dict[str, list[str]] = {
         "Do not claim malicious intent, abuse, attack causality, or root cause.",
         "Do not invent metrics, rankings, share percentages, deltas, severity "
         "labels, or dashboard URLs.",
+        "Do not invent business or customer-impact facts such as revenue, "
+        "booking failures, checkout errors, funnel completion, customer "
+        "reports, or latency. Those require explicit supplied evidence; log "
+        "volume, status, and actor data are not enough.",
+        "Do not invent response-timeline facts such as WAF push time, deny-list "
+        "updates, rate-limit changes, post-push drops, threat-intel tickets, "
+        "or prior incident waves. Only mention them when they are explicit "
+        "fields in the evidence packet or quoted user-supplied context.",
+        "Do not convert edge-action evidence into configuration certainty. "
+        "No Action / Monitor / Deny shares may support 'edge enforcement was "
+        "limited in this window'; they do not prove a rule was absent, a "
+        "specific IP was not on a list, or a policy was misconfigured.",
+        "Do not collapse multiple ASN clusters into a single-ASN claim. If "
+        "the evidence names multiple ASN values or organizations, preserve "
+        "that plurality.",
         "Do not query Hydrolix from the interpretation step.",
         "Do not emit final HTML or Markdown layout.",
         "Do not write an executive_summary that only restates the Impact "
@@ -202,19 +229,22 @@ def _capture_sql_to_rows(
     re-emits that packet upstream so the existing MCP handoff
     contract carries over unchanged.
     """
+    capture_cmd = [
+        sys.executable,
+        str(CAPTURE),
+        "--cluster",
+        args.cluster,
+        "--database",
+        args.database,
+        "--sql",
+        sql,
+        "--output",
+        str(output_path),
+    ]
+    if "system.columns" in sql.lower():
+        capture_cmd.append("--no-require-time-range")
     capture_text = run(
-        [
-            sys.executable,
-            str(CAPTURE),
-            "--cluster",
-            args.cluster,
-            "--database",
-            args.database,
-            "--sql",
-            sql,
-            "--output",
-            str(output_path),
-        ],
+        capture_cmd,
         allowed_returncodes=(NEEDS_MCP_EXIT,),
     )
     try:
@@ -1100,6 +1130,7 @@ def _incident_emit_or_render(
         )
         return 0
 
+    wrapper_report_type = getattr(args, "incident_report_type", args.report)
     wrapper = build_report_wrapper(
         args=args,
         artifacts=[
@@ -1108,26 +1139,21 @@ def _incident_emit_or_render(
             ctx.action_targets_artifact,
         ],
         analyst_note=analyst_note_from_args(args),
+        report_type=wrapper_report_type,
     )
-    wrapper_path = sample_dir / f"{args.report}-wrapper.json"
+    wrapper_path = sample_dir / f"{wrapper_report_type}-wrapper.json"
     wrapper_path.write_text(
         json.dumps(wrapper, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    render_cmd = [
-        "uv",
-        "run",
-        "python",
-        "skills/bot-insights/scripts/render_report.py",
-        "--file",
-        str(wrapper_path),
-        "--format",
-        args.format,
-        "--output",
-        str(output_path),
-    ]
-    if args.title:
-        render_cmd.extend(["--title", args.title])
-    run(render_cmd, cwd=PUBLIC_SKILLS)
+    run(
+        render_report_command(
+            wrapper_path=wrapper_path,
+            output_path=output_path,
+            output_format=args.format,
+            title=args.title,
+        ),
+        cwd=PUBLIC_SKILLS,
+    )
 
     print(
         json.dumps(
@@ -1163,9 +1189,10 @@ def _run_incident_report(
     the try block — by then all captures have completed.
     """
     granularity = choose_granularity(start, end)
+    summary_suffix = "_exp" if args.cluster == "expedia" else ""
     ctx = _IncidentCtx(
         granularity=granularity,
-        summary_table=f"{args.database}.bi_summary_{granularity}",
+        summary_table=f"{args.database}.bi_summary_{granularity}{summary_suffix}",
     )
     try:
         _incident_introspect_columns(args, ctx, sample_dir=sample_dir)

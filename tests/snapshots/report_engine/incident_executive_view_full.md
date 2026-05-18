@@ -14,7 +14,9 @@ Coordinated automated traffic concentrated on `/login/*` during a 1-hour window.
 - **5xx served:** 46.75K (1.10% of window)
 - **Edge blocks:** 195.50K (4.60% of window)
 - **Hosts affected:** 5 (in window)
-- **Top affected:** `www.example.com` on `/login/*` — 68.2% of window, +530% vs baseline
+- **Top affected host:** `www.example.com` (96.5%, +312% vs baseline)
+- **Top path pattern:** `/login/*` — 68.2% of window, +530% vs baseline
+
 
 ## Business / customer impact
 

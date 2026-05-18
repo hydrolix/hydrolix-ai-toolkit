@@ -582,4 +582,4 @@ Incident report for Demo · Akamai, scope-confirmed against a trailing equal-len
 - Top-N per actor field: 10
 - Constraints: Mechanical features only; No causal claim; No malicious intent claim
 
-Generated 2026-05-17 16:09 UTC
+Generated 2026-05-18 02:03 UTC
