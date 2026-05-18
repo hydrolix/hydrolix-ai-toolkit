@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -226,3 +227,61 @@ def test_pdf_export_reports_missing_playwright(monkeypatch, tmp_path):
 
     with pytest.raises(PrintExportError, match="PDF export requires optional Playwright"):
         render_pdf_from_html("<html><body>ok</body></html>", tmp_path / "out.pdf")
+
+
+def test_pdf_export_uses_css_page_size_and_footer(monkeypatch, tmp_path):
+    import builtins
+    from reportkit.print_export import render_pdf_from_html
+
+    calls = {}
+    real_import = builtins.__import__
+
+    class FakePage:
+        def set_content(self, html, wait_until):
+            calls["content"] = (html, wait_until)
+
+        def evaluate(self, script, title):
+            calls["title"] = (script, title)
+
+        def pdf(self, **kwargs):
+            calls["pdf"] = kwargs
+
+    class FakeBrowser:
+        def new_page(self):
+            return FakePage()
+
+        def close(self):
+            calls["closed"] = True
+
+    class FakeChromium:
+        def launch(self):
+            return FakeBrowser()
+
+    class FakePlaywright:
+        chromium = FakeChromium()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def fake_import(name, *args, **kwargs):
+        if name == "playwright.sync_api":
+            return SimpleNamespace(
+                Error=RuntimeError,
+                sync_playwright=lambda: FakePlaywright(),
+            )
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    render_pdf_from_html("<html><body>ok</body></html>", tmp_path / "out.pdf", title="Report")
+
+    assert calls["content"] == ("<html><body>ok</body></html>", "networkidle")
+    assert calls["title"][1] == "Report"
+    assert calls["closed"] is True
+    assert calls["pdf"]["prefer_css_page_size"] is True
+    assert calls["pdf"]["display_header_footer"] is True
+    assert "pageNumber" in calls["pdf"]["footer_template"]
+    assert calls["pdf"]["margin"]["top"] == "0.48in"

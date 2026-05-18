@@ -19,6 +19,7 @@ __all__ = [
     '_CHART_SELECTION_RULE',
     '_CHART_SELECTION_REASONS',
     '_impact_view',
+    '_window_timeline_view',
     '_volume_chart_view',
     '_interpolate_time_label',
     '_duration_display',
@@ -222,7 +223,58 @@ def _impact_view(scope_art: dict) -> dict:
         "tiles": _build_impact_tiles(scope_art, window),
         "top_affected_hosts": _top_affected_hosts_view(scope_art),
         "top_path_pattern": _top_path_pattern_view(scope_art),
+        "window_timeline": _window_timeline_view(scope_art),
         "volume_chart": _volume_chart_view(scope_art),
+    }
+
+
+def _timeline_dt(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _window_timeline_view(scope_art: dict) -> dict | None:
+    """Project baseline/current windows into a compact print timeline."""
+    scope_meta = scope_art.get("scope") or {}
+    baseline_start = scope_meta.get("baseline_start") or ""
+    baseline_end = scope_meta.get("baseline_end") or ""
+    current_start = scope_meta.get("start") or ""
+    current_end = scope_meta.get("end") or ""
+    points = {
+        "baseline_start": _timeline_dt(baseline_start),
+        "baseline_end": _timeline_dt(baseline_end),
+        "current_start": _timeline_dt(current_start),
+        "current_end": _timeline_dt(current_end),
+    }
+    if not all(points.values()):
+        return None
+
+    min_start = min(points.values())
+    max_end = max(points.values())
+    total_seconds = max((max_end - min_start).total_seconds(), 1.0)
+
+    def segment(start: datetime, end: datetime, label: str) -> dict:
+        left = ((start - min_start).total_seconds() / total_seconds) * 100.0
+        width = max(((end - start).total_seconds() / total_seconds) * 100.0, 1.0)
+        return {
+            "label": label,
+            "left_pct": f"{left:.3f}%",
+            "width_pct": f"{width:.3f}%",
+            "start_label": _short_iso(start.isoformat().replace("+00:00", "Z")),
+            "end_label": _short_iso(end.isoformat().replace("+00:00", "Z")),
+        }
+
+    return {
+        "start_label": _short_iso(min_start.isoformat().replace("+00:00", "Z")),
+        "end_label": _short_iso(max_end.isoformat().replace("+00:00", "Z")),
+        "segments": [
+            segment(points["baseline_start"], points["baseline_end"], "Baseline"),
+            segment(points["current_start"], points["current_end"], "Current"),
+        ],
     }
 
 
@@ -279,6 +331,41 @@ def _chart_window_iso(
     return start, end, scope_start, scope_end
 
 
+def _incident_window_fraction(
+    chart_start_iso: str,
+    chart_end_iso: str,
+    scope_start_iso: str,
+    scope_end_iso: str,
+) -> tuple[float, float] | None:
+    """Project the incident scope window onto the broader chart axis."""
+    if not all((chart_start_iso, chart_end_iso, scope_start_iso, scope_end_iso)):
+        return None
+    try:
+        chart_start = datetime.fromisoformat(chart_start_iso.replace("Z", "+00:00"))
+        chart_end = datetime.fromisoformat(chart_end_iso.replace("Z", "+00:00"))
+        scope_start = datetime.fromisoformat(scope_start_iso.replace("Z", "+00:00"))
+        scope_end = datetime.fromisoformat(scope_end_iso.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    chart_seconds = (chart_end - chart_start).total_seconds()
+    if chart_seconds <= 0 or scope_end <= chart_start or scope_start >= chart_end:
+        return None
+    start_f = (max(scope_start, chart_start) - chart_start).total_seconds() / chart_seconds
+    end_f = (min(scope_end, chart_end) - chart_start).total_seconds() / chart_seconds
+    if end_f <= start_f:
+        return None
+    return start_f, end_f
+
+
+def _fractions_differ(
+    first: tuple[float, float] | None,
+    second: tuple[float, float] | None,
+) -> bool:
+    if first is None or second is None:
+        return False
+    return abs(first[0] - second[0]) > 0.001 or abs(first[1] - second[1]) > 0.001
+
+
 def _build_chart_context(
     scope_art: dict,
     ts: dict,
@@ -292,8 +379,31 @@ def _build_chart_context(
     peak_idx = current_values.index(peak_value)
     n = len(current_values)
     start, end, scope_start, scope_end = _chart_window_iso(ts, scope_art)
+    scope_fraction = _incident_window_fraction(start, end, scope_start, scope_end)
+    detection = scope_art.get("incident_detection") or {}
+    detected_fraction = _incident_window_fraction(
+        start,
+        end,
+        detection.get("detected_start") or "",
+        detection.get("detected_end") or "",
+    )
+    primary_fraction = detected_fraction or scope_fraction
+    scoped_marker_fraction = (
+        scope_fraction if _fractions_differ(detected_fraction, scope_fraction) else None
+    )
     spike_flag = selected_series.get("spike_flag") or ""
     granularity = ts.get("granularity") or ""
+    duration_display = _duration_display(scope_start, scope_end, n, granularity)
+    detected_duration_display = _duration_display(
+        detection.get("detected_start") or "",
+        detection.get("detected_end") or "",
+        n,
+        granularity,
+    )
+    detected_label = (
+        f"Detected anomaly period ({detected_duration_display})"
+        if detected_duration_display else "Detected anomaly period"
+    )
     return {
         "current": current_values,
         "baseline": baseline_values,
@@ -302,7 +412,23 @@ def _build_chart_context(
         "peak_index": peak_idx,
         "peak_fraction": peak_idx / (n - 1) if n > 1 else 0.5,
         "peak_time_display": _interpolate_time_label(start, end, peak_idx, n),
-        "duration_display": _duration_display(scope_start, scope_end, n, granularity),
+        "duration_display": duration_display,
+        "incident_window_label": (
+            f"Incident window ({duration_display})" if duration_display else "Incident window"
+        ),
+        "detected_window_label": detected_label,
+        "highlight_label": detected_label if detected_fraction else (
+            f"Incident window ({duration_display})" if duration_display else "Incident window"
+        ),
+        "incident_highlight_start": primary_fraction[0] if primary_fraction else None,
+        "incident_highlight_end": primary_fraction[1] if primary_fraction else None,
+        "scoped_analysis_highlight_start": (
+            scoped_marker_fraction[0] if scoped_marker_fraction else None
+        ),
+        "scoped_analysis_highlight_end": (
+            scoped_marker_fraction[1] if scoped_marker_fraction else None
+        ),
+        "has_incident_detection": bool(detected_fraction),
         "left_label": _short_iso(start),
         "right_label": _short_iso(end),
         "metric_name": selected_name,

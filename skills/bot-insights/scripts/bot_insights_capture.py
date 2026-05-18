@@ -28,7 +28,7 @@ from reportkit.extract import hydrolix as hdx
 
 
 TIME_PREDICATE_RE = re.compile(
-    r"\b(?:timestamp|reqTimeSec)\b\s*(?:=|!=|<>|>=|<=|>|<|BETWEEN|IN)(?:\s|\(|'|$)",
+    r"(?:\b(?:timestamp|reqTimeSec)\b|`toStartOf(?:Minute|Hour|Day)\(reqTimeSec\)`)\s*(?:=|!=|<>|>=|<=|>|<|BETWEEN|IN)(?:\s|\(|'|$)",
     re.IGNORECASE,
 )
 FORMAT_RE = re.compile(r"\bFORMAT\s+\w+\b", re.IGNORECASE)

@@ -75,6 +75,16 @@ def _incident_compute_window_confirmation(
         n = baselines_mod.to_number(row.get(key))
         return float(n) if n is not None else 0.0
 
+    raw = _incident_split_period_rows(rows, source="raw")
+    raw_current = raw.get("current") or {}
+    raw_baseline = raw.get("baseline") or {}
+    source = "summary"
+
+    if _num(current, "requests") <= 0 and _num(raw_current, "requests") > 0:
+        current = raw_current
+        baseline = raw_baseline
+        source = "raw"
+
     requests_current = _num(current, "requests")
     requests_baseline = _num(baseline, "requests")
     bot_current = _num(current, "bot_like_requests")
@@ -108,8 +118,6 @@ def _incident_compute_window_confirmation(
         # canonical-schema clusters (no separate SIEM summary table) the
         # Akamai DS2 stream carries the edge response inline so the deny
         # + monitor decision is visible directly from the access log.
-        raw = _incident_split_period_rows(rows, source="raw")
-        raw_current = raw.get("current") or {}
         raw_requests = _num(raw_current, "requests")
         denied = _num(raw_current, "denied_requests")
         monitored = _num(raw_current, "monitored_requests")
@@ -138,6 +146,7 @@ def _incident_compute_window_confirmation(
             else None
         ),
         "spike_flags": spike_flags,
+        "source": source,
     }
     baseline_stats = {
         "requests": int(requests_baseline),

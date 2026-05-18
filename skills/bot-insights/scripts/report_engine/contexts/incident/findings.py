@@ -127,7 +127,7 @@ def _finding_ua_footprint(ua_targets: list[dict]) -> dict | None:
         lead = "User agents new in this window."
         body = (
             f"These user agents account for ~{share:.0f}% of "
-            "traffic and were absent from the trailing baseline "
+            "traffic and were absent from the baseline "
             f"({flag_labels}). The report does not infer intent:"
         )
     elif "high_rate_429_share" in flags:
@@ -184,7 +184,7 @@ def _finding_anomaly_cohort(
         "lead": "Behavioral cohort anomaly is the worry.",
         "body": (
             f"`{anomaly.get('target_value')}` shows a behavioral "
-            "departure from the trailing baseline — consistent "
+            "departure from the baseline — consistent "
             "with sophisticated automation passing bot-classification."
         ),
     }

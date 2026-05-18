@@ -24,8 +24,33 @@ separate sub-module without improving readability.
 from __future__ import annotations
 
 from datetime import datetime
+import re
 
 from producers.formatting import sql_literal, sql_ts
+
+
+_SIMPLE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _incident_identifier(name: str) -> str:
+    """Render a ClickHouse identifier, quoting function-like physical names."""
+    if _SIMPLE_IDENTIFIER_RE.match(name):
+        return name
+    return "`" + name.replace("`", "``") + "`"
+
+
+def _incident_summary_time_expr(time_column: str = "reqTimeSec") -> str:
+    return _incident_identifier(time_column)
+
+
+def _incident_summary_count_expr(count_column: str = "count()") -> str:
+    return f"countMerge({_incident_identifier(count_column)})"
+
+
+def _incident_summary_count_if_expr(
+    condition: str, count_column: str = "count()"
+) -> str:
+    return f"countMergeIf({_incident_identifier(count_column)}, {condition})"
 
 
 def _incident_time_predicate(start: datetime, end: datetime) -> str:
@@ -36,20 +61,34 @@ def _incident_time_predicate(start: datetime, end: datetime) -> str:
 
 
 def _incident_scope_predicate(
-    host: str | None, asn: str | None, path_pattern: str | None
+    host: str | None,
+    asn: str | None,
+    path_pattern: str | None,
+    *,
+    host_column: str = "reqHost",
+    asn_column: str = "asn",
+    path_pattern_column: str = "requestPathPattern",
 ) -> str:
     parts: list[str] = []
     if host:
-        parts.append(f"reqHost = {sql_literal(host)}")
+        parts.append(f"{_incident_identifier(host_column)} = {sql_literal(host)}")
     if asn:
-        parts.append(f"toString(asn) = {sql_literal(str(asn))}")
+        parts.append(
+            f"toString({_incident_identifier(asn_column)}) = {sql_literal(str(asn))}"
+        )
     if path_pattern:
-        parts.append(f"requestPathPattern = {sql_literal(path_pattern)}")
+        parts.append(
+            f"{_incident_identifier(path_pattern_column)} = {sql_literal(path_pattern)}"
+        )
     return " AND ".join(parts) if parts else "1"
 
 
 def _incident_raw_scope_predicate(
-    host: str | None, asn: str | None, path_pattern: str | None
+    host: str | None,
+    asn: str | None,
+    path_pattern: str | None,
+    *,
+    path_column: str = "request_path",
 ) -> str:
     """Same scope predicate but targeted at raw ``akamai.logs`` column names."""
     parts: list[str] = []
@@ -58,7 +97,7 @@ def _incident_raw_scope_predicate(
     if asn:
         parts.append(f"toString(asn) = {sql_literal(str(asn))}")
     if path_pattern:
-        parts.append(f"request_path LIKE {sql_literal(path_pattern)}")
+        parts.append(f"{path_column} LIKE {sql_literal(path_pattern)}")
     return " AND ".join(parts) if parts else "1"
 
 
@@ -84,12 +123,31 @@ def _incident_window_confirmation_sql(
     start: datetime,
     end: datetime,
     baseline_start: datetime,
+    baseline_end: datetime,
     host: str | None,
     asn: str | None,
     path_pattern: str | None,
     raw_drilldown_available: bool = False,
+    raw_path_column: str = "request_path",
+    summary_time_column: str = "reqTimeSec",
+    summary_count_column: str = "count()",
+    summary_status_column: str = "statusCode",
+    summary_cohort_column: str = "trafficCohort",
+    summary_path_pattern_column: str = "requestPathPattern",
 ) -> str:
-    scope = _incident_scope_predicate(host, asn, path_pattern)
+    summary_time = _incident_summary_time_expr(summary_time_column)
+    summary_count = _incident_summary_count_expr(summary_count_column)
+    summary_count_if = lambda condition: _incident_summary_count_if_expr(  # noqa: E731
+        condition, summary_count_column
+    )
+    summary_status = _incident_identifier(summary_status_column)
+    summary_cohort = _incident_identifier(summary_cohort_column)
+    scope = _incident_scope_predicate(
+        host,
+        asn,
+        path_pattern,
+        path_pattern_column=summary_path_pattern_column,
+    )
     siem_join = ""
     if siem_table:
         # Two passes via UNION ALL — one for summary measures, one for
@@ -110,12 +168,16 @@ SELECT
 FROM {siem_table}
 WHERE timestamp >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
   AND timestamp < toDateTime('{sql_ts(end)}', 'UTC')
+  AND (timestamp < toDateTime('{sql_ts(baseline_end)}', 'UTC')
+       OR timestamp >= toDateTime('{sql_ts(start)}', 'UTC'))
   AND ({scope})
 GROUP BY period
 """.rstrip()
     raw_join = ""
     if raw_drilldown_available:
-        raw_scope = _incident_raw_scope_predicate(host, asn, path_pattern)
+        raw_scope = _incident_raw_scope_predicate(
+            host, asn, path_pattern, path_column=raw_path_column
+        )
         # Third pass against raw akamai.logs to derive the edge-response
         # (action_applied) deny + monitor counts when a separate SIEM
         # summary table isn't present. For canonical-schema clusters the
@@ -128,32 +190,36 @@ SELECT
   'raw' AS source,
   if(reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC'), 'current', 'baseline') AS period,
   count() AS requests,
-  toUInt64(0) AS bot_like_requests,
-  toUInt64(0) AS req_429,
-  toUInt64(0) AS req_5xx,
+  countIf(trafficCohort IN ('Bot', 'AI')) AS bot_like_requests,
+  countIf(statusCode = 429) AS req_429,
+  countIf(statusCode BETWEEN 500 AND 599) AS req_5xx,
   toUInt64(0) AS blocked,
   countIf(action_applied = 'Deny') AS denied_requests,
   countIf(action_applied = 'Monitor') AS monitored_requests
 FROM akamai.logs
 WHERE reqTimeSec >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
   AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')
+  AND (reqTimeSec < toDateTime('{sql_ts(baseline_end)}', 'UTC')
+       OR reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC'))
   AND ({raw_scope})
 GROUP BY period
 """.rstrip()
     return f"""
 SELECT
   'summary' AS source,
-  if(reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC'), 'current', 'baseline') AS period,
-  countMerge(`count()`) AS requests,
-  countMergeIf(`count()`, trafficCohort IN ('Bot', 'AI')) AS bot_like_requests,
-  countMergeIf(`count()`, statusCode = 429) AS req_429,
-  countMergeIf(`count()`, statusCode BETWEEN 500 AND 599) AS req_5xx,
+  if({summary_time} >= toDateTime('{sql_ts(start)}', 'UTC'), 'current', 'baseline') AS period,
+  {summary_count} AS requests,
+  {summary_count_if(f"{summary_cohort} IN ('Bot', 'AI')")} AS bot_like_requests,
+  {summary_count_if(f"{summary_status} = 429")} AS req_429,
+  {summary_count_if(f"{summary_status} BETWEEN 500 AND 599")} AS req_5xx,
   toUInt64(0) AS blocked,
   toUInt64(0) AS denied_requests,
   toUInt64(0) AS monitored_requests
 FROM {summary_table}
-WHERE reqTimeSec >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
-  AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')
+WHERE {summary_time} >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
+  AND {summary_time} < toDateTime('{sql_ts(end)}', 'UTC')
+  AND ({summary_time} < toDateTime('{sql_ts(baseline_end)}', 'UTC')
+       OR {summary_time} >= toDateTime('{sql_ts(start)}', 'UTC'))
   AND ({scope})
 GROUP BY period
 {siem_join}
@@ -167,9 +233,15 @@ def _incident_volume_timeseries_sql(
     start: datetime,
     end: datetime,
     baseline_start: datetime,
+    baseline_end: datetime,
     host: str | None,
     asn: str | None,
     path_pattern: str | None,
+    summary_time_column: str = "reqTimeSec",
+    summary_count_column: str = "count()",
+    summary_status_column: str = "statusCode",
+    summary_cohort_column: str = "trafficCohort",
+    summary_path_pattern_column: str = "requestPathPattern",
 ) -> str:
     """Per-bucket volume + 429 + bot-classified counts for current + baseline.
 
@@ -182,7 +254,19 @@ def _incident_volume_timeseries_sql(
     uses (``bi_summary_<granularity>``), so it's cheap — one extra
     grouped scan over the same window the orchestrator already touched.
     """
-    scope = _incident_scope_predicate(host, asn, path_pattern)
+    summary_time = _incident_summary_time_expr(summary_time_column)
+    summary_count = _incident_summary_count_expr(summary_count_column)
+    summary_count_if = lambda condition: _incident_summary_count_if_expr(  # noqa: E731
+        condition, summary_count_column
+    )
+    summary_status = _incident_identifier(summary_status_column)
+    summary_cohort = _incident_identifier(summary_cohort_column)
+    scope = _incident_scope_predicate(
+        host,
+        asn,
+        path_pattern,
+        path_pattern_column=summary_path_pattern_column,
+    )
     bucket_fn = {
         "minute": "toStartOfMinute",
         "hour": "toStartOfHour",
@@ -190,14 +274,16 @@ def _incident_volume_timeseries_sql(
     }.get(granularity, "toStartOfMinute")
     return f"""
 SELECT
-  if(reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC'), 'current', 'baseline') AS period,
-  {bucket_fn}(reqTimeSec) AS bucket,
-  countMerge(`count()`) AS requests,
-  countMergeIf(`count()`, statusCode = 429) AS req_429,
-  countMergeIf(`count()`, trafficCohort IN ('Bot', 'AI')) AS bot_like_requests
+  if({summary_time} >= toDateTime('{sql_ts(start)}', 'UTC'), 'current', 'baseline') AS period,
+  {bucket_fn}({summary_time}) AS bucket,
+  {summary_count} AS requests,
+  {summary_count_if(f"{summary_status} = 429")} AS req_429,
+  {summary_count_if(f"{summary_cohort} IN ('Bot', 'AI')")} AS bot_like_requests
 FROM {summary_table}
-WHERE reqTimeSec >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
-  AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')
+WHERE {summary_time} >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
+  AND {summary_time} < toDateTime('{sql_ts(end)}', 'UTC')
+  AND ({summary_time} < toDateTime('{sql_ts(baseline_end)}', 'UTC')
+       OR {summary_time} >= toDateTime('{sql_ts(start)}', 'UTC'))
   AND ({scope})
 GROUP BY period, bucket
 ORDER BY period, bucket
@@ -210,21 +296,36 @@ def _incident_dimension_sql(
     start: datetime,
     end: datetime,
     baseline_start: datetime,
+    baseline_end: datetime,
     host: str | None,
     asn: str | None,
     path_pattern: str | None,
     top_n: int,
+    summary_time_column: str = "reqTimeSec",
+    summary_count_column: str = "count()",
+    summary_path_pattern_column: str = "requestPathPattern",
 ) -> str:
     """Per-dimension top-N + delta against the equal-length baseline."""
-    scope = _incident_scope_predicate(host, asn, path_pattern)
+    summary_time = _incident_summary_time_expr(summary_time_column)
+    summary_count_if = lambda condition: _incident_summary_count_if_expr(  # noqa: E731
+        condition, summary_count_column
+    )
+    scope = _incident_scope_predicate(
+        host,
+        asn,
+        path_pattern,
+        path_pattern_column=summary_path_pattern_column,
+    )
     return f"""
 SELECT
-  toString({dimension}) AS value,
-  countMergeIf(`count()`, reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC')) AS current_requests,
-  countMergeIf(`count()`, reqTimeSec < toDateTime('{sql_ts(start)}', 'UTC')) AS baseline_requests
+  toString({_incident_identifier(dimension)}) AS value,
+  {summary_count_if(f"{summary_time} >= toDateTime('{sql_ts(start)}', 'UTC')")} AS current_requests,
+  {summary_count_if(f"{summary_time} < toDateTime('{sql_ts(baseline_end)}', 'UTC')")} AS baseline_requests
 FROM {summary_table}
-WHERE reqTimeSec >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
-  AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')
+WHERE {summary_time} >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
+  AND {summary_time} < toDateTime('{sql_ts(end)}', 'UTC')
+  AND ({summary_time} < toDateTime('{sql_ts(baseline_end)}', 'UTC')
+       OR {summary_time} >= toDateTime('{sql_ts(start)}', 'UTC'))
   AND ({scope})
 GROUP BY value
 HAVING current_requests > 0
@@ -237,10 +338,12 @@ def _incident_edge_action_mix_sql(
     start: datetime,
     end: datetime,
     baseline_start: datetime,
+    baseline_end: datetime,
     host: str | None,
     asn: str | None,
     path_pattern: str | None,
     top_n: int,
+    raw_path_column: str = "request_path",
 ) -> str:
     """Top-N ``action_applied`` values + delta vs the equal-length baseline.
 
@@ -251,15 +354,19 @@ def _incident_edge_action_mix_sql(
     ``akamai.logs`` because ``action_applied`` is not carried on the
     summary table.
     """
-    scope = _incident_raw_scope_predicate(host, asn, path_pattern)
+    scope = _incident_raw_scope_predicate(
+        host, asn, path_pattern, path_column=raw_path_column
+    )
     return f"""
 SELECT
   toString(action_applied) AS value,
   countIf(reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC')) AS current_requests,
-  countIf(reqTimeSec < toDateTime('{sql_ts(start)}', 'UTC')) AS baseline_requests
+  countIf(reqTimeSec < toDateTime('{sql_ts(baseline_end)}', 'UTC')) AS baseline_requests
 FROM akamai.logs
 WHERE reqTimeSec >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
   AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')
+  AND (reqTimeSec < toDateTime('{sql_ts(baseline_end)}', 'UTC')
+       OR reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC'))
   AND ({scope})
 GROUP BY action_applied
 HAVING current_requests > 0
@@ -272,10 +379,12 @@ def _incident_deny_rule_mix_sql(
     start: datetime,
     end: datetime,
     baseline_start: datetime,
+    baseline_end: datetime,
     host: str | None,
     asn: str | None,
     path_pattern: str | None,
     top_n: int,
+    raw_path_column: str = "request_path",
 ) -> str:
     """Top-N ``denyRule`` values for actually-denied requests + delta.
 
@@ -287,15 +396,19 @@ def _incident_deny_rule_mix_sql(
     by an order of magnitude on bot-heavy traffic. The Edge Action Mix
     table above already enumerates monitored / tarpit / etc.
     """
-    scope = _incident_raw_scope_predicate(host, asn, path_pattern)
+    scope = _incident_raw_scope_predicate(
+        host, asn, path_pattern, path_column=raw_path_column
+    )
     return f"""
 SELECT
   toString(denyRule) AS value,
   countIf(reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC')) AS current_requests,
-  countIf(reqTimeSec < toDateTime('{sql_ts(start)}', 'UTC')) AS baseline_requests
+  countIf(reqTimeSec < toDateTime('{sql_ts(baseline_end)}', 'UTC')) AS baseline_requests
 FROM akamai.logs
 WHERE reqTimeSec >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
   AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')
+  AND (reqTimeSec < toDateTime('{sql_ts(baseline_end)}', 'UTC')
+       OR reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC'))
   AND ({scope})
   AND action_applied = 'Deny'
 GROUP BY denyRule
@@ -313,15 +426,27 @@ def _incident_status_mix_sql(
     asn: str | None,
     path_pattern: str | None,
     top_n: int,
+    summary_time_column: str = "reqTimeSec",
+    summary_count_column: str = "count()",
+    summary_status_column: str = "statusCode",
+    summary_path_pattern_column: str = "requestPathPattern",
 ) -> str:
-    scope = _incident_scope_predicate(host, asn, path_pattern)
+    summary_time = _incident_summary_time_expr(summary_time_column)
+    summary_count = _incident_summary_count_expr(summary_count_column)
+    summary_status = _incident_identifier(summary_status_column)
+    scope = _incident_scope_predicate(
+        host,
+        asn,
+        path_pattern,
+        path_pattern_column=summary_path_pattern_column,
+    )
     return f"""
 SELECT
-  toUInt32(statusCode) AS status_code,
-  countMerge(`count()`) AS requests
+  toUInt32({summary_status}) AS status_code,
+  {summary_count} AS requests
 FROM {summary_table}
-WHERE reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC')
-  AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')
+WHERE {summary_time} >= toDateTime('{sql_ts(start)}', 'UTC')
+  AND {summary_time} < toDateTime('{sql_ts(end)}', 'UTC')
   AND ({scope})
 GROUP BY status_code
 ORDER BY requests DESC
@@ -335,6 +460,7 @@ def _incident_siem_dimension_sql(
     start: datetime,
     end: datetime,
     baseline_start: datetime,
+    baseline_end: datetime,
     host: str | None,
     asn: str | None,
     path_pattern: str | None,
@@ -345,10 +471,12 @@ def _incident_siem_dimension_sql(
 SELECT
   toString({dimension}) AS value,
   countMergeIf(`count()`, timestamp >= toDateTime('{sql_ts(start)}', 'UTC')) AS current_requests,
-  countMergeIf(`count()`, timestamp < toDateTime('{sql_ts(start)}', 'UTC')) AS baseline_requests
+  countMergeIf(`count()`, timestamp < toDateTime('{sql_ts(baseline_end)}', 'UTC')) AS baseline_requests
 FROM {siem_table}
 WHERE timestamp >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
   AND timestamp < toDateTime('{sql_ts(end)}', 'UTC')
+  AND (timestamp < toDateTime('{sql_ts(baseline_end)}', 'UTC')
+       OR timestamp >= toDateTime('{sql_ts(start)}', 'UTC'))
   AND ({scope})
 GROUP BY value
 HAVING current_requests > 0
@@ -358,13 +486,14 @@ LIMIT {int(top_n)}
 
 
 def _incident_actor_topk_sql(
-    field: str,
+    field_sql: str,
     start: datetime,
     end: datetime,
     host: str | None,
     asn: str | None,
     path_pattern: str | None,
     top_n: int,
+    raw_path_column: str = "request_path",
 ) -> str:
     """Phase 1 of the two-step actor pipeline: extract top-K candidates only.
 
@@ -379,9 +508,11 @@ def _incident_actor_topk_sql(
     then computes per-row metrics scoped to that candidate list, which
     bounds the metrics GROUP BY hash table to at most ``top_n`` groups.
     """
-    scope = _incident_raw_scope_predicate(host, asn, path_pattern)
+    scope = _incident_raw_scope_predicate(
+        host, asn, path_pattern, path_column=raw_path_column
+    )
     return f"""
-SELECT topK({int(top_n)})({field}) AS candidates
+SELECT topK({int(top_n)})({field_sql}) AS candidates
 FROM akamai.logs
 WHERE {_incident_time_predicate(start, end)}
   AND ({scope})
@@ -389,27 +520,31 @@ WHERE {_incident_time_predicate(start, end)}
 
 
 def _incident_actor_topk_baseline_sql(
-    field: str,
+    field_sql: str,
     baseline_start: datetime,
-    current_start: datetime,
+    baseline_end: datetime,
     host: str | None,
     asn: str | None,
     path_pattern: str | None,
     top_n: int,
+    raw_path_column: str = "request_path",
 ) -> str:
     """Same as :func:`_incident_actor_topk_sql` but for the baseline window."""
-    scope = _incident_raw_scope_predicate(host, asn, path_pattern)
+    scope = _incident_raw_scope_predicate(
+        host, asn, path_pattern, path_column=raw_path_column
+    )
     return f"""
-SELECT topK({int(top_n)})({field}) AS candidates
+SELECT topK({int(top_n)})({field_sql}) AS candidates
 FROM akamai.logs
 WHERE reqTimeSec >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
-  AND reqTimeSec < toDateTime('{sql_ts(current_start)}', 'UTC')
+  AND reqTimeSec < toDateTime('{sql_ts(baseline_end)}', 'UTC')
   AND ({scope})
 """.strip()
 
 
 def _incident_actor_scoped_metrics_sql(
     field: str,
+    field_sql: str,
     candidates: list[str],
     start: datetime,
     end: datetime,
@@ -418,6 +553,8 @@ def _incident_actor_scoped_metrics_sql(
     path_pattern: str | None,
     *,
     full_metrics: bool,
+    bytes_column: str = "bytesOut",
+    path_column: str = "request_path",
 ) -> str:
     """Phase 2 of the two-step actor pipeline: per-row metrics scoped to candidates.
 
@@ -438,10 +575,12 @@ def _incident_actor_scoped_metrics_sql(
     verified cluster membership instead of falling back to the coarse
     total-count approximation.
     """
-    scope = _incident_raw_scope_predicate(host, asn, path_pattern)
+    scope = _incident_raw_scope_predicate(
+        host, asn, path_pattern, path_column=path_column
+    )
     select_extras = (
-        ",\n  sum(bytesOut) AS bytes,\n"
-        "  uniqExact(request_path) AS distinct_paths"
+        f",\n  sum({bytes_column}) AS bytes,\n"
+        f"  uniqExact({path_column}) AS distinct_paths"
     ) if full_metrics else ""
     asn_projection = (
         ",\n  any(asn) AS asn"
@@ -450,41 +589,44 @@ def _incident_actor_scoped_metrics_sql(
     )
     return f"""
 SELECT
-  toString({field}) AS value,
+  toString({field_sql}) AS value,
   count() AS requests{select_extras},
   countIf(statusCode = 429) AS req_429,
   countIf(statusCode BETWEEN 500 AND 599) AS req_5xx{asn_projection}
 FROM akamai.logs
 WHERE {_incident_time_predicate(start, end)}
   AND ({scope})
-  AND {field} IN ({_incident_in_list(candidates)})
+  AND {field_sql} IN ({_incident_in_list(candidates)})
 GROUP BY value
 ORDER BY requests DESC
 """.strip()
 
 
 def _incident_actor_scoped_metrics_baseline_sql(
-    field: str,
+    field_sql: str,
     candidates: list[str],
     baseline_start: datetime,
-    current_start: datetime,
+    baseline_end: datetime,
     host: str | None,
     asn: str | None,
     path_pattern: str | None,
+    raw_path_column: str = "request_path",
 ) -> str:
     """Same as scoped metrics, but for the baseline window."""
-    scope = _incident_raw_scope_predicate(host, asn, path_pattern)
+    scope = _incident_raw_scope_predicate(
+        host, asn, path_pattern, path_column=raw_path_column
+    )
     return f"""
 SELECT
-  toString({field}) AS value,
+  toString({field_sql}) AS value,
   count() AS requests,
   countIf(statusCode = 429) AS req_429,
   countIf(statusCode BETWEEN 500 AND 599) AS req_5xx
 FROM akamai.logs
 WHERE reqTimeSec >= toDateTime('{sql_ts(baseline_start)}', 'UTC')
-  AND reqTimeSec < toDateTime('{sql_ts(current_start)}', 'UTC')
+  AND reqTimeSec < toDateTime('{sql_ts(baseline_end)}', 'UTC')
   AND ({scope})
-  AND {field} IN ({_incident_in_list(candidates)})
+  AND {field_sql} IN ({_incident_in_list(candidates)})
 GROUP BY value
 ORDER BY requests DESC
 """.strip()
@@ -493,6 +635,8 @@ ORDER BY requests DESC
 def _incident_actor_cooccurrence_sql(
     field_a: str,
     field_b: str,
+    field_a_sql: str,
+    field_b_sql: str,
     candidates_a: list[str],
     candidates_b: list[str],
     start: datetime,
@@ -500,6 +644,7 @@ def _incident_actor_cooccurrence_sql(
     host: str | None,
     asn: str | None,
     path_pattern: str | None,
+    raw_path_column: str = "request_path",
 ) -> str:
     """Joint ``(field_a, field_b)`` cell counts scoped to both candidate sets.
 
@@ -511,26 +656,28 @@ def _incident_actor_cooccurrence_sql(
     overlap math come from the marginal rankings, so the bounded
     scope doesn't bias the result.
     """
-    scope = _incident_raw_scope_predicate(host, asn, path_pattern)
+    scope = _incident_raw_scope_predicate(
+        host, asn, path_pattern, path_column=raw_path_column
+    )
     # When the second axis is small-cardinality (e.g. ``action_applied``
     # has 4–5 fixed values), it's wasteful to require a candidate list
     # — the GROUP BY hash stays bounded by ``len(candidates_a) ×
     # cardinality(field_b)``. Skip the second ``IN`` clause when the
     # caller hands us an empty candidate list for axis B.
     in_b_clause = (
-        f"\n  AND {field_b} IN ({_incident_in_list(candidates_b)})"
+        f"\n  AND {field_b_sql} IN ({_incident_in_list(candidates_b)})"
         if candidates_b
         else ""
     )
     return f"""
 SELECT
-  toString({field_a}) AS value_a,
-  toString({field_b}) AS value_b,
+  toString({field_a_sql}) AS value_a,
+  toString({field_b_sql}) AS value_b,
   count() AS requests
 FROM akamai.logs
 WHERE {_incident_time_predicate(start, end)}
   AND ({scope})
-  AND {field_a} IN ({_incident_in_list(candidates_a)}){in_b_clause}
+  AND {field_a_sql} IN ({_incident_in_list(candidates_a)}){in_b_clause}
 GROUP BY value_a, value_b
 ORDER BY requests DESC
 """.strip()

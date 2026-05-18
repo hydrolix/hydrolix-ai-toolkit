@@ -458,6 +458,16 @@ class BotInsightsCaptureScriptTests(unittest.TestCase):
             "SELECT 1 FROM akamai.bi_summary_hour WHERE reqTimeSec >= now() - INTERVAL 1 HOUR",
             require_time_range=True,
         )
+        self.capture.reject_invalid_sql(
+            "SELECT 1 FROM akamai.logs WHERE reqTimeSec >= now() - INTERVAL 1 HOUR "
+            "AND UA IN ('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')",
+            require_time_range=True,
+        )
+        self.capture.reject_invalid_sql(
+            "SELECT 1 FROM akamai.bi_summary_minute_exp "
+            "WHERE `toStartOfMinute(reqTimeSec)` >= now() - INTERVAL 1 HOUR",
+            require_time_range=True,
+        )
 
     def test_output_shaping(self) -> None:
         response = {"data": [{"value": 1}], "rows": 1, "statistics": {"elapsed": 0.01}}
@@ -1008,7 +1018,9 @@ class BotInsightsScriptTests(unittest.TestCase):
 
         seen = {}
 
-        def fake_run_incident(args, start, end, baseline_start, sample_dir, output_path):
+        def fake_run_incident(
+            args, start, end, baseline_start, baseline_end, sample_dir, output_path
+        ):
             seen["incident_view"] = args.incident_view
             seen["incident_report_type"] = args.incident_report_type
             return 0
@@ -1040,6 +1052,476 @@ class BotInsightsScriptTests(unittest.TestCase):
 
         self.assertEqual(seen["incident_view"], "soc_action_packet")
         self.assertEqual(seen["incident_report_type"], "incident_soc_action_packet")
+
+    def test_incident_legacy_cli_keeps_baseline_end_at_start(self) -> None:
+        import producers.cli as cli
+
+        seen = {}
+
+        def fake_run_incident(
+            args, start, end, baseline_start, baseline_end, sample_dir, output_path
+        ):
+            seen["baseline_start"] = baseline_start.isoformat().replace("+00:00", "Z")
+            seen["baseline_end"] = baseline_end.isoformat().replace("+00:00", "Z")
+            return 0
+
+        argv = [
+            "bot-insights-report",
+            "--cluster", "demo",
+            "--database", "akamai",
+            "--report", "incident_report",
+            "--mode", "report",
+            "--start", "2026-05-02T00:00:00Z",
+            "--end", "2026-05-02T03:00:00Z",
+            "--output", "/tmp/incident.html",
+        ]
+        with (
+            mock.patch.object(sys, "argv", argv),
+            mock.patch.object(cli, "_run_incident_report", side_effect=fake_run_incident),
+        ):
+            self.assertEqual(self.bot_insights_report.main(), 0)
+
+        self.assertEqual(seen["baseline_start"], "2026-05-01T21:00:00Z")
+        self.assertEqual(seen["baseline_end"], "2026-05-02T00:00:00Z")
+
+    def test_incident_summary_dimension_empty_adds_limitations_without_raw_fallback(self) -> None:
+        import producers.orchestrators.incident_report as incident_orch
+
+        args = SimpleNamespace(
+            cluster="demo",
+            database="akamai",
+            report="incident_report",
+            start="2026-05-02T00:00:00Z",
+            end="2026-05-02T01:00:00Z",
+            host=None,
+            asn=None,
+            path_pattern=None,
+            top_n=10,
+        )
+        ctx = incident_orch._IncidentCtx(
+            granularity="minute",
+            summary_table="akamai.bi_summary_minute",
+            raw_drilldown_available=True,
+            siem_available=False,
+            summary_columns={"reqHost", "requestPathPattern", "country", "statusCode"},
+            window_confirmation={"requests": 100},
+        )
+        labels: list[str] = []
+
+        def fake_capture(args_obj, sql, output_path, *, label, artifact=None):
+            labels.append(label)
+            return []
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with mock.patch.object(
+                incident_orch, "_capture_or_raise", side_effect=fake_capture
+            ):
+                incident_orch._incident_phase1_dimensions(
+                    args,
+                    ctx,
+                    start=datetime(2026, 5, 2, tzinfo=timezone.utc),
+                    end=datetime(2026, 5, 2, 1, tzinfo=timezone.utc),
+                    baseline_start=datetime(2026, 5, 1, 23, tzinfo=timezone.utc),
+                    baseline_end=datetime(2026, 5, 2, tzinfo=timezone.utc),
+                    sample_dir=Path(tmpdir),
+                )
+
+        self.assertNotIn("top_hosts_raw", labels)
+        self.assertEqual(ctx.scope_artifact["top_targeted_hosts"], [])
+        self.assertEqual(ctx.scope_artifact["top_targeted_path_patterns"], [])
+        self.assertIn(
+            "Summary top-host rows were empty; raw logs were not used as a top-host fallback.",
+            ctx.limitations_scope,
+        )
+        self.assertIn(
+            "Summary top path-pattern rows were empty; raw logs were not used as a top-path fallback.",
+            ctx.limitations_scope,
+        )
+
+    def test_incident_summary_dimensions_remain_populated_when_summary_rows_exist(self) -> None:
+        import producers.orchestrators.incident_report as incident_orch
+
+        args = SimpleNamespace(
+            cluster="demo",
+            database="akamai",
+            report="incident_report",
+            start="2026-05-02T00:00:00Z",
+            end="2026-05-02T01:00:00Z",
+            host=None,
+            asn=None,
+            path_pattern=None,
+            top_n=10,
+        )
+        ctx = incident_orch._IncidentCtx(
+            granularity="minute",
+            summary_table="akamai.bi_summary_minute",
+            raw_drilldown_available=True,
+            siem_available=False,
+            summary_columns={"reqHost", "requestPathPattern", "country", "statusCode"},
+            window_confirmation={"requests": 100},
+        )
+
+        def fake_capture(args_obj, sql, output_path, *, label, artifact=None):
+            if label == "top_hosts":
+                return [
+                    {
+                        "value": "www.example.com",
+                        "current_requests": 60,
+                        "baseline_requests": 10,
+                    }
+                ]
+            if label == "top_path_patterns":
+                return [
+                    {
+                        "value": "/graphql",
+                        "current_requests": 40,
+                        "baseline_requests": 5,
+                    }
+                ]
+            if label == "country_mix":
+                return [
+                    {
+                        "value": "US",
+                        "current_requests": 100,
+                        "baseline_requests": 50,
+                    }
+                ]
+            if label == "status mix":
+                return [{"status_code": 429, "requests": 7}]
+            return []
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with mock.patch.object(
+                incident_orch, "_capture_or_raise", side_effect=fake_capture
+            ):
+                incident_orch._incident_phase1_dimensions(
+                    args,
+                    ctx,
+                    start=datetime(2026, 5, 2, tzinfo=timezone.utc),
+                    end=datetime(2026, 5, 2, 1, tzinfo=timezone.utc),
+                    baseline_start=datetime(2026, 5, 1, 23, tzinfo=timezone.utc),
+                    baseline_end=datetime(2026, 5, 2, tzinfo=timezone.utc),
+                    sample_dir=Path(tmpdir),
+                )
+
+        self.assertEqual(
+            ctx.scope_artifact["top_targeted_hosts"][0]["value"],
+            "www.example.com",
+        )
+        self.assertEqual(
+            ctx.scope_artifact["top_targeted_path_patterns"][0]["value"],
+            "/graphql",
+        )
+        self.assertNotIn(
+            "Summary top-host rows were empty; raw logs were not used as a top-host fallback.",
+            ctx.limitations_scope,
+        )
+        self.assertNotIn(
+            "Summary top path-pattern rows were empty; raw logs were not used as a top-path fallback.",
+            ctx.limitations_scope,
+        )
+
+    def test_incident_window_confirmation_uses_raw_when_summary_is_empty(self) -> None:
+        from producers.evidence.incident import _incident_compute_window_confirmation
+
+        rows = [
+            {
+                "source": "summary",
+                "period": "current",
+                "requests": 0,
+                "bot_like_requests": 0,
+                "req_429": 0,
+                "req_5xx": 0,
+            },
+            {
+                "source": "summary",
+                "period": "baseline",
+                "requests": 0,
+                "bot_like_requests": 0,
+                "req_429": 0,
+                "req_5xx": 0,
+            },
+            {
+                "source": "raw",
+                "period": "current",
+                "requests": 9861026906,
+                "bot_like_requests": 0,
+                "req_429": 0,
+                "req_5xx": 0,
+                "denied_requests": 9321135,
+                "monitored_requests": 34942647,
+            },
+            {
+                "source": "raw",
+                "period": "baseline",
+                "requests": 8176234145,
+                "bot_like_requests": 0,
+                "req_429": 0,
+                "req_5xx": 0,
+                "denied_requests": 5000611,
+                "monitored_requests": 115163210,
+            },
+        ]
+
+        window, baseline = _incident_compute_window_confirmation(
+            rows, siem_available=False
+        )
+
+        self.assertEqual(window["source"], "raw")
+        self.assertEqual(window["requests"], 9861026906)
+        self.assertAlmostEqual(window["blocked_share_pct"], 0.45)
+        self.assertEqual(baseline["requests"], 8176234145)
+
+    def test_incident_window_confirmation_prefers_valid_summary_over_raw_fallback(self) -> None:
+        from producers.evidence.incident import _incident_compute_window_confirmation
+
+        rows = [
+            {
+                "source": "summary",
+                "period": "current",
+                "requests": 9861026906,
+                "bot_like_requests": 8200000000,
+                "req_429": 3940000,
+                "req_5xx": 1140000000,
+            },
+            {
+                "source": "summary",
+                "period": "baseline",
+                "requests": 8176234145,
+                "bot_like_requests": 6100000000,
+                "req_429": 1200000,
+                "req_5xx": 450000000,
+            },
+            {
+                "source": "raw",
+                "period": "current",
+                "requests": 999,
+                "bot_like_requests": 0,
+                "req_429": 0,
+                "req_5xx": 0,
+                "denied_requests": 100,
+                "monitored_requests": 50,
+            },
+        ]
+
+        window, baseline = _incident_compute_window_confirmation(
+            rows, siem_available=False
+        )
+
+        self.assertEqual(window["source"], "summary")
+        self.assertEqual(window["requests"], 9861026906)
+        self.assertAlmostEqual(window["rate_429_pct"], 0.04)
+        self.assertAlmostEqual(window["rate_5xx_pct"], 11.56)
+        self.assertAlmostEqual(window["blocked_share_pct"], 15.02)
+        self.assertEqual(baseline["req_5xx"], 450000000)
+
+    def test_incident_raw_fallback_preserves_status_metrics(self) -> None:
+        from producers.evidence.incident import _incident_compute_window_confirmation
+
+        rows = [
+            {"source": "summary", "period": "current", "requests": 0},
+            {"source": "summary", "period": "baseline", "requests": 0},
+            {
+                "source": "raw",
+                "period": "current",
+                "requests": 9861026906,
+                "bot_like_requests": 8200000000,
+                "req_429": 3940000,
+                "req_5xx": 1140000000,
+                "denied_requests": 9321135,
+                "monitored_requests": 34942647,
+            },
+            {
+                "source": "raw",
+                "period": "baseline",
+                "requests": 8176234145,
+                "bot_like_requests": 6100000000,
+                "req_429": 1200000,
+                "req_5xx": 450000000,
+            },
+        ]
+
+        window, baseline = _incident_compute_window_confirmation(
+            rows, siem_available=False
+        )
+
+        self.assertEqual(window["source"], "raw")
+        self.assertEqual(window["requests"], 9861026906)
+        self.assertAlmostEqual(window["rate_429_pct"], 0.04)
+        self.assertAlmostEqual(window["rate_5xx_pct"], 11.56)
+        self.assertEqual(baseline["req_429"], 1200000)
+
+    def test_incident_expedia_summary_sql_uses_physical_time_and_path_columns(self) -> None:
+        from producers.sql.incident import _incident_dimension_sql
+
+        sql = _incident_dimension_sql(
+            "akamai.bi_summary_minute_exp",
+            "reqPathPatternCoarse",
+            datetime(2026, 4, 19, 13, tzinfo=timezone.utc),
+            datetime(2026, 4, 19, 14, tzinfo=timezone.utc),
+            datetime(2026, 4, 19, 12, tzinfo=timezone.utc),
+            datetime(2026, 4, 19, 13, tzinfo=timezone.utc),
+            None,
+            None,
+            "/:slug",
+            50,
+            summary_time_column="toStartOfMinute(reqTimeSec)",
+            summary_path_pattern_column="reqPathPatternCoarse",
+        )
+
+        self.assertIn("toString(reqPathPatternCoarse) AS value", sql)
+        self.assertIn("`toStartOfMinute(reqTimeSec)` >=", sql)
+        self.assertIn("reqPathPatternCoarse = '/:slug'", sql)
+        self.assertIn("LIMIT 50", sql)
+
+    def test_incident_raw_window_sql_computes_fallback_429_and_5xx(self) -> None:
+        from producers.sql.incident import _incident_window_confirmation_sql
+
+        sql = _incident_window_confirmation_sql(
+            "akamai.bi_summary_minute_exp",
+            None,
+            datetime(2026, 4, 19, 13, tzinfo=timezone.utc),
+            datetime(2026, 4, 19, 14, tzinfo=timezone.utc),
+            datetime(2026, 4, 19, 12, tzinfo=timezone.utc),
+            datetime(2026, 4, 19, 13, tzinfo=timezone.utc),
+            None,
+            None,
+            None,
+            raw_drilldown_available=True,
+            raw_path_column="reqPath",
+            summary_path_pattern_column="reqPathPatternCoarse",
+        )
+
+        self.assertIn("FROM akamai.logs", sql)
+        self.assertIn("countIf(trafficCohort IN ('Bot', 'AI')) AS bot_like_requests", sql)
+        self.assertIn("countIf(statusCode = 429) AS req_429", sql)
+        self.assertIn("countIf(statusCode BETWEEN 500 AND 599) AS req_5xx", sql)
+
+    def test_incident_expedia_raw_column_mapping_keeps_canonical_artifact_fields(self) -> None:
+        import producers.orchestrators.incident_report as incident_orch
+
+        ctx = incident_orch._IncidentCtx(
+            granularity="minute",
+            summary_table="akamai.bi_summary_minute_exp",
+        )
+        args = SimpleNamespace(
+            cluster="expedia",
+            database="akamai",
+            report="incident_report",
+            fields="client_ip,user_agent,request_path,status_code,request_method",
+            top_n=10,
+        )
+
+        def fake_capture(args_obj, sql, output_path, *, label, artifact=None):
+            if "table = 'logs'" in sql:
+                return [
+                    {"name": "cliIP"},
+                    {"name": "UA"},
+                    {"name": "reqPath"},
+                    {"name": "statusCode"},
+                    {"name": "reqMethod"},
+                    {"name": "bytes"},
+                    {"name": "asn"},
+                ]
+            if "table = 'bi_summary_minute_exp'" in sql:
+                return [
+                    {"name": "reqHost"},
+                    {"name": "reqPathPatternCoarse"},
+                    {"name": "country"},
+                    {"name": "statusCode"},
+                ]
+            return []
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with mock.patch.object(
+                incident_orch, "_capture_or_raise", side_effect=fake_capture
+            ):
+                incident_orch._incident_introspect_columns(
+                    args, ctx, sample_dir=Path(tmpdir)
+                )
+
+        self.assertEqual(
+            ctx.fields_resolved,
+            ["client_ip", "user_agent", "request_path", "status_code", "request_method"],
+        )
+        self.assertEqual(ctx.fields_unresolved, [])
+        self.assertEqual(ctx.raw_column_by_field["client_ip"], "cliIP")
+        self.assertEqual(ctx.raw_column_by_field["user_agent"], "UA")
+        self.assertEqual(ctx.raw_column_by_field["request_path"], "reqPath")
+        self.assertEqual(ctx.raw_column_by_field["status_code"], "statusCode")
+        self.assertEqual(ctx.raw_column_by_field["request_method"], "reqMethod")
+        self.assertEqual(ctx.raw_path_column, "reqPath")
+        self.assertEqual(ctx.raw_bytes_column, "bytes")
+        self.assertEqual(
+            incident_orch._summary_dimension_column(ctx, "requestPathPattern"),
+            "reqPathPatternCoarse",
+        )
+
+    def test_incident_actor_top_n_50_is_used_for_current_and_baseline_rankings(self) -> None:
+        from producers.sql.incident import (
+            _incident_actor_topk_baseline_sql,
+            _incident_actor_topk_sql,
+        )
+
+        current_sql = _incident_actor_topk_sql(
+            "cliIP",
+            datetime(2026, 4, 19, 13, tzinfo=timezone.utc),
+            datetime(2026, 4, 19, 14, tzinfo=timezone.utc),
+            None,
+            None,
+            None,
+            50,
+            "reqPath",
+        )
+        baseline_sql = _incident_actor_topk_baseline_sql(
+            "cliIP",
+            datetime(2026, 4, 19, 12, tzinfo=timezone.utc),
+            datetime(2026, 4, 19, 13, tzinfo=timezone.utc),
+            None,
+            None,
+            None,
+            50,
+            "reqPath",
+        )
+
+        self.assertIn("topK(50)(cliIP)", current_sql)
+        self.assertIn("topK(50)(cliIP)", baseline_sql)
+        self.assertIn(
+            "reqTimeSec < toDateTime('2026-04-19 13:00:00', 'UTC')",
+            baseline_sql,
+        )
+
+    def test_incident_expedia_minimized_oracle_facts_remain_calibrated(self) -> None:
+        oracle_path = (
+            ROOT
+            / "tests/fixtures/report_engine/expedia_incident_oracle_facts.json"
+        )
+        oracle = json.loads(oracle_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(oracle["scope"]["start"], "2026-04-19T13:00:00Z")
+        self.assertEqual(oracle["scope"]["end"], "2026-04-19T14:00:00Z")
+        self.assertAlmostEqual(
+            oracle["window_confirmation"]["requests"] / 1_000_000_000,
+            9.86,
+            places=2,
+        )
+        self.assertAlmostEqual(
+            oracle["window_confirmation"]["req_429"] / 1_000_000,
+            3.94,
+            places=2,
+        )
+        self.assertAlmostEqual(
+            oracle["window_confirmation"]["req_5xx"] / 1_000_000_000,
+            1.14,
+            places=2,
+        )
+        self.assertIn("/:slug", oracle["top_path_patterns"])
+        self.assertIn("/graphql", oracle["top_path_patterns"])
+        self.assertEqual(oracle["suspicious_targets_count"], 147)
+        self.assertEqual(
+            oracle["top_client_ips"][:3],
+            ["5.180.30.239", "5.180.30.203", "5.180.30.200"],
+        )
 
     def test_incident_emit_or_render_preserves_artifacts_for_view_variant(self) -> None:
         import producers.orchestrators.incident_report as incident_orch
@@ -1099,6 +1581,7 @@ class BotInsightsScriptTests(unittest.TestCase):
                         args,
                         ctx,
                         baseline_start=datetime(2026, 5, 1, tzinfo=timezone.utc),
+                        baseline_end=datetime(2026, 5, 2, tzinfo=timezone.utc),
                         sample_dir=sample_dir,
                         output_path=output,
                     ),

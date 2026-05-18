@@ -1,0 +1,22 @@
+{
+  "source": "expedia-analysis incident_wrapper.json minimized oracle",
+  "scope": {
+    "start": "2026-04-19T13:00:00Z",
+    "end": "2026-04-19T14:00:00Z"
+  },
+  "window_confirmation": {
+    "requests": 9861026906,
+    "req_429": 3940000,
+    "req_5xx": 1140000000
+  },
+  "top_path_patterns": [
+    "/:slug",
+    "/graphql"
+  ],
+  "suspicious_targets_count": 147,
+  "top_client_ips": [
+    "5.180.30.239",
+    "5.180.30.203",
+    "5.180.30.200"
+  ]
+}

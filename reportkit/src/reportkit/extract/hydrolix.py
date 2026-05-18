@@ -18,7 +18,7 @@ from typing import Any
 
 
 TIME_PREDICATE_RE = re.compile(
-    r"\b(?:timestamp|reqTimeSec)\b\s*(?:=|!=|<>|>=|<=|>|<|BETWEEN|IN)(?:\s|\(|'|$)",
+    r"(?:\b(?:timestamp|reqTimeSec)\b|`toStartOf(?:Minute|Hour|Day)\(reqTimeSec\)`)\s*(?:=|!=|<>|>=|<=|>|<|BETWEEN|IN)(?:\s|\(|'|$)",
     re.IGNORECASE,
 )
 FORMAT_RE = re.compile(r"\bFORMAT\s+\w+\b", re.IGNORECASE)
@@ -298,12 +298,36 @@ def ensure_format_json(sql: str) -> str:
     return f"{sql.rstrip(';')} FORMAT JSON"
 
 
+def split_sql_statements(sql: str) -> list[str]:
+    statements: list[str] = []
+    start = 0
+    in_single_quote = False
+    i = 0
+    while i < len(sql):
+        ch = sql[i]
+        if ch == "'":
+            if in_single_quote and i + 1 < len(sql) and sql[i + 1] == "'":
+                i += 2
+                continue
+            in_single_quote = not in_single_quote
+        elif ch == ";" and not in_single_quote:
+            statement = sql[start:i].strip()
+            if statement:
+                statements.append(statement)
+            start = i + 1
+        i += 1
+    tail = sql[start:].strip()
+    if tail:
+        statements.append(tail)
+    return statements
+
+
 def reject_invalid_sql(sql: str, *, require_time_range: bool) -> None:
     compact = sql.strip()
     if not compact:
         raise SystemExit("SQL is empty.")
     body = re.sub(r"\bFORMAT\s+\w+\s*$", "", compact, flags=re.IGNORECASE).strip()
-    statements = [part.strip() for part in body.split(";") if part.strip()]
+    statements = split_sql_statements(body)
     if len(statements) > 1:
         raise SystemExit("SQL must contain exactly one SELECT statement.")
     if not re.match(r"^(?:WITH\b[\s\S]+?\bSELECT\b|SELECT\b)", statements[0], re.IGNORECASE):

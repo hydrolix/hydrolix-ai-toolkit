@@ -523,6 +523,10 @@ def incident_volume_chart_svg(
     left_label: str = "",
     right_label: str = "",
     y_axis_label: str = "requests / min",
+    highlight_start_fraction: float | None = None,
+    highlight_end_fraction: float | None = None,
+    secondary_highlight_start_fraction: float | None = None,
+    secondary_highlight_end_fraction: float | None = None,
 ) -> str:
     """Attack-shape chart for the incident report's Impact section.
 
@@ -593,6 +597,40 @@ def incident_volume_chart_svg(
             f'points="{baseline_path}" />'
         )
 
+    incident_window = ""
+    if highlight_start_fraction is not None and highlight_end_fraction is not None:
+        start_f = max(0.0, min(1.0, float(highlight_start_fraction)))
+        end_f = max(0.0, min(1.0, float(highlight_end_fraction)))
+        if end_f > start_f:
+            x = pad_left + start_f * plot_w
+            w = max(3.0, (end_f - start_f) * plot_w)
+            incident_window = (
+                f'<rect x="{x:.1f}" y="{pad_top:.1f}" width="{w:.1f}" '
+                f'height="{plot_h:.1f}" fill="{accent}" fill-opacity="0.10" />'
+                f'<line x1="{x:.1f}" y1="{pad_top:.1f}" x2="{x:.1f}" '
+                f'y2="{pad_top + plot_h:.1f}" stroke="{accent}" '
+                f'stroke-width="1" stroke-opacity="0.35" />'
+                f'<line x1="{x + w:.1f}" y1="{pad_top:.1f}" x2="{x + w:.1f}" '
+                f'y2="{pad_top + plot_h:.1f}" stroke="{accent}" '
+                f'stroke-width="1" stroke-opacity="0.35" />'
+            )
+
+    secondary_window = ""
+    if (
+        secondary_highlight_start_fraction is not None
+        and secondary_highlight_end_fraction is not None
+    ):
+        start_f = max(0.0, min(1.0, float(secondary_highlight_start_fraction)))
+        end_f = max(0.0, min(1.0, float(secondary_highlight_end_fraction)))
+        if end_f > start_f:
+            x = pad_left + start_f * plot_w
+            w = max(3.0, (end_f - start_f) * plot_w)
+            y = pad_top + plot_h - 8
+            secondary_window = (
+                f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="4" '
+                f'fill="{accent}" fill-opacity="0.80" />'
+            )
+
     # Peak annotation — finds the max point in current and draws a dot + label
     peak_marker = ""
     if peak_label and current_pts:
@@ -645,7 +683,9 @@ def incident_volume_chart_svg(
         f'role="img" aria-label="Request volume over the incident window" '
         f'preserveAspectRatio="xMidYMid meet">'
         f"{grid}"
+        f"{incident_window}"
         f'<path d="{area_path}" fill="{accent_fill}" fill-opacity="0.55" />'
+        f"{secondary_window}"
         f"{baseline_polyline}"
         f'<polyline fill="none" stroke="{accent}" stroke-width="2.2" '
         f'stroke-linejoin="round" stroke-linecap="round" '

@@ -199,8 +199,17 @@ class _IncidentCtx:
     siem_available: bool = False
     siem_table: str | None = None
     logs_columns: set[str] = field(default_factory=set)
+    summary_columns: set[str] = field(default_factory=set)
+    summary_time_column: str = "reqTimeSec"
+    summary_count_column: str = "count()"
+    summary_status_column: str = "statusCode"
+    summary_cohort_column: str = "trafficCohort"
+    summary_path_pattern_column: str = "requestPathPattern"
     fields_resolved: list[str] = field(default_factory=list)
     fields_unresolved: list[str] = field(default_factory=list)
+    raw_column_by_field: dict[str, str] = field(default_factory=dict)
+    raw_path_column: str = "request_path"
+    raw_bytes_column: str = "bytesOut"
     top_n: int = 10
     limitations_scope: list[str] = field(default_factory=list)
     limitations_actors: list[str] = field(default_factory=list)
@@ -212,6 +221,66 @@ class _IncidentCtx:
     action_targets_artifact: dict = field(default_factory=dict)
     action_targets_limitations: list[str] = field(default_factory=list)
     suspicious_targets: list[dict] = field(default_factory=list)
+    detection_source: str = "summary"
+    raw_fallback_used: bool = False
+
+
+_EXPEDIA_RAW_COLUMN_MAP = {
+    "client_ip": "cliIP",
+    "request_path": "reqPath",
+    "user_agent": "UA",
+    "status_code": "statusCode",
+    "request_method": "reqMethod",
+}
+
+
+def _incident_raw_column_candidates(args: argparse.Namespace, field_name: str) -> list[str]:
+    candidates = [field_name]
+    if args.cluster == "expedia":
+        mapped = _EXPEDIA_RAW_COLUMN_MAP.get(field_name)
+        if mapped:
+            candidates.insert(0, mapped)
+    return candidates
+
+
+def _timeseries_has_current_requests(volume_timeseries: dict | None) -> bool:
+    if not volume_timeseries:
+        return False
+    requests = (
+        (volume_timeseries.get("series") or {})
+        .get("requests_per_minute", {})
+        .get("current")
+        or []
+    )
+    return any(float(value or 0) > 0 for value in requests)
+
+
+def _summary_dimension_column(ctx: _IncidentCtx, requested: str) -> str | None:
+    if requested in ctx.summary_columns:
+        return requested
+    if requested == "requestPathPattern" and "reqPathPatternCoarse" in ctx.summary_columns:
+        return "reqPathPatternCoarse"
+    return None
+
+
+def _resolve_summary_layout(ctx: _IncidentCtx) -> None:
+    """Resolve physical posture-summary columns from introspected metadata."""
+    if "reqTimeSec" in ctx.summary_columns:
+        ctx.summary_time_column = "reqTimeSec"
+    else:
+        bucket_key = f"toStartOf{ctx.granularity.title()}(reqTimeSec)"
+        if bucket_key in ctx.summary_columns:
+            ctx.summary_time_column = bucket_key
+
+    if "count()" in ctx.summary_columns:
+        ctx.summary_count_column = "count()"
+    if "statusCode" in ctx.summary_columns:
+        ctx.summary_status_column = "statusCode"
+    if "trafficCohort" in ctx.summary_columns:
+        ctx.summary_cohort_column = "trafficCohort"
+    resolved_path = _summary_dimension_column(ctx, "requestPathPattern")
+    if resolved_path:
+        ctx.summary_path_pattern_column = resolved_path
 
 
 def _capture_sql_to_rows(
@@ -371,6 +440,7 @@ def _emit_handoff_packet(
     args: argparse.Namespace,
     granularity: str,
     baseline_start: datetime,
+    baseline_end: datetime,
     artifact: str,
 ) -> int:
     report_context = packet.get("report_context")
@@ -384,6 +454,7 @@ def _emit_handoff_packet(
             "start": args.start,
             "end": args.end,
             "baseline_start": baseline_start.isoformat().replace("+00:00", "Z"),
+            "baseline_end": baseline_end.isoformat().replace("+00:00", "Z"),
             "granularity": granularity,
         }
     )
@@ -440,6 +511,18 @@ def _incident_introspect_columns(
     ctx.logs_columns = {row.get("name") for row in logs_rows if row.get("name")}
     ctx.raw_drilldown_available = bool(ctx.logs_columns)
 
+    summary_table_name = ctx.summary_table.split(".", 1)[1]
+    columns_summary_path = sample_dir / f"{args.report}-columns-summary.json"
+    summary_rows = _capture_or_raise(
+        args,
+        _incident_columns_query(args.database, summary_table_name),
+        columns_summary_path,
+        label="summary columns",
+        artifact="columns_summary",
+    )
+    ctx.summary_columns = {row.get("name") for row in summary_rows if row.get("name")}
+    _resolve_summary_layout(ctx)
+
     columns_siem_path = sample_dir / f"{args.report}-columns-siem.json"
     siem_rows = _capture_or_raise(
         args,
@@ -461,8 +544,17 @@ def _incident_introspect_columns(
 
     if ctx.raw_drilldown_available:
         for fname in requested_fields:
-            if fname in ctx.logs_columns:
+            resolved_column = next(
+                (
+                    candidate
+                    for candidate in _incident_raw_column_candidates(args, fname)
+                    if candidate in ctx.logs_columns
+                ),
+                None,
+            )
+            if resolved_column:
                 ctx.fields_resolved.append(fname)
+                ctx.raw_column_by_field[fname] = resolved_column
             else:
                 ctx.fields_unresolved.append(fname)
         if ctx.fields_unresolved:
@@ -473,6 +565,10 @@ def _incident_introspect_columns(
                 file=sys.stderr,
             )
             sys.exit(2)
+        ctx.raw_path_column = ctx.raw_column_by_field.get("request_path", "request_path")
+        ctx.raw_bytes_column = "bytes" if args.cluster == "expedia" else "bytesOut"
+        if ctx.raw_bytes_column not in ctx.logs_columns:
+            ctx.raw_bytes_column = "bytesOut" if "bytesOut" in ctx.logs_columns else "bytes"
 
     if not ctx.siem_available:
         ctx.limitations_scope.append(
@@ -493,6 +589,7 @@ def _incident_phase1_window_and_timeseries(
     start: datetime,
     end: datetime,
     baseline_start: datetime,
+    baseline_end: datetime,
     sample_dir: Path,
 ) -> None:
     """Run the phase-1 window-confirmation + per-bucket volume timeseries.
@@ -508,10 +605,17 @@ def _incident_phase1_window_and_timeseries(
             start,
             end,
             baseline_start,
+            baseline_end,
             args.host,
             args.asn,
             args.path_pattern,
             raw_drilldown_available=ctx.raw_drilldown_available,
+            raw_path_column=ctx.raw_path_column,
+            summary_time_column=ctx.summary_time_column,
+            summary_count_column=ctx.summary_count_column,
+            summary_status_column=ctx.summary_status_column,
+            summary_cohort_column=ctx.summary_cohort_column,
+            summary_path_pattern_column=ctx.summary_path_pattern_column,
         ),
         wc_path,
         label="window confirmation",
@@ -521,6 +625,9 @@ def _incident_phase1_window_and_timeseries(
         _incident_compute_window_confirmation(wc_rows, ctx.siem_available)
     )
     ctx.window_confirmation = window_confirmation
+    if window_confirmation.get("source") == "raw":
+        ctx.detection_source = "raw"
+        ctx.raw_fallback_used = True
 
     # Per-bucket volume timeseries (drives the Impact chart). One
     # extra grouped scan of the same summary table the window-
@@ -538,9 +645,15 @@ def _incident_phase1_window_and_timeseries(
             start,
             end,
             baseline_start,
+            baseline_end,
             args.host,
             args.asn,
             args.path_pattern,
+            summary_time_column=ctx.summary_time_column,
+            summary_count_column=ctx.summary_count_column,
+            summary_status_column=ctx.summary_status_column,
+            summary_cohort_column=ctx.summary_cohort_column,
+            summary_path_pattern_column=ctx.summary_path_pattern_column,
         ),
         ts_path,
         label="volume timeseries",
@@ -552,8 +665,14 @@ def _incident_phase1_window_and_timeseries(
         current_start=start,
         current_end=end,
         baseline_start=baseline_start,
-        baseline_end=start,
+        baseline_end=baseline_end,
     )
+    if not _timeseries_has_current_requests(ctx.volume_timeseries):
+        ctx.limitations_scope.append(
+            "Summary volume timeseries returned no current-window requests; "
+            "raw logs were not used as a summary fallback."
+        )
+        ctx.volume_timeseries = None
 
 
 def _incident_phase1_dimensions(
@@ -563,6 +682,7 @@ def _incident_phase1_dimensions(
     start: datetime,
     end: datetime,
     baseline_start: datetime,
+    baseline_end: datetime,
     sample_dir: Path,
 ) -> None:
     """Run dimension / status / edge-action / deny-rule / SIEM-dimension captures.
@@ -572,19 +692,30 @@ def _incident_phase1_dimensions(
     have to thread through a free-function signature.
     """
     def _run_dimension(table: str, dimension: str, label: str) -> list[dict]:
+        resolved_dimension = _summary_dimension_column(ctx, dimension)
+        if resolved_dimension is None:
+            ctx.limitations_scope.append(
+                f"Summary dimension {dimension} is not present on {ctx.summary_table}; "
+                f"{label.replace('_', ' ')} is omitted."
+            )
+            return []
         out_path = sample_dir / f"{args.report}-phase1-{label}.json"
         return _capture_or_raise(
             args,
             _incident_dimension_sql(
                 table,
-                dimension,
+                resolved_dimension,
                 start,
                 end,
                 baseline_start,
+                baseline_end,
                 args.host,
                 args.asn,
                 args.path_pattern,
                 ctx.top_n,
+                summary_time_column=ctx.summary_time_column,
+                summary_count_column=ctx.summary_count_column,
+                summary_path_pattern_column=ctx.summary_path_pattern_column,
             ),
             out_path,
             label=label,
@@ -601,6 +732,7 @@ def _incident_phase1_dimensions(
                 start,
                 end,
                 baseline_start,
+                baseline_end,
                 args.host,
                 args.asn,
                 args.path_pattern,
@@ -611,9 +743,19 @@ def _incident_phase1_dimensions(
         )
 
     hosts_rows = _run_dimension(ctx.summary_table, "reqHost", "top_hosts")
+    if not hosts_rows:
+        ctx.limitations_scope.append(
+            "Summary top-host rows were empty; raw logs were not used as a "
+            "top-host fallback."
+        )
     path_rows = _run_dimension(
         ctx.summary_table, "requestPathPattern", "top_path_patterns"
     )
+    if not path_rows:
+        ctx.limitations_scope.append(
+            "Summary top path-pattern rows were empty; raw logs were not used "
+            "as a top-path fallback."
+        )
     country_rows = _run_dimension(ctx.summary_table, "country", "country_mix")
     status_rows = _capture_or_raise(
         args,
@@ -625,6 +767,10 @@ def _incident_phase1_dimensions(
             args.asn,
             args.path_pattern,
             ctx.top_n,
+            summary_time_column=ctx.summary_time_column,
+            summary_count_column=ctx.summary_count_column,
+            summary_status_column=ctx.summary_status_column,
+            summary_path_pattern_column=ctx.summary_path_pattern_column,
         ),
         sample_dir / f"{args.report}-phase1-status_mix.json",
         label="status mix",
@@ -646,6 +792,7 @@ def _incident_phase1_dimensions(
                 start,
                 end,
                 baseline_start,
+                baseline_end,
                 args.host,
                 args.asn,
                 args.path_pattern,
@@ -661,6 +808,7 @@ def _incident_phase1_dimensions(
                 start,
                 end,
                 baseline_start,
+                baseline_end,
                 args.host,
                 args.asn,
                 args.path_pattern,
@@ -679,18 +827,22 @@ def _incident_phase1_dimensions(
         "start": args.start,
         "end": args.end,
         "baseline_start": baseline_start.isoformat().replace("+00:00", "Z"),
-        "baseline_end": args.start,
+        "baseline_end": baseline_end.isoformat().replace("+00:00", "Z"),
         "granularity": ctx.granularity,
         "host": args.host,
         "asn": args.asn,
         "path_pattern": args.path_pattern,
         "siem_available": ctx.siem_available,
+        "detection_source": getattr(ctx, "detection_source", "summary"),
+        "raw_fallback_used": getattr(ctx, "raw_fallback_used", False),
     }
 
     ctx.scope_artifact = {
         "artifact_id": "incident-scope-1",
         "schema_version": "bot_incident_scope.v1",
         "scope": ctx.scope_meta,
+        "detection_source": getattr(ctx, "detection_source", "summary"),
+        "raw_fallback_used": getattr(ctx, "raw_fallback_used", False),
         "window_confirmation": ctx.window_confirmation,
         "volume_timeseries": ctx.volume_timeseries,
         "top_targeted_hosts": _incident_dimension_rows(
@@ -762,8 +914,14 @@ def _incident_phase2_current_actor_field(
     topk_rows = _capture_or_raise(
         args,
         _incident_actor_topk_sql(
-            fname, start, end, args.host, args.asn, args.path_pattern,
+            ctx.raw_column_by_field.get(fname, fname),
+            start,
+            end,
+            args.host,
+            args.asn,
+            args.path_pattern,
             ctx.top_n,
+            ctx.raw_path_column,
         ),
         topk_path,
         label=f"actors_topk:{fname}",
@@ -787,9 +945,15 @@ def _incident_phase2_current_actor_field(
     rows = _capture_or_raise(
         args,
         _incident_actor_scoped_metrics_sql(
-            fname, candidates, start, end,
+            fname,
+            ctx.raw_column_by_field.get(fname, fname),
+            candidates,
+            start,
+            end,
             args.host, args.asn, args.path_pattern,
             full_metrics=True,
+            bytes_column=ctx.raw_bytes_column,
+            path_column=ctx.raw_path_column,
         ),
         metrics_path,
         label=f"actors:{fname}",
@@ -848,6 +1012,7 @@ def _incident_phase2_baseline_actor_field(
     *,
     start: datetime,
     baseline_start: datetime,
+    baseline_end: datetime,
     sample_dir: Path,
 ) -> dict[str, dict]:
     """Capture baseline topK + scoped metrics for one field.
@@ -862,8 +1027,14 @@ def _incident_phase2_baseline_actor_field(
     topk_rows = _capture_or_raise(
         args,
         _incident_actor_topk_baseline_sql(
-            fname, baseline_start, start,
-            args.host, args.asn, args.path_pattern, ctx.top_n,
+            ctx.raw_column_by_field.get(fname, fname),
+            baseline_start,
+            baseline_end,
+            args.host,
+            args.asn,
+            args.path_pattern,
+            ctx.top_n,
+            ctx.raw_path_column,
         ),
         baseline_topk_path,
         label=f"actors_baseline_topk:{fname}",
@@ -880,8 +1051,14 @@ def _incident_phase2_baseline_actor_field(
     rows = _capture_or_raise(
         args,
         _incident_actor_scoped_metrics_baseline_sql(
-            fname, baseline_candidates, baseline_start, start,
-            args.host, args.asn, args.path_pattern,
+            ctx.raw_column_by_field.get(fname, fname),
+            baseline_candidates,
+            baseline_start,
+            baseline_end,
+            args.host,
+            args.asn,
+            args.path_pattern,
+            ctx.raw_path_column,
         ),
         baseline_path,
         label=f"actors_baseline:{fname}",
@@ -904,6 +1081,7 @@ def _incident_phase2_baseline_actors(
     *,
     start: datetime,
     baseline_start: datetime,
+    baseline_end: datetime,
     sample_dir: Path,
 ) -> dict[str, dict[str, dict]]:
     """Capture baseline-actor rows for every resolved field.
@@ -916,7 +1094,10 @@ def _incident_phase2_baseline_actors(
     for fname in ctx.fields_resolved:
         out[fname] = _incident_phase2_baseline_actor_field(
             args, ctx, fname,
-            start=start, baseline_start=baseline_start, sample_dir=sample_dir,
+            start=start,
+            baseline_start=baseline_start,
+            baseline_end=baseline_end,
+            sample_dir=sample_dir,
         )
     return out
 
@@ -979,9 +1160,12 @@ def _incident_phase2_cooccurrence(
             args,
             _incident_actor_cooccurrence_sql(
                 field_a, field_b,
+                ctx.raw_column_by_field.get(field_a, field_a),
+                ctx.raw_column_by_field.get(field_b, field_b),
                 candidates_a, candidates_b,
                 start, end,
                 args.host, args.asn, args.path_pattern,
+                ctx.raw_path_column,
             ),
             cooccur_path,
             label=f"actors_cooccurrence:{pair_label}",
@@ -1007,6 +1191,7 @@ def _incident_phase2_actors_and_heuristic(
     start: datetime,
     end: datetime,
     baseline_start: datetime,
+    baseline_end: datetime,
     sample_dir: Path,
 ) -> None:
     """Phase 4: actor capture + cooccurrence + suspicious-target heuristic.
@@ -1027,7 +1212,10 @@ def _incident_phase2_actors_and_heuristic(
     if ctx.raw_drilldown_available and ctx.fields_resolved:
         baseline_actor_rows_by_field = _incident_phase2_baseline_actors(
             args, ctx,
-            start=start, baseline_start=baseline_start, sample_dir=sample_dir,
+            start=start,
+            baseline_start=baseline_start,
+            baseline_end=baseline_end,
+            sample_dir=sample_dir,
         )
         _incident_phase2_cooccurrence(
             args, ctx, current_candidates_by_field,
@@ -1065,6 +1253,7 @@ def _incident_emit_or_render(
     ctx: _IncidentCtx,
     *,
     baseline_start: datetime,
+    baseline_end: datetime,
     sample_dir: Path,
     output_path: Path,
 ) -> int:
@@ -1079,7 +1268,7 @@ def _incident_emit_or_render(
         "baseline_windows": [
             {
                 "start": baseline_start.isoformat().replace("+00:00", "Z"),
-                "end": args.start,
+                "end": baseline_end.isoformat().replace("+00:00", "Z"),
             }
         ],
         "scope": {
@@ -1087,6 +1276,8 @@ def _incident_emit_or_render(
             "asn": args.asn,
             "path_pattern": args.path_pattern,
         },
+        "detection_source": getattr(ctx, "detection_source", "summary"),
+        "raw_fallback_used": getattr(ctx, "raw_fallback_used", False),
         "window_confirmation": ctx.window_confirmation,
         "top_targeted_hosts": ctx.scope_artifact["top_targeted_hosts"],
         "top_targeted_path_patterns": ctx.scope_artifact["top_targeted_path_patterns"],
@@ -1177,6 +1368,7 @@ def _run_incident_report(
     start: datetime,
     end: datetime,
     baseline_start: datetime,
+    baseline_end: datetime,
     sample_dir: Path,
     output_path: Path,
 ) -> int:
@@ -1188,8 +1380,8 @@ def _run_incident_report(
     ``_emit_handoff_packet``. The render / emit phase runs outside
     the try block — by then all captures have completed.
     """
-    granularity = choose_granularity(start, end)
     summary_suffix = "_exp" if args.cluster == "expedia" else ""
+    granularity = choose_granularity(start, end)
     ctx = _IncidentCtx(
         granularity=granularity,
         summary_table=f"{args.database}.bi_summary_{granularity}{summary_suffix}",
@@ -1198,21 +1390,34 @@ def _run_incident_report(
         _incident_introspect_columns(args, ctx, sample_dir=sample_dir)
         _incident_phase1_window_and_timeseries(
             args, ctx, start=start, end=end,
-            baseline_start=baseline_start, sample_dir=sample_dir,
+            baseline_start=baseline_start,
+            baseline_end=baseline_end,
+            sample_dir=sample_dir,
         )
         _incident_phase1_dimensions(
             args, ctx, start=start, end=end,
-            baseline_start=baseline_start, sample_dir=sample_dir,
+            baseline_start=baseline_start,
+            baseline_end=baseline_end,
+            sample_dir=sample_dir,
         )
         _incident_phase2_actors_and_heuristic(
             args, ctx, start=start, end=end,
-            baseline_start=baseline_start, sample_dir=sample_dir,
+            baseline_start=baseline_start,
+            baseline_end=baseline_end,
+            sample_dir=sample_dir,
         )
     except _IncidentHandoff as exc:
         return _emit_handoff_packet(
-            exc.packet, args, granularity, baseline_start, artifact=exc.label,
+            exc.packet,
+            args,
+            granularity,
+            baseline_start,
+            baseline_end,
+            artifact=exc.label,
         )
     return _incident_emit_or_render(
-        args, ctx, baseline_start=baseline_start,
+        args, ctx,
+        baseline_start=baseline_start,
+        baseline_end=baseline_end,
         sample_dir=sample_dir, output_path=output_path,
     )

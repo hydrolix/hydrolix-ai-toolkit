@@ -1739,6 +1739,7 @@ footer {
 .brief-incident .pill-neutral  { background: transparent;            color: var(--paper-mute);       border-color: var(--paper-faint); }
 .brief-incident .pill-mono     { background: var(--paper-panel);     color: var(--paper-ink);        border-color: var(--paper-rule); }
 .brief-incident .pill-escalate { background: var(--paper-orange-bg); color: var(--paper-orange-ink); border-color: var(--paper-orange); }
+.brief-incident .print-risk-pill { display: none; }
 
 /* Section headers (eyebrow rule + display headline) */
 .brief-incident .section-head { margin-bottom: 18px; }
@@ -1927,6 +1928,16 @@ footer {
   gap: 32px;
   align-items: start;
   margin-bottom: 24px;
+}
+.brief-incident .verdict-main {
+  grid-column: 1 / -1;
+}
+.brief-incident .verdict-narrative {
+  max-width: none;
+}
+.brief-incident .verdict-narrative.prose {
+  font-size: 15px;
+  line-height: 1.55;
 }
 .brief-incident .verdict-pills {
   display: flex;
@@ -2179,6 +2190,41 @@ footer {
   color: var(--paper-mute);
   font-style: italic;
 }
+.brief-incident .score-methodology {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--paper-rule-soft);
+  color: var(--paper-body);
+}
+.brief-incident .score-methodology-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 6px;
+}
+.brief-incident .score-methodology-pill {
+  font-family: var(--mono-editorial);
+  font-size: 10.5px;
+  letter-spacing: var(--label-tracking-tight);
+  text-transform: uppercase;
+  color: var(--paper-mute);
+  white-space: nowrap;
+}
+.brief-incident .score-methodology p {
+  margin: 0;
+  max-width: 780px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.brief-incident .score-methodology-reasons {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--paper-mute);
+}
+.brief-incident .score-methodology-reasons li + li { margin-top: 3px; }
 
 /* Impact */
 .brief-incident .section { margin-bottom: 56px; }
@@ -2216,6 +2262,15 @@ footer {
   border-top: 1.5px dashed var(--paper-faint);
   height: 0;
 }
+.brief-incident .impact-chart-legend .swatch-incident {
+  background: var(--paper-red-bg);
+  border: 1px solid var(--paper-red);
+  height: 6px;
+}
+.brief-incident .impact-chart-legend .swatch-scope {
+  background: var(--paper-red);
+  height: 4px;
+}
 
 /* Three-field label strip under the volume chart figure: peak value
    and time, duration, and the headline window string. Reads as the
@@ -2238,6 +2293,70 @@ footer {
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+  color: var(--paper-mute);
+}
+.brief-incident .window-timeline-compact {
+  margin: 18px 0 0;
+  padding: 12px 14px 10px;
+  border: 1px solid var(--paper-rule-soft);
+  background: var(--paper-surface);
+}
+.brief-incident .verdict-timeline,
+.brief-incident .verdict-volume-timeline { display: none; }
+.brief-incident .timeline-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+.brief-incident .timeline-range {
+  font-size: 11.5px;
+  color: var(--paper-mute);
+}
+.brief-incident .timeline-track {
+  position: relative;
+  height: 28px;
+  background: linear-gradient(
+    to right,
+    transparent 0,
+    transparent calc(100% - 1px),
+    var(--paper-rule-soft) calc(100% - 1px)
+  );
+  border-top: 1px solid var(--paper-rule-soft);
+  border-bottom: 1px solid var(--paper-rule-soft);
+}
+.brief-incident .timeline-segment {
+  position: absolute;
+  top: 6px;
+  min-width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  font-family: var(--mono-editorial);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 14px;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--paper-ink);
+  overflow: hidden;
+}
+.brief-incident .timeline-baseline {
+  background: var(--paper-panel);
+  border: 1px solid var(--paper-faint);
+}
+.brief-incident .timeline-current {
+  background: var(--paper-red-bg);
+  border: 1px solid var(--paper-red);
+  color: var(--paper-red-ink);
+}
+.brief-incident .timeline-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 8px;
+  font-size: 11.5px;
   color: var(--paper-mute);
 }
 
@@ -3042,105 +3161,320 @@ footer {
   padding-top: 12px;
 }
 
-/* Print rules — preserve the editorial pagination scheme from
-   briefing.html. Every selector is scoped under .brief-incident so the
-   engine's existing print rules elsewhere are untouched. */
+/* Print rules — compact board-packet layout. Every selector is scoped
+   under .brief-incident so the engine's existing print rules elsewhere
+   are untouched. */
 @media print {
+  @page {
+    size: letter;
+    margin: 0.48in 0.42in 0.54in;
+  }
   .brief-incident {
     background: #fff !important;
     color: #000;
     max-width: none;
     margin: 0;
     padding: 0;
-    font-size: 10.5pt;
-    line-height: 1.4;
+    font-size: 10.3pt;
+    line-height: 1.36;
+    orphans: 3;
+    widows: 3;
   }
-  .brief-incident .display    { font-size: 22pt; line-height: 1.05; }
-  .brief-incident .display-xl { font-size: 28pt; line-height: 1.02; }
-  .brief-incident .display-lg { font-size: 16pt; }
+  .brief-incident .display    { font-size: 19pt; line-height: 1.08; }
+  .brief-incident .display-xl { font-size: 24pt; line-height: 1.04; }
+  .brief-incident .display-lg { font-size: 14.5pt; }
   .brief-incident h1, .brief-incident h2, .brief-incident h3 { color: #000; }
 
-  .brief-incident .brief-mast { padding-bottom: 10pt; margin-bottom: 16pt; }
-  .brief-incident .mast-dek   { font-size: 11pt; margin-top: 8pt; }
-  .brief-incident .mast-brand svg { height: 18pt; }
-  .brief-incident .mast-window-line { font-size: 14pt; margin-top: 4pt; }
+  .brief-incident .brief-mast { padding-bottom: 7pt; margin-bottom: 11pt; }
+  .brief-incident .mast-dek   { font-size: 9.4pt; margin-top: 4pt; }
+  .brief-incident .mast-brand svg { height: 15pt; }
+  .brief-incident .mast-window-line { font-size: 10.5pt; margin-top: 2pt; }
   .brief-incident .mast-anchors { display: none; }
 
-  .brief-incident .verdict { margin-bottom: 22pt; }
-  .brief-incident .verdict-score-num { font-size: 48pt; }
-  .brief-incident .verdict-score-num small { font-size: 18pt; }
+  .brief-incident .verdict {
+    display: flex;
+    flex-direction: column;
+    min-height: 8.1in;
+    margin-bottom: 0;
+    break-after: page;
+    page-break-after: always;
+  }
+  .brief-incident .verdict-cover {
+    display: block;
+  }
+  .brief-incident .verdict-score-card { display: none; }
+  .brief-incident .verdict-level-pill { display: none; }
+  .brief-incident .print-risk-pill { display: inline-block; }
+  .brief-incident .verdict-pills { margin: 8pt 0 10pt; }
+  .brief-incident .severity-ladder { margin-top: 10pt; }
+  .brief-incident .severity-ladder-bars {
+    gap: 5pt;
+    margin-bottom: 6pt;
+  }
+  .brief-incident .severity-ladder-bar { height: 8pt; }
+  .brief-incident .severity-ladder-labels { gap: 4pt; }
+  .brief-incident .severity-ladder-labels span { font-size: 7.2pt; }
+  .brief-incident .verdict-caveat { display: none; }
+  .brief-incident .verdict-assessment { display: none; }
+  .brief-incident .verdict-narrative {
+    display: block;
+    max-width: none;
+  }
+  .brief-incident .verdict-narrative.prose {
+    font-size: 8.4pt;
+    line-height: 1.34;
+  }
+  .brief-incident .verdict-narrative.prose p {
+    margin: 0 0 5pt;
+  }
+  .brief-incident .verdict-narrative.prose ul,
+  .brief-incident .verdict-narrative.prose ol {
+    margin: 4pt 0 0;
+    padding-left: 13pt;
+  }
+  .brief-incident .verdict-narrative.prose li + li {
+    margin-top: 2pt;
+  }
 
-  .brief-incident .verdict-findings { padding: 14pt 0; gap: 18pt; }
+  .brief-incident .verdict-findings {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 13pt;
+    padding: 10pt 0 0;
+    border-top: 1px solid #000;
+    border-bottom: 1px solid #000;
+  }
   .brief-incident .verdict-findings > li {
+    display: block;
+    margin: 0 0 10pt;
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  .brief-incident .finding-lead { font-size: 13pt; }
-  .brief-incident .finding-body { font-size: 10pt; }
+  .brief-incident .finding-label { margin-bottom: 4pt; font-size: 7.2pt; }
+  .brief-incident .finding-lead { font-size: 8.7pt; line-height: 1.28; }
+  .brief-incident .finding-body {
+    font-size: 7.5pt;
+    line-height: 1.3;
+    margin: 3pt 0 0;
+  }
+  .brief-incident .finding-entities {
+    margin: 4pt 0 0;
+    padding-left: 0;
+    gap: 3pt;
+  }
+  .brief-incident .finding-entities li {
+    display: block;
+    margin-right: 0;
+    padding-left: 8pt;
+    font-size: 7.2pt;
+    line-height: 1.26;
+  }
+  .brief-incident .finding-entity-value {
+    font-size: 7.1pt;
+  }
+  .brief-incident .finding-entity-meta {
+    display: block;
+    font-size: 6.8pt;
+  }
+  .brief-incident .verdict-volume-timeline {
+    display: block;
+    margin-top: 10pt;
+    padding: 7pt 7pt 5pt;
+  }
+  .brief-incident .verdict-volume-timeline .timeline-title { margin-bottom: 5pt; }
+  .brief-incident .verdict-volume-timeline .timeline-range {
+    font-size: 7.4pt;
+    font-weight: 600;
+    color: #333;
+  }
+  .brief-incident .verdict-volume-timeline svg {
+    max-width: 100%;
+    max-height: 72pt;
+  }
+  .brief-incident .timeline-series-legend {
+    display: flex;
+    gap: 10pt;
+    padding: 3pt 0 0;
+    font-size: 7pt;
+    color: #333;
+  }
+  .brief-incident .timeline-series-legend .swatch {
+    display: inline-block;
+    width: 12pt;
+    height: 2pt;
+    margin-right: 4pt;
+    vertical-align: middle;
+  }
+  .brief-incident .timeline-series-legend .swatch-baseline {
+    background: transparent;
+    border-top: 1pt dashed #777;
+    height: 0;
+  }
+  .brief-incident .timeline-series-legend .swatch-incident {
+    background: rgba(225, 87, 89, 0.14);
+    border: 1pt solid rgba(225, 87, 89, 0.32);
+    height: 5pt;
+  }
+  .brief-incident .timeline-series-legend .swatch-scope,
+  .brief-incident .impact-chart-legend .swatch-scope {
+    background: #e15759;
+    height: 2pt;
+  }
+  .brief-incident .verdict-volume-timeline .volume-chart-labels {
+    padding: 3pt 0 0;
+    font-size: 7.2pt;
+    gap: 3pt 8pt;
+  }
+  .brief-incident .verdict-volume-timeline .volume-chart-labels .label {
+    font-size: 6.6pt;
+    margin-right: 3pt;
+  }
+  .brief-incident .impact-volume-timeline,
+  .brief-incident .impact-timeline {
+    display: none;
+  }
+  .brief-incident .score-methodology {
+    margin-top: auto;
+    padding-top: 8pt;
+    border-top: 1px solid #999;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .brief-incident .score-methodology-head {
+    display: flex;
+    gap: 12pt;
+    margin-bottom: 4pt;
+  }
+  .brief-incident .score-methodology-pill {
+    margin-left: auto;
+    font-size: 7.4pt;
+    white-space: normal;
+    text-align: right;
+  }
+  .brief-incident .score-methodology p {
+    max-width: none;
+    font-size: 7.8pt;
+    line-height: 1.32;
+  }
+  .brief-incident .score-methodology-reasons {
+    margin-top: 4pt;
+    padding-left: 10pt;
+    font-size: 7.4pt;
+    line-height: 1.28;
+    list-style: disc;
+  }
 
-  .brief-incident .section { margin-bottom: 22pt; }
-  .brief-incident .section-head { margin-bottom: 10pt; }
+  .brief-incident .section { margin-bottom: 18pt; }
+  .brief-incident .exec-readout { display: none !important; }
+  .brief-incident .section-impact {
+    break-before: page;
+    page-break-before: always;
+  }
+  .brief-incident .section-head { margin-bottom: 8pt; }
+  .brief-incident .section-head-rule { margin-bottom: 6pt; }
+  .brief-incident .impact-print-pack {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .brief-incident .impact-lead {
+    font-size: 10.2pt;
+    line-height: 1.36;
+    margin-bottom: 9pt;
+    max-width: none;
+  }
 
-  .brief-incident .impact-chart { padding: 8pt 6pt 4pt; }
-  .brief-incident .impact-chart svg { max-width: 100%; }
-  .brief-incident .kpis { margin-top: 12pt; }
-  .brief-incident .kpi { padding: 8pt 10pt 8pt 0; break-inside: avoid; }
-  .brief-incident .kpi-value { font-size: 18pt; }
+  .brief-incident .impact-chart { padding: 7pt 6pt 4pt; }
+  .brief-incident .impact-chart svg { max-width: 100%; max-height: 108pt; }
+  .brief-incident .impact-chart-legend { padding: 5pt 4pt 2pt; }
+  .brief-incident .volume-chart-labels { padding: 3pt 4pt 0; font-size: 8.8pt; }
+  .brief-incident .window-timeline-compact {
+    margin-top: 8pt;
+    padding: 7pt 8pt 6pt;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .brief-incident .timeline-title { margin-bottom: 5pt; }
+  .brief-incident .timeline-track { height: 20pt; }
+  .brief-incident .timeline-segment {
+    top: 4pt;
+    height: 10pt;
+    font-size: 7.5pt;
+    line-height: 10pt;
+  }
+  .brief-incident .timeline-legend { font-size: 8pt; margin-top: 5pt; }
+  .brief-incident .kpis { margin-top: 10pt; }
+  .brief-incident .kpi { padding: 6pt 8pt 6pt 0; break-inside: avoid; }
+  .brief-incident .kpi-value { font-size: 16pt; }
   .brief-incident .kpi-label { font-size: 8pt; letter-spacing: 0.12em; }
-  .brief-incident .kpi-delta { font-size: 8.5pt; }
+  .brief-incident .kpi-delta { font-size: 8pt; }
 
   .brief-incident table { page-break-inside: auto; }
   .brief-incident thead { display: table-header-group; }
   .brief-incident tr    { page-break-inside: avoid; break-inside: avoid; }
   .brief-incident .actors-table th,
-  .brief-incident .actors-table td { padding: 7pt 8pt; }
-  .brief-incident .actors-table { font-size: 9.5pt; }
-  .brief-incident .actors-table .num-large { font-size: 11pt; }
-  .brief-incident .actors-table .ident { font-size: 9.5pt; }
+  .brief-incident .actors-table td { padding: 4pt 5pt; }
+  .brief-incident .actors-table { font-size: 8.8pt; }
+  .brief-incident .actors-table .num-large { font-size: 9.5pt; }
+  .brief-incident .actors-table .ident { font-size: 8.5pt; }
 
-  .brief-incident .split-2col { gap: 24pt; }
-  .brief-incident .attack-row { padding: 6pt 0; }
-  .brief-incident .attack-row .technique { font-size: 10pt; }
-  .brief-incident .mini-table { font-size: 9.5pt; }
-  .brief-incident .mini-table th,
-  .brief-incident .mini-table td { padding: 6pt 0; }
-
-  .brief-incident .actions-list li {
-    padding: 10pt 0;
-    gap: 14pt;
+  .brief-incident .split-2col {
+    display: block;
+  }
+  .brief-incident .print-pane {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 16pt;
+  }
+  .brief-incident .print-pane:last-child { margin-bottom: 0; }
+  .brief-incident .print-pane .section-head {
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  .brief-incident .actions-list .num { font-size: 20pt; }
-  .brief-incident .actions-list .step { font-size: 12pt; }
+  .brief-incident .attack-row { padding: 4pt 0; }
+  .brief-incident .attack-row .technique { font-size: 9pt; }
+  .brief-incident .mini-table { font-size: 9pt; }
+  .brief-incident .mini-table th,
+  .brief-incident .mini-table td { padding: 4pt 0; }
+
+  .brief-incident .actions-list li {
+    display: block;
+    padding: 8pt 0;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .brief-incident .actions-list .num {
+    display: inline-block;
+    width: 2.1em;
+    font-size: 12pt;
+    vertical-align: top;
+  }
+  .brief-incident .actions-list .step {
+    display: inline;
+    font-size: 10.2pt;
+  }
+  .brief-incident .actions-list .pill {
+    display: none;
+  }
+  .brief-incident .actions-list .action-effect {
+    display: block;
+    margin: 3pt 0 0 2.7em;
+    font-size: 8.8pt;
+  }
 
   .brief-incident .ioc-export {
     background: #fafafa !important;
     max-height: none;
-    font-size: 8pt;
-    line-height: 1.4;
-    padding: 8pt 10pt;
+    font-size: 7.5pt;
+    line-height: 1.3;
+    padding: 6pt 8pt;
     white-space: pre-wrap;
     word-break: break-word;
   }
-  .brief-incident .cta {
-    background: transparent !important;
-    border: 1px solid #000;
-    padding: 10pt 14pt;
-  }
-  .brief-incident .cta-link { display: none; }
-  .brief-incident .cta::after {
-    content: attr(data-print-url);
-    display: block;
-    font-family: var(--mono-editorial);
-    font-size: 8.5pt;
-    color: #333;
-    margin-top: 6pt;
-    word-break: break-all;
-  }
+  .brief-incident .cta { display: none !important; }
   .brief-incident .pill,
   .brief-incident .severity-ladder-bar,
   .brief-incident .impact-chart,
+  .brief-incident .window-timeline-compact,
   .brief-incident .kpis,
   .brief-incident .kpi,
   .brief-incident .ioc-export,
@@ -3150,10 +3484,32 @@ footer {
     print-color-adjust: exact !important;
   }
   .brief-incident .section-head { break-after: avoid; page-break-after: avoid; }
-  .brief-incident .method { padding-top: 10pt; font-size: 8.5pt; }
-  .brief-incident .section-actors { break-before: page; page-break-before: always; }
-  .brief-incident .section-attack { break-before: page; page-break-before: always; }
-  .brief-incident .section-ioc    { break-before: page; page-break-before: always; }
+  .brief-incident .method {
+    display: block;
+    padding-top: 8pt;
+    font-size: 8.5pt;
+  }
+  .brief-incident .method > div {
+    margin: 0 0 4pt;
+  }
+  .brief-incident .method .label {
+    display: inline;
+    margin-right: 6pt;
+    letter-spacing: 0.04em;
+  }
+  .brief-incident .method .right { text-align: left; }
+  .brief-incident .print-raw-only,
+  .brief-incident .full-evidence,
+  .brief-incident .section-urls,
+  .brief-incident .section-ioc {
+    display: none !important;
+  }
+  .brief-incident .section-actors,
+  .brief-incident .section-attack,
+  .brief-incident .section-ioc {
+    break-before: auto;
+    page-break-before: auto;
+  }
 }</style>
 </head>
 <body>
@@ -3216,11 +3572,14 @@ footer {
 
   <section id="verdict" class="verdict">
     <div class="verdict-cover">
-      <div>
+      <div class="verdict-main">
         <div class="kicker section-eyebrow">The Verdict</div>
         <div class="verdict-pills">
-          <span class="pill pill-critical pill-lg">
+          <span class="pill pill-critical pill-lg verdict-level-pill">
             Critical
+          </span>
+          <span class="pill pill-critical pill-lg print-risk-pill">
+            Risk: 75/100
           </span>
           <span class="pill pill-medium pill-lg"
                 title="Aggregate confidence — reflects which evidence sources were available (raw access log, edge-response data). Per-indicator confidence is shown separately on each flagged-target row in the Who Hit It table.">
@@ -3251,20 +3610,28 @@ footer {
           </div>
         </div>
 
-          <p class="verdict-caveat">Rule-based scorecard. Mechanical features only — no malicious-intent claim or root-cause attribution.</p>
+          <p class="verdict-caveat">This report describes traffic patterns, not intent. It is built from log rules, so it does not claim any actor is malicious or attribute a root cause.</p>
           <p class="verdict-caveat">
-            Report-level confidence reflects available evidence sources
-            (raw access log, edge-response). Per-indicator confidence on
-            each flagged-target row is set by the producer per actor and
-            may be lower or higher than the overall.
+            Confidence labels reflect how much evidence was available.
+            The overall confidence is based on the data sources we had
+            (raw access log and edge actions). Each indicator row carries
+            its own confidence — that may be higher or lower than the
+            overall.
           </p>
 
-        <p class="verdict-pills" style="margin-top: 18px;">
+        <p class="verdict-pills verdict-assessment" style="margin-top: 18px;">
           <span class="kicker section-eyebrow">Assessed with high confidence</span>
         </p>
-        <p class="finding-body" style="max-width: 720px;">
-          this window is consistent with a high-severity targeted incident and warrants escalation.
-        </p>
+          <div class="verdict-narrative prose"><p><strong>Assessed with high confidence:</strong> this window is consistent with a targeted credential-stuffing pattern against <code>/login/*</code> on www.example.com — with a separately-corroborating signal in the Browser-cohort behavioral anomaly. This is not a broad traffic shift.</p>
+<p>Four independent signals concur:</p>
+<ul>
+<li>Spike flags <code>volume_up</code>, <code>rate_429_up</code>, and <code>bot_share_up</code> all fired against the trailing window.</li>
+<li>Three client IPs (<code>203.0.113.10</code>, <code>198.51.100.42</code>, <code>192.0.2.17</code>) reached <code>severity: critical</code> — they share ASN <code>64500</code>, concentrate on a single path, and carry both high volume share and high 429 share. ASN <code>64500</code> itself and User Agent <code>python-requests/2.31</code> sit at <code>severity: high</code> alongside them.</li>
+<li>SIEM <code>block-credential-stuff</code> policy delta is +520% vs baseline, with <code>rate-limit-login</code> at +610%.</li>
+<li>The Traffic cohort <code>Browser</code> graduated on the <code>anomaly</code> primitive: its current-window error rate of 13.7% is 26× its baseline (~0.5%). This is consistent with sophisticated automation passing bot-classification — the kind of pattern that needs an application-layer response, not just WAF rules tuned for the named IP cluster.</li>
+</ul>
+<p>The 4.25M-request / 8.2% 429-rate Impact tiles are consistent with the primary read; the reasons to escalate are the named single-ASN cluster, the automation UA matches, <em>and</em> the Browser-cohort behavioral departure — not the raw volume.</p>
+</div>
       </div>
 
       <aside class="verdict-score-card">
@@ -3314,34 +3681,91 @@ footer {
           <p class="finding-body"><code>Browser</code> shows a behavioral departure from the trailing baseline — consistent with sophisticated automation passing bot-classification.</p>
         </li>
     </ol>
+
+      <figure class="impact-chart verdict-volume-timeline">
+        <div class="timeline-title">
+          <span class="kicker section-eyebrow">429s per minute timeline</span>
+          <span class="timeline-range tnum">Current period vs baseline</span>
+        </div>
+        <svg viewBox="0 0 720 140" class="incident-volume-chart" role="img" aria-label="Request volume over the incident window" preserveAspectRatio="xMidYMid meet"><line x1="80" y1="114.0" x2="704.0" y2="114.0" stroke="currentColor" stroke-opacity="0.15" stroke-width="1" /><rect x="80.0" y="24.0" width="624.0" height="90.0" fill="#E15759" fill-opacity="0.10" /><line x1="80.0" y1="24.0" x2="80.0" y2="114.0" stroke="#E15759" stroke-width="1" stroke-opacity="0.35" /><line x1="704.0" y1="24.0" x2="704.0" y2="114.0" stroke="#E15759" stroke-width="1" stroke-opacity="0.35" /><path d="M 80.0,114.0 L 80.0,108.2 L 83.5,108.4 L 87.0,108.1 L 90.5,107.8 L 93.9,107.9 L 97.4,107.0 L 100.9,106.0 L 104.4,104.5 L 107.9,103.8 L 111.4,101.9 L 114.9,100.9 L 118.3,97.8 L 121.8,94.6 L 125.3,90.2 L 128.8,85.4 L 132.3,79.3 L 135.8,73.0 L 139.3,64.7 L 142.7,55.5 L 146.2,46.3 L 149.7,40.0 L 153.2,34.7 L 156.7,31.6 L 160.2,28.1 L 163.7,31.2 L 167.2,35.4 L 170.6,38.9 L 174.1,40.8 L 177.6,44.4 L 181.1,47.8 L 184.6,51.7 L 188.1,55.0 L 191.6,59.0 L 195.0,62.7 L 198.5,66.4 L 202.0,70.0 L 205.5,67.5 L 209.0,63.2 L 212.5,58.8 L 216.0,54.1 L 219.4,49.5 L 222.9,44.5 L 226.4,38.7 L 229.9,33.5 L 233.4,29.2 L 236.9,26.5 L 240.4,24.8 L 243.8,24.0 L 247.3,25.0 L 250.8,27.6 L 254.3,31.7 L 257.8,35.8 L 261.3,40.0 L 264.8,44.5 L 268.2,48.9 L 271.7,53.4 L 275.2,57.9 L 278.7,62.3 L 282.2,66.5 L 285.7,70.5 L 289.2,74.2 L 292.6,77.7 L 296.1,80.4 L 299.6,82.6 L 303.1,84.0 L 306.6,84.8 L 310.1,85.4 L 313.6,85.8 L 317.1,86.3 L 320.5,86.8 L 324.0,87.2 L 327.5,87.6 L 331.0,88.0 L 334.5,88.3 L 338.0,88.5 L 341.5,88.8 L 344.9,89.1 L 348.4,89.2 L 351.9,89.5 L 355.4,89.6 L 358.9,89.9 L 362.4,90.1 L 365.9,90.3 L 369.3,90.5 L 372.8,90.7 L 376.3,90.9 L 379.8,91.2 L 383.3,91.3 L 386.8,91.6 L 390.3,91.7 L 393.7,91.8 L 397.2,92.1 L 400.7,92.4 L 404.2,92.5 L 407.7,92.8 L 411.2,92.9 L 414.7,92.3 L 418.1,91.4 L 421.6,90.5 L 425.1,89.4 L 428.6,88.3 L 432.1,87.2 L 435.6,86.1 L 439.1,85.0 L 442.5,84.0 L 446.0,83.0 L 449.5,82.2 L 453.0,81.4 L 456.5,80.7 L 460.0,80.1 L 463.5,79.7 L 466.9,79.5 L 470.4,79.3 L 473.9,79.3 L 477.4,79.5 L 480.9,79.7 L 484.4,80.1 L 487.9,80.7 L 491.4,81.4 L 494.8,82.2 L 498.3,83.2 L 501.8,84.1 L 505.3,85.2 L 508.8,86.3 L 512.3,87.6 L 515.8,88.8 L 519.2,90.1 L 522.7,91.2 L 526.2,92.3 L 529.7,93.2 L 533.2,94.2 L 536.7,95.0 L 540.2,95.8 L 543.6,96.5 L 547.1,97.1 L 550.6,97.5 L 554.1,97.8 L 557.6,97.9 L 561.1,98.0 L 564.6,98.0 L 568.0,98.0 L 571.5,97.9 L 575.0,97.8 L 578.5,97.6 L 582.0,97.5 L 585.5,97.3 L 589.0,97.2 L 592.4,97.2 L 595.9,97.2 L 599.4,97.3 L 602.9,97.5 L 606.4,97.8 L 609.9,98.0 L 613.4,98.4 L 616.8,98.9 L 620.3,99.3 L 623.8,99.7 L 627.3,100.1 L 630.8,100.4 L 634.3,100.7 L 637.8,100.8 L 641.3,100.9 L 644.7,101.1 L 648.2,101.1 L 651.7,101.1 L 655.2,100.9 L 658.7,100.8 L 662.2,100.7 L 665.7,100.5 L 669.1,100.4 L 672.6,100.2 L 676.1,100.1 L 679.6,100.0 L 683.1,100.0 L 686.6,99.8 L 690.1,99.8 L 693.5,99.8 L 697.0,99.8 L 700.5,99.8 L 704.0,99.8 L 704.0,114.0 Z" fill="#FBE5E6" fill-opacity="0.55" /><polyline fill="none" stroke="#4A5A73" stroke-width="1" stroke-dasharray="3 3" stroke-opacity="0.65" points="80.0,111.4 83.5,111.4 87.0,111.3 90.5,111.3 93.9,111.3 97.4,111.3 100.9,111.2 104.4,111.2 107.9,111.2 111.4,111.3 114.9,111.3 118.3,111.2 121.8,111.2 125.3,111.2 128.8,111.1 132.3,111.1 135.8,111.2 139.3,111.2 142.7,111.2 146.2,111.1 149.7,111.1 153.2,111.1 156.7,111.1 160.2,111.1 163.7,111.1 167.2,111.2 170.6,111.2 174.1,111.2 177.6,111.3 181.1,111.3 184.6,111.3 188.1,111.3 191.6,111.3 195.0,111.2 198.5,111.2 202.0,111.2 205.5,111.2 209.0,111.2 212.5,111.2 216.0,111.2 219.4,111.2 222.9,111.2 226.4,111.2 229.9,111.1 233.4,111.1 236.9,111.1 240.4,111.2 243.8,111.2 247.3,111.2 250.8,111.2 254.3,111.2 257.8,111.2 261.3,111.2 264.8,111.1 268.2,111.1 271.7,111.1 275.2,111.1 278.7,111.1 282.2,111.1 285.7,111.1 289.2,111.2 292.6,111.2 296.1,111.2 299.6,111.2 303.1,111.3 306.6,111.2 310.1,111.2 313.6,111.2 317.1,111.2 320.5,111.1 324.0,111.1 327.5,111.1 331.0,111.2 334.5,111.2 338.0,111.2 341.5,111.1 344.9,111.1 348.4,111.1 351.9,111.1 355.4,111.0 358.9,111.1 362.4,111.1 365.9,111.1 369.3,111.1 372.8,111.2 376.3,111.1 379.8,111.1 383.3,111.1 386.8,111.1 390.3,111.1 393.7,111.1 397.2,111.1 400.7,111.2 404.2,111.2 407.7,111.2 411.2,111.2 414.7,111.2 418.1,111.2 421.6,111.2 425.1,111.1 428.6,111.1 432.1,111.1 435.6,111.2 439.1,111.2 442.5,111.2 446.0,111.2 449.5,111.3 453.0,111.2 456.5,111.2 460.0,111.2 463.5,111.2 466.9,111.1 470.4,111.1 473.9,111.1 477.4,111.1 480.9,111.1 484.4,111.1 487.9,111.1 491.4,111.2 494.8,111.2 498.3,111.2 501.8,111.2 505.3,111.2 508.8,111.1 512.3,111.1 515.8,111.1 519.2,111.2 522.7,111.2 526.2,111.2 529.7,111.2 533.2,111.3 536.7,111.3 540.2,111.3 543.6,111.4 547.1,111.3 550.6,111.3 554.1,111.3 557.6,111.2 561.1,111.2 564.6,111.2 568.0,111.2 571.5,111.2 575.0,111.2 578.5,111.2 582.0,111.3 585.5,111.3 589.0,111.3 592.4,111.3 595.9,111.3 599.4,111.2 602.9,111.2 606.4,111.2 609.9,111.2 613.4,111.2 616.8,111.2 620.3,111.2 623.8,111.3 627.3,111.3 630.8,111.3 634.3,111.3 637.8,111.3 641.3,111.2 644.7,111.2 648.2,111.2 651.7,111.2 655.2,111.1 658.7,111.2 662.2,111.2 665.7,111.2 669.1,111.2 672.6,111.3 676.1,111.3 679.6,111.3 683.1,111.4 686.6,111.4 690.1,111.4 693.5,111.3 697.0,111.3 700.5,111.3 704.0,111.4" /><polyline fill="none" stroke="#E15759" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" points="80.0,108.2 83.5,108.4 87.0,108.1 90.5,107.8 93.9,107.9 97.4,107.0 100.9,106.0 104.4,104.5 107.9,103.8 111.4,101.9 114.9,100.9 118.3,97.8 121.8,94.6 125.3,90.2 128.8,85.4 132.3,79.3 135.8,73.0 139.3,64.7 142.7,55.5 146.2,46.3 149.7,40.0 153.2,34.7 156.7,31.6 160.2,28.1 163.7,31.2 167.2,35.4 170.6,38.9 174.1,40.8 177.6,44.4 181.1,47.8 184.6,51.7 188.1,55.0 191.6,59.0 195.0,62.7 198.5,66.4 202.0,70.0 205.5,67.5 209.0,63.2 212.5,58.8 216.0,54.1 219.4,49.5 222.9,44.5 226.4,38.7 229.9,33.5 233.4,29.2 236.9,26.5 240.4,24.8 243.8,24.0 247.3,25.0 250.8,27.6 254.3,31.7 257.8,35.8 261.3,40.0 264.8,44.5 268.2,48.9 271.7,53.4 275.2,57.9 278.7,62.3 282.2,66.5 285.7,70.5 289.2,74.2 292.6,77.7 296.1,80.4 299.6,82.6 303.1,84.0 306.6,84.8 310.1,85.4 313.6,85.8 317.1,86.3 320.5,86.8 324.0,87.2 327.5,87.6 331.0,88.0 334.5,88.3 338.0,88.5 341.5,88.8 344.9,89.1 348.4,89.2 351.9,89.5 355.4,89.6 358.9,89.9 362.4,90.1 365.9,90.3 369.3,90.5 372.8,90.7 376.3,90.9 379.8,91.2 383.3,91.3 386.8,91.6 390.3,91.7 393.7,91.8 397.2,92.1 400.7,92.4 404.2,92.5 407.7,92.8 411.2,92.9 414.7,92.3 418.1,91.4 421.6,90.5 425.1,89.4 428.6,88.3 432.1,87.2 435.6,86.1 439.1,85.0 442.5,84.0 446.0,83.0 449.5,82.2 453.0,81.4 456.5,80.7 460.0,80.1 463.5,79.7 466.9,79.5 470.4,79.3 473.9,79.3 477.4,79.5 480.9,79.7 484.4,80.1 487.9,80.7 491.4,81.4 494.8,82.2 498.3,83.2 501.8,84.1 505.3,85.2 508.8,86.3 512.3,87.6 515.8,88.8 519.2,90.1 522.7,91.2 526.2,92.3 529.7,93.2 533.2,94.2 536.7,95.0 540.2,95.8 543.6,96.5 547.1,97.1 550.6,97.5 554.1,97.8 557.6,97.9 561.1,98.0 564.6,98.0 568.0,98.0 571.5,97.9 575.0,97.8 578.5,97.6 582.0,97.5 585.5,97.3 589.0,97.2 592.4,97.2 595.9,97.2 599.4,97.3 602.9,97.5 606.4,97.8 609.9,98.0 613.4,98.4 616.8,98.9 620.3,99.3 623.8,99.7 627.3,100.1 630.8,100.4 634.3,100.7 637.8,100.8 641.3,100.9 644.7,101.1 648.2,101.1 651.7,101.1 655.2,100.9 658.7,100.8 662.2,100.7 665.7,100.5 669.1,100.4 672.6,100.2 676.1,100.1 679.6,100.0 683.1,100.0 686.6,99.8 690.1,99.8 693.5,99.8 697.0,99.8 700.5,99.8 704.0,99.8" /><circle cx="243.8" cy="24.0" r="3.5" fill="#E15759" /><text x="249.8" y="17.0" text-anchor="start" font-size="11" font-weight="600" fill="#E15759">Peak 6.54K</text><text x="72.0" y="28.0" text-anchor="end" font-size="10" fill="currentColor" opacity="0.55">7K</text><text x="72.0" y="114.0" text-anchor="end" font-size="10" fill="currentColor" opacity="0.55">0.0</text><text x="80.0" y="132.0" font-size="11" fill="currentColor" opacity="0.65">2026-05-13 14:00Z</text><text x="704.0" y="132.0" text-anchor="end" font-size="11" fill="currentColor" opacity="0.65">2026-05-13 17:00Z</text></svg>
+        <figcaption class="timeline-series-legend">
+          <span><span class="swatch" style="background: #E15759;"></span>Current period</span>
+            <span><span class="swatch swatch-baseline"></span>Baseline</span>
+            <span><span class="swatch swatch-incident"></span>Incident window (3 hours)</span>
+        </figcaption>
+      </figure>
+
+    <div class="score-methodology" aria-label="How the score was calculated">
+      <div class="score-methodology-head">
+        <span class="kicker section-eyebrow">How the score was calculated</span>
+        <span class="score-methodology-pill tnum">
+          Risk 75/100 · Critical · High confidence
+        </span>
+      </div>
+      <p>
+        The score is based on severity-weighted suspicious target counts.
+        Those counts are normalized with a hyperbolic curve, which rises
+        quickly and then tapers, and the displayed score is clamped to
+        the current verdict band so the number and verdict stay aligned.
+      </p>
+        <ul class="score-methodology-reasons">
+              <li>spike flags fired (Volume up, 429 rate up, Bot share up)</li>
+              <li>3 target(s) at severity:critical — Client IP <code>203.0.113.10</code>, Client IP <code>198.51.100.42</code>, Client IP <code>192.0.2.17</code></li>
+              <li>4 target(s) at severity:high — Client ASN <code>64500</code>, Traffic cohort <code>Browser</code>, User Agent <code>python-requests/2.31</code></li>
+        </ul>
+    </div>
   </section>
 
 
   <section id="impact" class="section section-impact">
-    <div class="section-head">
-      <div class="section-head-rule">
-        <span class="kicker section-eyebrow">Attack Shape</span>
-        <span class="hr"></span>
-      </div>
-      <h2 class="display">When pressure landed, and how hard</h2>
-    </div>
-      <p class="impact-lead">
-        <strong>429s per minute</strong> across the
-        incident window. Series choice is mechanical
-        (rate_429_up was the most specific spike flag — the rate-limit pressure curve is the lede).
-      </p>
-      <figure class="impact-chart">
-        <svg viewBox="0 0 720 140" class="incident-volume-chart" role="img" aria-label="Request volume over the incident window" preserveAspectRatio="xMidYMid meet"><line x1="80" y1="114.0" x2="704.0" y2="114.0" stroke="currentColor" stroke-opacity="0.15" stroke-width="1" /><path d="M 80.0,114.0 L 80.0,108.2 L 83.5,108.4 L 87.0,108.1 L 90.5,107.8 L 93.9,107.9 L 97.4,107.0 L 100.9,106.0 L 104.4,104.5 L 107.9,103.8 L 111.4,101.9 L 114.9,100.9 L 118.3,97.8 L 121.8,94.6 L 125.3,90.2 L 128.8,85.4 L 132.3,79.3 L 135.8,73.0 L 139.3,64.7 L 142.7,55.5 L 146.2,46.3 L 149.7,40.0 L 153.2,34.7 L 156.7,31.6 L 160.2,28.1 L 163.7,31.2 L 167.2,35.4 L 170.6,38.9 L 174.1,40.8 L 177.6,44.4 L 181.1,47.8 L 184.6,51.7 L 188.1,55.0 L 191.6,59.0 L 195.0,62.7 L 198.5,66.4 L 202.0,70.0 L 205.5,67.5 L 209.0,63.2 L 212.5,58.8 L 216.0,54.1 L 219.4,49.5 L 222.9,44.5 L 226.4,38.7 L 229.9,33.5 L 233.4,29.2 L 236.9,26.5 L 240.4,24.8 L 243.8,24.0 L 247.3,25.0 L 250.8,27.6 L 254.3,31.7 L 257.8,35.8 L 261.3,40.0 L 264.8,44.5 L 268.2,48.9 L 271.7,53.4 L 275.2,57.9 L 278.7,62.3 L 282.2,66.5 L 285.7,70.5 L 289.2,74.2 L 292.6,77.7 L 296.1,80.4 L 299.6,82.6 L 303.1,84.0 L 306.6,84.8 L 310.1,85.4 L 313.6,85.8 L 317.1,86.3 L 320.5,86.8 L 324.0,87.2 L 327.5,87.6 L 331.0,88.0 L 334.5,88.3 L 338.0,88.5 L 341.5,88.8 L 344.9,89.1 L 348.4,89.2 L 351.9,89.5 L 355.4,89.6 L 358.9,89.9 L 362.4,90.1 L 365.9,90.3 L 369.3,90.5 L 372.8,90.7 L 376.3,90.9 L 379.8,91.2 L 383.3,91.3 L 386.8,91.6 L 390.3,91.7 L 393.7,91.8 L 397.2,92.1 L 400.7,92.4 L 404.2,92.5 L 407.7,92.8 L 411.2,92.9 L 414.7,92.3 L 418.1,91.4 L 421.6,90.5 L 425.1,89.4 L 428.6,88.3 L 432.1,87.2 L 435.6,86.1 L 439.1,85.0 L 442.5,84.0 L 446.0,83.0 L 449.5,82.2 L 453.0,81.4 L 456.5,80.7 L 460.0,80.1 L 463.5,79.7 L 466.9,79.5 L 470.4,79.3 L 473.9,79.3 L 477.4,79.5 L 480.9,79.7 L 484.4,80.1 L 487.9,80.7 L 491.4,81.4 L 494.8,82.2 L 498.3,83.2 L 501.8,84.1 L 505.3,85.2 L 508.8,86.3 L 512.3,87.6 L 515.8,88.8 L 519.2,90.1 L 522.7,91.2 L 526.2,92.3 L 529.7,93.2 L 533.2,94.2 L 536.7,95.0 L 540.2,95.8 L 543.6,96.5 L 547.1,97.1 L 550.6,97.5 L 554.1,97.8 L 557.6,97.9 L 561.1,98.0 L 564.6,98.0 L 568.0,98.0 L 571.5,97.9 L 575.0,97.8 L 578.5,97.6 L 582.0,97.5 L 585.5,97.3 L 589.0,97.2 L 592.4,97.2 L 595.9,97.2 L 599.4,97.3 L 602.9,97.5 L 606.4,97.8 L 609.9,98.0 L 613.4,98.4 L 616.8,98.9 L 620.3,99.3 L 623.8,99.7 L 627.3,100.1 L 630.8,100.4 L 634.3,100.7 L 637.8,100.8 L 641.3,100.9 L 644.7,101.1 L 648.2,101.1 L 651.7,101.1 L 655.2,100.9 L 658.7,100.8 L 662.2,100.7 L 665.7,100.5 L 669.1,100.4 L 672.6,100.2 L 676.1,100.1 L 679.6,100.0 L 683.1,100.0 L 686.6,99.8 L 690.1,99.8 L 693.5,99.8 L 697.0,99.8 L 700.5,99.8 L 704.0,99.8 L 704.0,114.0 Z" fill="#FBE5E6" fill-opacity="0.55" /><polyline fill="none" stroke="#4A5A73" stroke-width="1" stroke-dasharray="3 3" stroke-opacity="0.65" points="80.0,111.4 83.5,111.4 87.0,111.3 90.5,111.3 93.9,111.3 97.4,111.3 100.9,111.2 104.4,111.2 107.9,111.2 111.4,111.3 114.9,111.3 118.3,111.2 121.8,111.2 125.3,111.2 128.8,111.1 132.3,111.1 135.8,111.2 139.3,111.2 142.7,111.2 146.2,111.1 149.7,111.1 153.2,111.1 156.7,111.1 160.2,111.1 163.7,111.1 167.2,111.2 170.6,111.2 174.1,111.2 177.6,111.3 181.1,111.3 184.6,111.3 188.1,111.3 191.6,111.3 195.0,111.2 198.5,111.2 202.0,111.2 205.5,111.2 209.0,111.2 212.5,111.2 216.0,111.2 219.4,111.2 222.9,111.2 226.4,111.2 229.9,111.1 233.4,111.1 236.9,111.1 240.4,111.2 243.8,111.2 247.3,111.2 250.8,111.2 254.3,111.2 257.8,111.2 261.3,111.2 264.8,111.1 268.2,111.1 271.7,111.1 275.2,111.1 278.7,111.1 282.2,111.1 285.7,111.1 289.2,111.2 292.6,111.2 296.1,111.2 299.6,111.2 303.1,111.3 306.6,111.2 310.1,111.2 313.6,111.2 317.1,111.2 320.5,111.1 324.0,111.1 327.5,111.1 331.0,111.2 334.5,111.2 338.0,111.2 341.5,111.1 344.9,111.1 348.4,111.1 351.9,111.1 355.4,111.0 358.9,111.1 362.4,111.1 365.9,111.1 369.3,111.1 372.8,111.2 376.3,111.1 379.8,111.1 383.3,111.1 386.8,111.1 390.3,111.1 393.7,111.1 397.2,111.1 400.7,111.2 404.2,111.2 407.7,111.2 411.2,111.2 414.7,111.2 418.1,111.2 421.6,111.2 425.1,111.1 428.6,111.1 432.1,111.1 435.6,111.2 439.1,111.2 442.5,111.2 446.0,111.2 449.5,111.3 453.0,111.2 456.5,111.2 460.0,111.2 463.5,111.2 466.9,111.1 470.4,111.1 473.9,111.1 477.4,111.1 480.9,111.1 484.4,111.1 487.9,111.1 491.4,111.2 494.8,111.2 498.3,111.2 501.8,111.2 505.3,111.2 508.8,111.1 512.3,111.1 515.8,111.1 519.2,111.2 522.7,111.2 526.2,111.2 529.7,111.2 533.2,111.3 536.7,111.3 540.2,111.3 543.6,111.4 547.1,111.3 550.6,111.3 554.1,111.3 557.6,111.2 561.1,111.2 564.6,111.2 568.0,111.2 571.5,111.2 575.0,111.2 578.5,111.2 582.0,111.3 585.5,111.3 589.0,111.3 592.4,111.3 595.9,111.3 599.4,111.2 602.9,111.2 606.4,111.2 609.9,111.2 613.4,111.2 616.8,111.2 620.3,111.2 623.8,111.3 627.3,111.3 630.8,111.3 634.3,111.3 637.8,111.3 641.3,111.2 644.7,111.2 648.2,111.2 651.7,111.2 655.2,111.1 658.7,111.2 662.2,111.2 665.7,111.2 669.1,111.2 672.6,111.3 676.1,111.3 679.6,111.3 683.1,111.4 686.6,111.4 690.1,111.4 693.5,111.3 697.0,111.3 700.5,111.3 704.0,111.4" /><polyline fill="none" stroke="#E15759" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" points="80.0,108.2 83.5,108.4 87.0,108.1 90.5,107.8 93.9,107.9 97.4,107.0 100.9,106.0 104.4,104.5 107.9,103.8 111.4,101.9 114.9,100.9 118.3,97.8 121.8,94.6 125.3,90.2 128.8,85.4 132.3,79.3 135.8,73.0 139.3,64.7 142.7,55.5 146.2,46.3 149.7,40.0 153.2,34.7 156.7,31.6 160.2,28.1 163.7,31.2 167.2,35.4 170.6,38.9 174.1,40.8 177.6,44.4 181.1,47.8 184.6,51.7 188.1,55.0 191.6,59.0 195.0,62.7 198.5,66.4 202.0,70.0 205.5,67.5 209.0,63.2 212.5,58.8 216.0,54.1 219.4,49.5 222.9,44.5 226.4,38.7 229.9,33.5 233.4,29.2 236.9,26.5 240.4,24.8 243.8,24.0 247.3,25.0 250.8,27.6 254.3,31.7 257.8,35.8 261.3,40.0 264.8,44.5 268.2,48.9 271.7,53.4 275.2,57.9 278.7,62.3 282.2,66.5 285.7,70.5 289.2,74.2 292.6,77.7 296.1,80.4 299.6,82.6 303.1,84.0 306.6,84.8 310.1,85.4 313.6,85.8 317.1,86.3 320.5,86.8 324.0,87.2 327.5,87.6 331.0,88.0 334.5,88.3 338.0,88.5 341.5,88.8 344.9,89.1 348.4,89.2 351.9,89.5 355.4,89.6 358.9,89.9 362.4,90.1 365.9,90.3 369.3,90.5 372.8,90.7 376.3,90.9 379.8,91.2 383.3,91.3 386.8,91.6 390.3,91.7 393.7,91.8 397.2,92.1 400.7,92.4 404.2,92.5 407.7,92.8 411.2,92.9 414.7,92.3 418.1,91.4 421.6,90.5 425.1,89.4 428.6,88.3 432.1,87.2 435.6,86.1 439.1,85.0 442.5,84.0 446.0,83.0 449.5,82.2 453.0,81.4 456.5,80.7 460.0,80.1 463.5,79.7 466.9,79.5 470.4,79.3 473.9,79.3 477.4,79.5 480.9,79.7 484.4,80.1 487.9,80.7 491.4,81.4 494.8,82.2 498.3,83.2 501.8,84.1 505.3,85.2 508.8,86.3 512.3,87.6 515.8,88.8 519.2,90.1 522.7,91.2 526.2,92.3 529.7,93.2 533.2,94.2 536.7,95.0 540.2,95.8 543.6,96.5 547.1,97.1 550.6,97.5 554.1,97.8 557.6,97.9 561.1,98.0 564.6,98.0 568.0,98.0 571.5,97.9 575.0,97.8 578.5,97.6 582.0,97.5 585.5,97.3 589.0,97.2 592.4,97.2 595.9,97.2 599.4,97.3 602.9,97.5 606.4,97.8 609.9,98.0 613.4,98.4 616.8,98.9 620.3,99.3 623.8,99.7 627.3,100.1 630.8,100.4 634.3,100.7 637.8,100.8 641.3,100.9 644.7,101.1 648.2,101.1 651.7,101.1 655.2,100.9 658.7,100.8 662.2,100.7 665.7,100.5 669.1,100.4 672.6,100.2 676.1,100.1 679.6,100.0 683.1,100.0 686.6,99.8 690.1,99.8 693.5,99.8 697.0,99.8 700.5,99.8 704.0,99.8" /><circle cx="243.8" cy="24.0" r="3.5" fill="#E15759" /><text x="249.8" y="17.0" text-anchor="start" font-size="11" font-weight="600" fill="#E15759">Peak 6.54K</text><text x="72.0" y="28.0" text-anchor="end" font-size="10" fill="currentColor" opacity="0.55">7K</text><text x="72.0" y="114.0" text-anchor="end" font-size="10" fill="currentColor" opacity="0.55">0.0</text><text x="80.0" y="132.0" font-size="11" fill="currentColor" opacity="0.65">2026-05-13 14:00Z</text><text x="704.0" y="132.0" text-anchor="end" font-size="11" fill="currentColor" opacity="0.65">2026-05-13 17:00Z</text></svg>
-        <figcaption class="impact-chart-legend">
-          <span><span class="swatch" style="background: #E15759;"></span>Current window</span>
-            <span><span class="swatch swatch-baseline"></span>Baseline (avg ~203)</span>
-        </figcaption>
-        <div class="volume-chart-labels tnum">
-          <span><span class="label">Peak</span> 6.54K @ 14:47 UTC</span>
-            <span><span class="label">Duration</span> 3 hours</span>
-            <span><span class="label">Window</span> May 13, 2026 · 2:00–5:00 PM UTC</span>
+    <div class="impact-print-pack">
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Attack Shape</span>
+          <span class="hr"></span>
         </div>
-      </figure>
+        <h2 class="display">When pressure landed, and how hard</h2>
+      </div>
+
+        <p class="impact-lead">
+          <strong>429s per minute</strong> across the
+          incident window. Series choice is mechanical
+          (rate_429_up was the most specific spike flag — the rate-limit pressure curve is the lede).
+        </p>
+        <figure class="impact-chart impact-volume-timeline">
+          <svg viewBox="0 0 720 140" class="incident-volume-chart" role="img" aria-label="Request volume over the incident window" preserveAspectRatio="xMidYMid meet"><line x1="80" y1="114.0" x2="704.0" y2="114.0" stroke="currentColor" stroke-opacity="0.15" stroke-width="1" /><rect x="80.0" y="24.0" width="624.0" height="90.0" fill="#E15759" fill-opacity="0.10" /><line x1="80.0" y1="24.0" x2="80.0" y2="114.0" stroke="#E15759" stroke-width="1" stroke-opacity="0.35" /><line x1="704.0" y1="24.0" x2="704.0" y2="114.0" stroke="#E15759" stroke-width="1" stroke-opacity="0.35" /><path d="M 80.0,114.0 L 80.0,108.2 L 83.5,108.4 L 87.0,108.1 L 90.5,107.8 L 93.9,107.9 L 97.4,107.0 L 100.9,106.0 L 104.4,104.5 L 107.9,103.8 L 111.4,101.9 L 114.9,100.9 L 118.3,97.8 L 121.8,94.6 L 125.3,90.2 L 128.8,85.4 L 132.3,79.3 L 135.8,73.0 L 139.3,64.7 L 142.7,55.5 L 146.2,46.3 L 149.7,40.0 L 153.2,34.7 L 156.7,31.6 L 160.2,28.1 L 163.7,31.2 L 167.2,35.4 L 170.6,38.9 L 174.1,40.8 L 177.6,44.4 L 181.1,47.8 L 184.6,51.7 L 188.1,55.0 L 191.6,59.0 L 195.0,62.7 L 198.5,66.4 L 202.0,70.0 L 205.5,67.5 L 209.0,63.2 L 212.5,58.8 L 216.0,54.1 L 219.4,49.5 L 222.9,44.5 L 226.4,38.7 L 229.9,33.5 L 233.4,29.2 L 236.9,26.5 L 240.4,24.8 L 243.8,24.0 L 247.3,25.0 L 250.8,27.6 L 254.3,31.7 L 257.8,35.8 L 261.3,40.0 L 264.8,44.5 L 268.2,48.9 L 271.7,53.4 L 275.2,57.9 L 278.7,62.3 L 282.2,66.5 L 285.7,70.5 L 289.2,74.2 L 292.6,77.7 L 296.1,80.4 L 299.6,82.6 L 303.1,84.0 L 306.6,84.8 L 310.1,85.4 L 313.6,85.8 L 317.1,86.3 L 320.5,86.8 L 324.0,87.2 L 327.5,87.6 L 331.0,88.0 L 334.5,88.3 L 338.0,88.5 L 341.5,88.8 L 344.9,89.1 L 348.4,89.2 L 351.9,89.5 L 355.4,89.6 L 358.9,89.9 L 362.4,90.1 L 365.9,90.3 L 369.3,90.5 L 372.8,90.7 L 376.3,90.9 L 379.8,91.2 L 383.3,91.3 L 386.8,91.6 L 390.3,91.7 L 393.7,91.8 L 397.2,92.1 L 400.7,92.4 L 404.2,92.5 L 407.7,92.8 L 411.2,92.9 L 414.7,92.3 L 418.1,91.4 L 421.6,90.5 L 425.1,89.4 L 428.6,88.3 L 432.1,87.2 L 435.6,86.1 L 439.1,85.0 L 442.5,84.0 L 446.0,83.0 L 449.5,82.2 L 453.0,81.4 L 456.5,80.7 L 460.0,80.1 L 463.5,79.7 L 466.9,79.5 L 470.4,79.3 L 473.9,79.3 L 477.4,79.5 L 480.9,79.7 L 484.4,80.1 L 487.9,80.7 L 491.4,81.4 L 494.8,82.2 L 498.3,83.2 L 501.8,84.1 L 505.3,85.2 L 508.8,86.3 L 512.3,87.6 L 515.8,88.8 L 519.2,90.1 L 522.7,91.2 L 526.2,92.3 L 529.7,93.2 L 533.2,94.2 L 536.7,95.0 L 540.2,95.8 L 543.6,96.5 L 547.1,97.1 L 550.6,97.5 L 554.1,97.8 L 557.6,97.9 L 561.1,98.0 L 564.6,98.0 L 568.0,98.0 L 571.5,97.9 L 575.0,97.8 L 578.5,97.6 L 582.0,97.5 L 585.5,97.3 L 589.0,97.2 L 592.4,97.2 L 595.9,97.2 L 599.4,97.3 L 602.9,97.5 L 606.4,97.8 L 609.9,98.0 L 613.4,98.4 L 616.8,98.9 L 620.3,99.3 L 623.8,99.7 L 627.3,100.1 L 630.8,100.4 L 634.3,100.7 L 637.8,100.8 L 641.3,100.9 L 644.7,101.1 L 648.2,101.1 L 651.7,101.1 L 655.2,100.9 L 658.7,100.8 L 662.2,100.7 L 665.7,100.5 L 669.1,100.4 L 672.6,100.2 L 676.1,100.1 L 679.6,100.0 L 683.1,100.0 L 686.6,99.8 L 690.1,99.8 L 693.5,99.8 L 697.0,99.8 L 700.5,99.8 L 704.0,99.8 L 704.0,114.0 Z" fill="#FBE5E6" fill-opacity="0.55" /><polyline fill="none" stroke="#4A5A73" stroke-width="1" stroke-dasharray="3 3" stroke-opacity="0.65" points="80.0,111.4 83.5,111.4 87.0,111.3 90.5,111.3 93.9,111.3 97.4,111.3 100.9,111.2 104.4,111.2 107.9,111.2 111.4,111.3 114.9,111.3 118.3,111.2 121.8,111.2 125.3,111.2 128.8,111.1 132.3,111.1 135.8,111.2 139.3,111.2 142.7,111.2 146.2,111.1 149.7,111.1 153.2,111.1 156.7,111.1 160.2,111.1 163.7,111.1 167.2,111.2 170.6,111.2 174.1,111.2 177.6,111.3 181.1,111.3 184.6,111.3 188.1,111.3 191.6,111.3 195.0,111.2 198.5,111.2 202.0,111.2 205.5,111.2 209.0,111.2 212.5,111.2 216.0,111.2 219.4,111.2 222.9,111.2 226.4,111.2 229.9,111.1 233.4,111.1 236.9,111.1 240.4,111.2 243.8,111.2 247.3,111.2 250.8,111.2 254.3,111.2 257.8,111.2 261.3,111.2 264.8,111.1 268.2,111.1 271.7,111.1 275.2,111.1 278.7,111.1 282.2,111.1 285.7,111.1 289.2,111.2 292.6,111.2 296.1,111.2 299.6,111.2 303.1,111.3 306.6,111.2 310.1,111.2 313.6,111.2 317.1,111.2 320.5,111.1 324.0,111.1 327.5,111.1 331.0,111.2 334.5,111.2 338.0,111.2 341.5,111.1 344.9,111.1 348.4,111.1 351.9,111.1 355.4,111.0 358.9,111.1 362.4,111.1 365.9,111.1 369.3,111.1 372.8,111.2 376.3,111.1 379.8,111.1 383.3,111.1 386.8,111.1 390.3,111.1 393.7,111.1 397.2,111.1 400.7,111.2 404.2,111.2 407.7,111.2 411.2,111.2 414.7,111.2 418.1,111.2 421.6,111.2 425.1,111.1 428.6,111.1 432.1,111.1 435.6,111.2 439.1,111.2 442.5,111.2 446.0,111.2 449.5,111.3 453.0,111.2 456.5,111.2 460.0,111.2 463.5,111.2 466.9,111.1 470.4,111.1 473.9,111.1 477.4,111.1 480.9,111.1 484.4,111.1 487.9,111.1 491.4,111.2 494.8,111.2 498.3,111.2 501.8,111.2 505.3,111.2 508.8,111.1 512.3,111.1 515.8,111.1 519.2,111.2 522.7,111.2 526.2,111.2 529.7,111.2 533.2,111.3 536.7,111.3 540.2,111.3 543.6,111.4 547.1,111.3 550.6,111.3 554.1,111.3 557.6,111.2 561.1,111.2 564.6,111.2 568.0,111.2 571.5,111.2 575.0,111.2 578.5,111.2 582.0,111.3 585.5,111.3 589.0,111.3 592.4,111.3 595.9,111.3 599.4,111.2 602.9,111.2 606.4,111.2 609.9,111.2 613.4,111.2 616.8,111.2 620.3,111.2 623.8,111.3 627.3,111.3 630.8,111.3 634.3,111.3 637.8,111.3 641.3,111.2 644.7,111.2 648.2,111.2 651.7,111.2 655.2,111.1 658.7,111.2 662.2,111.2 665.7,111.2 669.1,111.2 672.6,111.3 676.1,111.3 679.6,111.3 683.1,111.4 686.6,111.4 690.1,111.4 693.5,111.3 697.0,111.3 700.5,111.3 704.0,111.4" /><polyline fill="none" stroke="#E15759" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" points="80.0,108.2 83.5,108.4 87.0,108.1 90.5,107.8 93.9,107.9 97.4,107.0 100.9,106.0 104.4,104.5 107.9,103.8 111.4,101.9 114.9,100.9 118.3,97.8 121.8,94.6 125.3,90.2 128.8,85.4 132.3,79.3 135.8,73.0 139.3,64.7 142.7,55.5 146.2,46.3 149.7,40.0 153.2,34.7 156.7,31.6 160.2,28.1 163.7,31.2 167.2,35.4 170.6,38.9 174.1,40.8 177.6,44.4 181.1,47.8 184.6,51.7 188.1,55.0 191.6,59.0 195.0,62.7 198.5,66.4 202.0,70.0 205.5,67.5 209.0,63.2 212.5,58.8 216.0,54.1 219.4,49.5 222.9,44.5 226.4,38.7 229.9,33.5 233.4,29.2 236.9,26.5 240.4,24.8 243.8,24.0 247.3,25.0 250.8,27.6 254.3,31.7 257.8,35.8 261.3,40.0 264.8,44.5 268.2,48.9 271.7,53.4 275.2,57.9 278.7,62.3 282.2,66.5 285.7,70.5 289.2,74.2 292.6,77.7 296.1,80.4 299.6,82.6 303.1,84.0 306.6,84.8 310.1,85.4 313.6,85.8 317.1,86.3 320.5,86.8 324.0,87.2 327.5,87.6 331.0,88.0 334.5,88.3 338.0,88.5 341.5,88.8 344.9,89.1 348.4,89.2 351.9,89.5 355.4,89.6 358.9,89.9 362.4,90.1 365.9,90.3 369.3,90.5 372.8,90.7 376.3,90.9 379.8,91.2 383.3,91.3 386.8,91.6 390.3,91.7 393.7,91.8 397.2,92.1 400.7,92.4 404.2,92.5 407.7,92.8 411.2,92.9 414.7,92.3 418.1,91.4 421.6,90.5 425.1,89.4 428.6,88.3 432.1,87.2 435.6,86.1 439.1,85.0 442.5,84.0 446.0,83.0 449.5,82.2 453.0,81.4 456.5,80.7 460.0,80.1 463.5,79.7 466.9,79.5 470.4,79.3 473.9,79.3 477.4,79.5 480.9,79.7 484.4,80.1 487.9,80.7 491.4,81.4 494.8,82.2 498.3,83.2 501.8,84.1 505.3,85.2 508.8,86.3 512.3,87.6 515.8,88.8 519.2,90.1 522.7,91.2 526.2,92.3 529.7,93.2 533.2,94.2 536.7,95.0 540.2,95.8 543.6,96.5 547.1,97.1 550.6,97.5 554.1,97.8 557.6,97.9 561.1,98.0 564.6,98.0 568.0,98.0 571.5,97.9 575.0,97.8 578.5,97.6 582.0,97.5 585.5,97.3 589.0,97.2 592.4,97.2 595.9,97.2 599.4,97.3 602.9,97.5 606.4,97.8 609.9,98.0 613.4,98.4 616.8,98.9 620.3,99.3 623.8,99.7 627.3,100.1 630.8,100.4 634.3,100.7 637.8,100.8 641.3,100.9 644.7,101.1 648.2,101.1 651.7,101.1 655.2,100.9 658.7,100.8 662.2,100.7 665.7,100.5 669.1,100.4 672.6,100.2 676.1,100.1 679.6,100.0 683.1,100.0 686.6,99.8 690.1,99.8 693.5,99.8 697.0,99.8 700.5,99.8 704.0,99.8" /><circle cx="243.8" cy="24.0" r="3.5" fill="#E15759" /><text x="249.8" y="17.0" text-anchor="start" font-size="11" font-weight="600" fill="#E15759">Peak 6.54K</text><text x="72.0" y="28.0" text-anchor="end" font-size="10" fill="currentColor" opacity="0.55">7K</text><text x="72.0" y="114.0" text-anchor="end" font-size="10" fill="currentColor" opacity="0.55">0.0</text><text x="80.0" y="132.0" font-size="11" fill="currentColor" opacity="0.65">2026-05-13 14:00Z</text><text x="704.0" y="132.0" text-anchor="end" font-size="11" fill="currentColor" opacity="0.65">2026-05-13 17:00Z</text></svg>
+          <figcaption class="impact-chart-legend">
+            <span><span class="swatch" style="background: #E15759;"></span>Current window</span>
+              <span><span class="swatch swatch-baseline"></span>Baseline (avg ~203)</span>
+          </figcaption>
+          <div class="volume-chart-labels tnum">
+            <span><span class="label">Peak</span> 6.54K @ 14:47 UTC</span>
+              <span><span class="label">Duration</span> 3 hours</span>
+              <span><span class="label">Window</span> May 13, 2026 · 2:00–5:00 PM UTC</span>
+          </div>
+        </figure>
+
+        <div class="window-timeline-compact impact-timeline" aria-label="Evidence window timeline">
+          <div class="timeline-title">
+            <span class="kicker section-eyebrow">Evidence timeline</span>
+            <span class="timeline-range tnum">2026-05-13 11:00Z → 2026-05-13 17:00Z</span>
+          </div>
+          <div class="timeline-track" role="img" aria-label="Baseline and current comparison windows">
+              <div class="timeline-segment timeline-baseline"
+                   style="left: 0.000%; width: 50.000%;">
+                <span>Baseline</span>
+              </div>
+              <div class="timeline-segment timeline-current"
+                   style="left: 50.000%; width: 50.000%;">
+                <span>Current</span>
+              </div>
+          </div>
+          <div class="timeline-legend">
+              <span><strong>Baseline:</strong> 2026-05-13 11:00Z → 2026-05-13 14:00Z</span>
+              <span><strong>Current:</strong> 2026-05-13 14:00Z → 2026-05-13 17:00Z</span>
+          </div>
+        </div>
+    </div>
 
     <dl class="kpis">
         <div class="kpi">
@@ -3377,8 +3801,10 @@ footer {
     </dl>
 
       <p class="impact-lead" style="margin-top: 18px;">
-        Top affected: <strong>www.example.com</strong>
-        <code class="mono">/login/*</code> —
+        Top affected host:
+<strong>www.example.com</strong> (96.5%, +312% vs baseline).      </p>
+      <p class="impact-lead">
+        Top path pattern: <code class="mono">/login/*</code> —
         2.90M requests
         (68.2% of window,
         +530% vs baseline).
@@ -3829,7 +4255,7 @@ footer {
   </section>
 
   <section class="section section-attack split-2col">
-    <div>
+    <div class="print-pane">
       <div class="section-head">
         <div class="section-head-rule">
           <span class="kicker section-eyebrow">ATT&amp;CK Mapping</span>
@@ -3908,7 +4334,7 @@ footer {
       </div>
     </div>
 
-    <div>
+    <div class="print-pane">
       <div class="section-head">
         <div class="section-head-rule">
           <span class="kicker section-eyebrow">Top Paths</span>
@@ -3994,7 +4420,7 @@ footer {
 
 
   <section class="section section-geo split-2col">
-    <div>
+    <div class="print-pane">
       <div class="section-head">
         <div class="section-head-rule">
           <span class="kicker section-eyebrow">Top Countries</span>
@@ -4046,7 +4472,7 @@ footer {
         </table>
     </div>
 
-    <div>
+    <div class="print-pane">
       <div class="section-head">
         <div class="section-head-rule">
           <span class="kicker section-eyebrow">Traffic Cohorts</span>
@@ -4166,7 +4592,7 @@ footer {
       </details>
   </section>
 
-    <section id="iocs" class="section section-ioc">
+    <section id="iocs" class="section section-ioc print-raw-only">
       <div class="section-head">
         <div class="section-head-rule">
           <span class="kicker section-eyebrow">For Your SIEM</span>
@@ -4549,11 +4975,11 @@ footer {
     </div>
     <div class="right">
       <span class="label">Generated</span>
-      <span class="tnum">2026-05-18 02:03 UTC</span>
+      <span class="tnum">2026-05-18 18:43 UTC</span>
     </div>
   </footer>
 
-  <details id="evidence" class="full-evidence">
+  <details id="evidence" class="full-evidence print-raw-only">
     <summary>Full evidence — scope tables, per-field actor rankings, limitations</summary>
     <div class="full-evidence-body">
 
@@ -5291,19 +5717,8 @@ footer {
           <div class="section-head" style="margin-top: 28px;">
             <h3 class="display-lg">Analyst narrative</h3>
           </div>
-            <h4>Executive summary</h4>
-            <div class="prose"><p><strong>Assessed with high confidence:</strong> this window is consistent with a targeted credential-stuffing pattern against <code>/login/*</code> on www.example.com — with a separately-corroborating signal in the Browser-cohort behavioral anomaly. This is not a broad traffic shift.</p>
-<p>Four independent signals concur:</p>
-<ul>
-<li>Spike flags <code>volume_up</code>, <code>rate_429_up</code>, and <code>bot_share_up</code> all fired against the trailing window.</li>
-<li>Three client IPs (<code>203.0.113.10</code>, <code>198.51.100.42</code>, <code>192.0.2.17</code>) reached <code>severity: critical</code> — they share ASN <code>64500</code>, concentrate on a single path, and carry both high volume share and high 429 share. ASN <code>64500</code> itself and User Agent <code>python-requests/2.31</code> sit at <code>severity: high</code> alongside them.</li>
-<li>SIEM <code>block-credential-stuff</code> policy delta is +520% vs baseline, with <code>rate-limit-login</code> at +610%.</li>
-<li>The Traffic cohort <code>Browser</code> graduated on the <code>anomaly</code> primitive: its current-window error rate of 13.7% is 26× its baseline (~0.5%). This is consistent with sophisticated automation passing bot-classification — the kind of pattern that needs an application-layer response, not just WAF rules tuned for the named IP cluster.</li>
-</ul>
-<p>The 4.25M-request / 8.2% 429-rate Impact tiles are consistent with the primary read; the reasons to escalate are the named single-ASN cluster, the automation UA matches, <em>and</em> the Browser-cohort behavioral departure — not the raw volume.</p>
-</div>
-            <h4 style="margin-top: 16px;">Operational interpretation</h4>
-            <div class="prose"><p>Client IP <code>203.0.113.10</code> is the top flagged target, promoted on high volume share and single-path concentration against <code>/login/submit</code>. User Agent <code>python-requests/2.31</code> also crosses the high-volume-share threshold and matches the curated automation pattern. ASN <code>64500</code> is flagged via single-ASN clustering — multiple flagged client IPs share that origin network.</p>
+          <h4>Operational interpretation</h4>
+          <div class="prose"><p>Client IP <code>203.0.113.10</code> is the top flagged target, promoted on high volume share and single-path concentration against <code>/login/submit</code>. User Agent <code>python-requests/2.31</code> also crosses the high-volume-share threshold and matches the curated automation pattern. ASN <code>64500</code> is flagged via single-ASN clustering — multiple flagged client IPs share that origin network.</p>
 </div>
         </section>
 
@@ -5373,7 +5788,7 @@ footer {
   </div>
   <div class="purpose-cell">
     <div class="purpose-label">What this can't say</div>
-    <p>Rule-based scorecard. Mechanical features only — no malicious-intent claim or root-cause attribution.</p>
+    <p>This report describes traffic patterns, not intent. It is built from log rules, so it does not claim any actor is malicious or attribute a root cause.</p>
   </div>
 </section>
 
@@ -5383,7 +5798,7 @@ footer {
 </article>
 
   <footer>
-    Generated 2026-05-18 02:03 UTC · artifact bot_incident_scope.v1  </footer>
+    Generated 2026-05-18 18:43 UTC · artifact bot_incident_scope.v1  </footer>
 </main>
 </body>
 </html>

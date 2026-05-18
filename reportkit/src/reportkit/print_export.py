@@ -44,12 +44,22 @@ def render_pdf_from_html(
                 page.pdf(
                     path=str(output_path),
                     format=paper_format,
+                    prefer_css_page_size=True,
                     print_background=True,
+                    display_header_footer=True,
+                    header_template="<span></span>",
+                    footer_template=(
+                        "<div style=\"width:100%; font-size:7px; color:#777; "
+                        "padding:0 0.38in; text-align:right; "
+                        "font-family:Arial, sans-serif;\">"
+                        "<span class=\"pageNumber\"></span>/<span class=\"totalPages\"></span>"
+                        "</div>"
+                    ),
                     margin={
-                        "top": "0.6in",
-                        "right": "0.5in",
-                        "bottom": "0.6in",
-                        "left": "0.5in",
+                        "top": "0.48in",
+                        "right": "0.42in",
+                        "bottom": "0.54in",
+                        "left": "0.42in",
                     },
                 )
             finally:

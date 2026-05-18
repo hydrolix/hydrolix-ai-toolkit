@@ -124,6 +124,10 @@ def parse_args() -> argparse.Namespace:
         help="Inclusive ISO-8601 baseline start. Defaults to the equal-length previous window.",
     )
     parser.add_argument(
+        "--baseline-end",
+        help="Exclusive ISO-8601 baseline end. Defaults to --start for legacy windows.",
+    )
+    parser.add_argument(
         "--sample-dir",
         help="Directory for intermediate local JSON. Defaults to ~/src/sample-data/bot-insights/1.1/<cluster>.",
     )
@@ -309,8 +313,18 @@ def main() -> int:
         baseline_start = parse_time(args.baseline_start, "baseline-start")
     else:
         baseline_start = start - window
-    if baseline_start >= start:
-        raise SystemExit("--baseline-start must be earlier than --start")
+    if args.baseline_end:
+        baseline_end = parse_time(args.baseline_end, "baseline-end")
+    else:
+        baseline_end = start
+    if baseline_start >= baseline_end:
+        raise SystemExit("--baseline-start must be earlier than --baseline-end")
+    if baseline_end > start:
+        raise SystemExit("--baseline-end must be earlier than or equal to --start")
+    if baseline_end - baseline_start != window:
+        raise SystemExit("--baseline window must match the current window duration")
+    if args.baseline_end and args.report != "incident_report":
+        raise SystemExit("--baseline-end is only supported with --report incident_report.")
     if args.scorecard_limit < 0:
         raise SystemExit("--scorecard-limit must be zero or a positive integer.")
     scorecard_reports = {
@@ -408,6 +422,7 @@ def main() -> int:
             start,
             end,
             baseline_start,
+            baseline_end,
             sample_dir,
             output_path,
         )

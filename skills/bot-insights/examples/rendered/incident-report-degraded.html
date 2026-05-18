@@ -1739,6 +1739,7 @@ footer {
 .brief-incident .pill-neutral  { background: transparent;            color: var(--paper-mute);       border-color: var(--paper-faint); }
 .brief-incident .pill-mono     { background: var(--paper-panel);     color: var(--paper-ink);        border-color: var(--paper-rule); }
 .brief-incident .pill-escalate { background: var(--paper-orange-bg); color: var(--paper-orange-ink); border-color: var(--paper-orange); }
+.brief-incident .print-risk-pill { display: none; }
 
 /* Section headers (eyebrow rule + display headline) */
 .brief-incident .section-head { margin-bottom: 18px; }
@@ -1927,6 +1928,16 @@ footer {
   gap: 32px;
   align-items: start;
   margin-bottom: 24px;
+}
+.brief-incident .verdict-main {
+  grid-column: 1 / -1;
+}
+.brief-incident .verdict-narrative {
+  max-width: none;
+}
+.brief-incident .verdict-narrative.prose {
+  font-size: 15px;
+  line-height: 1.55;
 }
 .brief-incident .verdict-pills {
   display: flex;
@@ -2179,6 +2190,41 @@ footer {
   color: var(--paper-mute);
   font-style: italic;
 }
+.brief-incident .score-methodology {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--paper-rule-soft);
+  color: var(--paper-body);
+}
+.brief-incident .score-methodology-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 6px;
+}
+.brief-incident .score-methodology-pill {
+  font-family: var(--mono-editorial);
+  font-size: 10.5px;
+  letter-spacing: var(--label-tracking-tight);
+  text-transform: uppercase;
+  color: var(--paper-mute);
+  white-space: nowrap;
+}
+.brief-incident .score-methodology p {
+  margin: 0;
+  max-width: 780px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.brief-incident .score-methodology-reasons {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--paper-mute);
+}
+.brief-incident .score-methodology-reasons li + li { margin-top: 3px; }
 
 /* Impact */
 .brief-incident .section { margin-bottom: 56px; }
@@ -2216,6 +2262,15 @@ footer {
   border-top: 1.5px dashed var(--paper-faint);
   height: 0;
 }
+.brief-incident .impact-chart-legend .swatch-incident {
+  background: var(--paper-red-bg);
+  border: 1px solid var(--paper-red);
+  height: 6px;
+}
+.brief-incident .impact-chart-legend .swatch-scope {
+  background: var(--paper-red);
+  height: 4px;
+}
 
 /* Three-field label strip under the volume chart figure: peak value
    and time, duration, and the headline window string. Reads as the
@@ -2238,6 +2293,70 @@ footer {
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+  color: var(--paper-mute);
+}
+.brief-incident .window-timeline-compact {
+  margin: 18px 0 0;
+  padding: 12px 14px 10px;
+  border: 1px solid var(--paper-rule-soft);
+  background: var(--paper-surface);
+}
+.brief-incident .verdict-timeline,
+.brief-incident .verdict-volume-timeline { display: none; }
+.brief-incident .timeline-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+.brief-incident .timeline-range {
+  font-size: 11.5px;
+  color: var(--paper-mute);
+}
+.brief-incident .timeline-track {
+  position: relative;
+  height: 28px;
+  background: linear-gradient(
+    to right,
+    transparent 0,
+    transparent calc(100% - 1px),
+    var(--paper-rule-soft) calc(100% - 1px)
+  );
+  border-top: 1px solid var(--paper-rule-soft);
+  border-bottom: 1px solid var(--paper-rule-soft);
+}
+.brief-incident .timeline-segment {
+  position: absolute;
+  top: 6px;
+  min-width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  font-family: var(--mono-editorial);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 14px;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--paper-ink);
+  overflow: hidden;
+}
+.brief-incident .timeline-baseline {
+  background: var(--paper-panel);
+  border: 1px solid var(--paper-faint);
+}
+.brief-incident .timeline-current {
+  background: var(--paper-red-bg);
+  border: 1px solid var(--paper-red);
+  color: var(--paper-red-ink);
+}
+.brief-incident .timeline-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 8px;
+  font-size: 11.5px;
   color: var(--paper-mute);
 }
 
@@ -3042,105 +3161,320 @@ footer {
   padding-top: 12px;
 }
 
-/* Print rules — preserve the editorial pagination scheme from
-   briefing.html. Every selector is scoped under .brief-incident so the
-   engine's existing print rules elsewhere are untouched. */
+/* Print rules — compact board-packet layout. Every selector is scoped
+   under .brief-incident so the engine's existing print rules elsewhere
+   are untouched. */
 @media print {
+  @page {
+    size: letter;
+    margin: 0.48in 0.42in 0.54in;
+  }
   .brief-incident {
     background: #fff !important;
     color: #000;
     max-width: none;
     margin: 0;
     padding: 0;
-    font-size: 10.5pt;
-    line-height: 1.4;
+    font-size: 10.3pt;
+    line-height: 1.36;
+    orphans: 3;
+    widows: 3;
   }
-  .brief-incident .display    { font-size: 22pt; line-height: 1.05; }
-  .brief-incident .display-xl { font-size: 28pt; line-height: 1.02; }
-  .brief-incident .display-lg { font-size: 16pt; }
+  .brief-incident .display    { font-size: 19pt; line-height: 1.08; }
+  .brief-incident .display-xl { font-size: 24pt; line-height: 1.04; }
+  .brief-incident .display-lg { font-size: 14.5pt; }
   .brief-incident h1, .brief-incident h2, .brief-incident h3 { color: #000; }
 
-  .brief-incident .brief-mast { padding-bottom: 10pt; margin-bottom: 16pt; }
-  .brief-incident .mast-dek   { font-size: 11pt; margin-top: 8pt; }
-  .brief-incident .mast-brand svg { height: 18pt; }
-  .brief-incident .mast-window-line { font-size: 14pt; margin-top: 4pt; }
+  .brief-incident .brief-mast { padding-bottom: 7pt; margin-bottom: 11pt; }
+  .brief-incident .mast-dek   { font-size: 9.4pt; margin-top: 4pt; }
+  .brief-incident .mast-brand svg { height: 15pt; }
+  .brief-incident .mast-window-line { font-size: 10.5pt; margin-top: 2pt; }
   .brief-incident .mast-anchors { display: none; }
 
-  .brief-incident .verdict { margin-bottom: 22pt; }
-  .brief-incident .verdict-score-num { font-size: 48pt; }
-  .brief-incident .verdict-score-num small { font-size: 18pt; }
+  .brief-incident .verdict {
+    display: flex;
+    flex-direction: column;
+    min-height: 8.1in;
+    margin-bottom: 0;
+    break-after: page;
+    page-break-after: always;
+  }
+  .brief-incident .verdict-cover {
+    display: block;
+  }
+  .brief-incident .verdict-score-card { display: none; }
+  .brief-incident .verdict-level-pill { display: none; }
+  .brief-incident .print-risk-pill { display: inline-block; }
+  .brief-incident .verdict-pills { margin: 8pt 0 10pt; }
+  .brief-incident .severity-ladder { margin-top: 10pt; }
+  .brief-incident .severity-ladder-bars {
+    gap: 5pt;
+    margin-bottom: 6pt;
+  }
+  .brief-incident .severity-ladder-bar { height: 8pt; }
+  .brief-incident .severity-ladder-labels { gap: 4pt; }
+  .brief-incident .severity-ladder-labels span { font-size: 7.2pt; }
+  .brief-incident .verdict-caveat { display: none; }
+  .brief-incident .verdict-assessment { display: none; }
+  .brief-incident .verdict-narrative {
+    display: block;
+    max-width: none;
+  }
+  .brief-incident .verdict-narrative.prose {
+    font-size: 8.4pt;
+    line-height: 1.34;
+  }
+  .brief-incident .verdict-narrative.prose p {
+    margin: 0 0 5pt;
+  }
+  .brief-incident .verdict-narrative.prose ul,
+  .brief-incident .verdict-narrative.prose ol {
+    margin: 4pt 0 0;
+    padding-left: 13pt;
+  }
+  .brief-incident .verdict-narrative.prose li + li {
+    margin-top: 2pt;
+  }
 
-  .brief-incident .verdict-findings { padding: 14pt 0; gap: 18pt; }
+  .brief-incident .verdict-findings {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 13pt;
+    padding: 10pt 0 0;
+    border-top: 1px solid #000;
+    border-bottom: 1px solid #000;
+  }
   .brief-incident .verdict-findings > li {
+    display: block;
+    margin: 0 0 10pt;
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  .brief-incident .finding-lead { font-size: 13pt; }
-  .brief-incident .finding-body { font-size: 10pt; }
+  .brief-incident .finding-label { margin-bottom: 4pt; font-size: 7.2pt; }
+  .brief-incident .finding-lead { font-size: 8.7pt; line-height: 1.28; }
+  .brief-incident .finding-body {
+    font-size: 7.5pt;
+    line-height: 1.3;
+    margin: 3pt 0 0;
+  }
+  .brief-incident .finding-entities {
+    margin: 4pt 0 0;
+    padding-left: 0;
+    gap: 3pt;
+  }
+  .brief-incident .finding-entities li {
+    display: block;
+    margin-right: 0;
+    padding-left: 8pt;
+    font-size: 7.2pt;
+    line-height: 1.26;
+  }
+  .brief-incident .finding-entity-value {
+    font-size: 7.1pt;
+  }
+  .brief-incident .finding-entity-meta {
+    display: block;
+    font-size: 6.8pt;
+  }
+  .brief-incident .verdict-volume-timeline {
+    display: block;
+    margin-top: 10pt;
+    padding: 7pt 7pt 5pt;
+  }
+  .brief-incident .verdict-volume-timeline .timeline-title { margin-bottom: 5pt; }
+  .brief-incident .verdict-volume-timeline .timeline-range {
+    font-size: 7.4pt;
+    font-weight: 600;
+    color: #333;
+  }
+  .brief-incident .verdict-volume-timeline svg {
+    max-width: 100%;
+    max-height: 72pt;
+  }
+  .brief-incident .timeline-series-legend {
+    display: flex;
+    gap: 10pt;
+    padding: 3pt 0 0;
+    font-size: 7pt;
+    color: #333;
+  }
+  .brief-incident .timeline-series-legend .swatch {
+    display: inline-block;
+    width: 12pt;
+    height: 2pt;
+    margin-right: 4pt;
+    vertical-align: middle;
+  }
+  .brief-incident .timeline-series-legend .swatch-baseline {
+    background: transparent;
+    border-top: 1pt dashed #777;
+    height: 0;
+  }
+  .brief-incident .timeline-series-legend .swatch-incident {
+    background: rgba(225, 87, 89, 0.14);
+    border: 1pt solid rgba(225, 87, 89, 0.32);
+    height: 5pt;
+  }
+  .brief-incident .timeline-series-legend .swatch-scope,
+  .brief-incident .impact-chart-legend .swatch-scope {
+    background: #e15759;
+    height: 2pt;
+  }
+  .brief-incident .verdict-volume-timeline .volume-chart-labels {
+    padding: 3pt 0 0;
+    font-size: 7.2pt;
+    gap: 3pt 8pt;
+  }
+  .brief-incident .verdict-volume-timeline .volume-chart-labels .label {
+    font-size: 6.6pt;
+    margin-right: 3pt;
+  }
+  .brief-incident .impact-volume-timeline,
+  .brief-incident .impact-timeline {
+    display: none;
+  }
+  .brief-incident .score-methodology {
+    margin-top: auto;
+    padding-top: 8pt;
+    border-top: 1px solid #999;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .brief-incident .score-methodology-head {
+    display: flex;
+    gap: 12pt;
+    margin-bottom: 4pt;
+  }
+  .brief-incident .score-methodology-pill {
+    margin-left: auto;
+    font-size: 7.4pt;
+    white-space: normal;
+    text-align: right;
+  }
+  .brief-incident .score-methodology p {
+    max-width: none;
+    font-size: 7.8pt;
+    line-height: 1.32;
+  }
+  .brief-incident .score-methodology-reasons {
+    margin-top: 4pt;
+    padding-left: 10pt;
+    font-size: 7.4pt;
+    line-height: 1.28;
+    list-style: disc;
+  }
 
-  .brief-incident .section { margin-bottom: 22pt; }
-  .brief-incident .section-head { margin-bottom: 10pt; }
+  .brief-incident .section { margin-bottom: 18pt; }
+  .brief-incident .exec-readout { display: none !important; }
+  .brief-incident .section-impact {
+    break-before: page;
+    page-break-before: always;
+  }
+  .brief-incident .section-head { margin-bottom: 8pt; }
+  .brief-incident .section-head-rule { margin-bottom: 6pt; }
+  .brief-incident .impact-print-pack {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .brief-incident .impact-lead {
+    font-size: 10.2pt;
+    line-height: 1.36;
+    margin-bottom: 9pt;
+    max-width: none;
+  }
 
-  .brief-incident .impact-chart { padding: 8pt 6pt 4pt; }
-  .brief-incident .impact-chart svg { max-width: 100%; }
-  .brief-incident .kpis { margin-top: 12pt; }
-  .brief-incident .kpi { padding: 8pt 10pt 8pt 0; break-inside: avoid; }
-  .brief-incident .kpi-value { font-size: 18pt; }
+  .brief-incident .impact-chart { padding: 7pt 6pt 4pt; }
+  .brief-incident .impact-chart svg { max-width: 100%; max-height: 108pt; }
+  .brief-incident .impact-chart-legend { padding: 5pt 4pt 2pt; }
+  .brief-incident .volume-chart-labels { padding: 3pt 4pt 0; font-size: 8.8pt; }
+  .brief-incident .window-timeline-compact {
+    margin-top: 8pt;
+    padding: 7pt 8pt 6pt;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .brief-incident .timeline-title { margin-bottom: 5pt; }
+  .brief-incident .timeline-track { height: 20pt; }
+  .brief-incident .timeline-segment {
+    top: 4pt;
+    height: 10pt;
+    font-size: 7.5pt;
+    line-height: 10pt;
+  }
+  .brief-incident .timeline-legend { font-size: 8pt; margin-top: 5pt; }
+  .brief-incident .kpis { margin-top: 10pt; }
+  .brief-incident .kpi { padding: 6pt 8pt 6pt 0; break-inside: avoid; }
+  .brief-incident .kpi-value { font-size: 16pt; }
   .brief-incident .kpi-label { font-size: 8pt; letter-spacing: 0.12em; }
-  .brief-incident .kpi-delta { font-size: 8.5pt; }
+  .brief-incident .kpi-delta { font-size: 8pt; }
 
   .brief-incident table { page-break-inside: auto; }
   .brief-incident thead { display: table-header-group; }
   .brief-incident tr    { page-break-inside: avoid; break-inside: avoid; }
   .brief-incident .actors-table th,
-  .brief-incident .actors-table td { padding: 7pt 8pt; }
-  .brief-incident .actors-table { font-size: 9.5pt; }
-  .brief-incident .actors-table .num-large { font-size: 11pt; }
-  .brief-incident .actors-table .ident { font-size: 9.5pt; }
+  .brief-incident .actors-table td { padding: 4pt 5pt; }
+  .brief-incident .actors-table { font-size: 8.8pt; }
+  .brief-incident .actors-table .num-large { font-size: 9.5pt; }
+  .brief-incident .actors-table .ident { font-size: 8.5pt; }
 
-  .brief-incident .split-2col { gap: 24pt; }
-  .brief-incident .attack-row { padding: 6pt 0; }
-  .brief-incident .attack-row .technique { font-size: 10pt; }
-  .brief-incident .mini-table { font-size: 9.5pt; }
-  .brief-incident .mini-table th,
-  .brief-incident .mini-table td { padding: 6pt 0; }
-
-  .brief-incident .actions-list li {
-    padding: 10pt 0;
-    gap: 14pt;
+  .brief-incident .split-2col {
+    display: block;
+  }
+  .brief-incident .print-pane {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 16pt;
+  }
+  .brief-incident .print-pane:last-child { margin-bottom: 0; }
+  .brief-incident .print-pane .section-head {
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  .brief-incident .actions-list .num { font-size: 20pt; }
-  .brief-incident .actions-list .step { font-size: 12pt; }
+  .brief-incident .attack-row { padding: 4pt 0; }
+  .brief-incident .attack-row .technique { font-size: 9pt; }
+  .brief-incident .mini-table { font-size: 9pt; }
+  .brief-incident .mini-table th,
+  .brief-incident .mini-table td { padding: 4pt 0; }
+
+  .brief-incident .actions-list li {
+    display: block;
+    padding: 8pt 0;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .brief-incident .actions-list .num {
+    display: inline-block;
+    width: 2.1em;
+    font-size: 12pt;
+    vertical-align: top;
+  }
+  .brief-incident .actions-list .step {
+    display: inline;
+    font-size: 10.2pt;
+  }
+  .brief-incident .actions-list .pill {
+    display: none;
+  }
+  .brief-incident .actions-list .action-effect {
+    display: block;
+    margin: 3pt 0 0 2.7em;
+    font-size: 8.8pt;
+  }
 
   .brief-incident .ioc-export {
     background: #fafafa !important;
     max-height: none;
-    font-size: 8pt;
-    line-height: 1.4;
-    padding: 8pt 10pt;
+    font-size: 7.5pt;
+    line-height: 1.3;
+    padding: 6pt 8pt;
     white-space: pre-wrap;
     word-break: break-word;
   }
-  .brief-incident .cta {
-    background: transparent !important;
-    border: 1px solid #000;
-    padding: 10pt 14pt;
-  }
-  .brief-incident .cta-link { display: none; }
-  .brief-incident .cta::after {
-    content: attr(data-print-url);
-    display: block;
-    font-family: var(--mono-editorial);
-    font-size: 8.5pt;
-    color: #333;
-    margin-top: 6pt;
-    word-break: break-all;
-  }
+  .brief-incident .cta { display: none !important; }
   .brief-incident .pill,
   .brief-incident .severity-ladder-bar,
   .brief-incident .impact-chart,
+  .brief-incident .window-timeline-compact,
   .brief-incident .kpis,
   .brief-incident .kpi,
   .brief-incident .ioc-export,
@@ -3150,10 +3484,32 @@ footer {
     print-color-adjust: exact !important;
   }
   .brief-incident .section-head { break-after: avoid; page-break-after: avoid; }
-  .brief-incident .method { padding-top: 10pt; font-size: 8.5pt; }
-  .brief-incident .section-actors { break-before: page; page-break-before: always; }
-  .brief-incident .section-attack { break-before: page; page-break-before: always; }
-  .brief-incident .section-ioc    { break-before: page; page-break-before: always; }
+  .brief-incident .method {
+    display: block;
+    padding-top: 8pt;
+    font-size: 8.5pt;
+  }
+  .brief-incident .method > div {
+    margin: 0 0 4pt;
+  }
+  .brief-incident .method .label {
+    display: inline;
+    margin-right: 6pt;
+    letter-spacing: 0.04em;
+  }
+  .brief-incident .method .right { text-align: left; }
+  .brief-incident .print-raw-only,
+  .brief-incident .full-evidence,
+  .brief-incident .section-urls,
+  .brief-incident .section-ioc {
+    display: none !important;
+  }
+  .brief-incident .section-actors,
+  .brief-incident .section-attack,
+  .brief-incident .section-ioc {
+    break-before: auto;
+    page-break-before: auto;
+  }
 }</style>
 </head>
 <body>
@@ -3215,11 +3571,14 @@ footer {
 
   <section id="verdict" class="verdict">
     <div class="verdict-cover">
-      <div>
+      <div class="verdict-main">
         <div class="kicker section-eyebrow">The Verdict</div>
         <div class="verdict-pills">
-          <span class="pill pill-monitor pill-lg">
+          <span class="pill pill-monitor pill-lg verdict-level-pill">
             Medium
+          </span>
+          <span class="pill pill-monitor pill-lg print-risk-pill">
+            Risk: 20/100
           </span>
           <span class="pill pill-medium pill-lg"
                 title="Aggregate confidence — reflects which evidence sources were available (raw access log, edge-response data). Per-indicator confidence is shown separately on each flagged-target row in the Who Hit It table.">
@@ -3250,20 +3609,20 @@ footer {
           </div>
         </div>
 
-          <p class="verdict-caveat">Rule-based scorecard. Mechanical features only — no malicious-intent claim or root-cause attribution.</p>
+          <p class="verdict-caveat">This report describes traffic patterns, not intent. It is built from log rules, so it does not claim any actor is malicious or attribute a root cause.</p>
           <p class="verdict-caveat">
-            Report-level confidence reflects available evidence sources
-            (raw access log, edge-response). Per-indicator confidence on
-            each flagged-target row is set by the producer per actor and
-            may be lower or higher than the overall.
+            Confidence labels reflect how much evidence was available.
+            The overall confidence is based on the data sources we had
+            (raw access log and edge actions). Each indicator row carries
+            its own confidence — that may be higher or lower than the
+            overall.
           </p>
 
-        <p class="verdict-pills" style="margin-top: 18px;">
+        <p class="verdict-pills verdict-assessment" style="margin-top: 18px;">
           <span class="kicker section-eyebrow">Assessed with low confidence</span>
         </p>
-        <p class="finding-body" style="max-width: 720px;">
-          this window shows movement worth investigating; the evidence is not yet decisive.
-        </p>
+          <div class="verdict-narrative prose"><p>Volume on www.example.com is materially up (+210% on the top host) and 429s are spiking on <code>/login/*</code> — both consistent with a login-attack pattern, but per-actor evidence is unavailable on this cluster so naming specific origins is out of reach. The spike flags volume_up + rate_429_up are the only concurring signals, with no SIEM surface and no raw-log breakdown to confirm whether the increase is concentrated on a handful of actors or spread broadly. Escalation should wait on raw-log access for this scope rather than acting on summary evidence alone.</p>
+</div>
       </div>
 
       <aside class="verdict-score-card">
@@ -3289,16 +3648,61 @@ footer {
           <p class="finding-body">this window shows movement worth investigating; the evidence is not yet decisive.</p>
         </li>
     </ol>
+
+
+    <div class="score-methodology" aria-label="How the score was calculated">
+      <div class="score-methodology-head">
+        <span class="kicker section-eyebrow">How the score was calculated</span>
+        <span class="score-methodology-pill tnum">
+          Risk 20/100 · Medium · Low confidence
+        </span>
+      </div>
+      <p>
+        The score is based on severity-weighted suspicious target counts.
+        Those counts are normalized with a hyperbolic curve, which rises
+        quickly and then tapers, and the displayed score is clamped to
+        the current verdict band so the number and verdict stay aligned.
+      </p>
+        <ul class="score-methodology-reasons">
+              <li>spike flags fired (Volume up, 429 rate up)</li>
+              <li>raw-log drilldown unavailable on this cluster, so target naming is out of reach</li>
+              <li>no edge-response signal available (neither SIEM action class nor raw action_applied), so block coverage cannot be cross-checked</li>
+        </ul>
+    </div>
   </section>
 
 
   <section id="impact" class="section section-impact">
-    <div class="section-head">
-      <div class="section-head-rule">
-        <span class="kicker section-eyebrow">Attack Shape</span>
-        <span class="hr"></span>
+    <div class="impact-print-pack">
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Attack Shape</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display">When pressure landed, and how hard</h2>
       </div>
-      <h2 class="display">When pressure landed, and how hard</h2>
+
+
+        <div class="window-timeline-compact impact-timeline" aria-label="Evidence window timeline">
+          <div class="timeline-title">
+            <span class="kicker section-eyebrow">Evidence timeline</span>
+            <span class="timeline-range tnum">2026-05-13 11:00Z → 2026-05-13 17:00Z</span>
+          </div>
+          <div class="timeline-track" role="img" aria-label="Baseline and current comparison windows">
+              <div class="timeline-segment timeline-baseline"
+                   style="left: 0.000%; width: 50.000%;">
+                <span>Baseline</span>
+              </div>
+              <div class="timeline-segment timeline-current"
+                   style="left: 50.000%; width: 50.000%;">
+                <span>Current</span>
+              </div>
+          </div>
+          <div class="timeline-legend">
+              <span><strong>Baseline:</strong> 2026-05-13 11:00Z → 2026-05-13 14:00Z</span>
+              <span><strong>Current:</strong> 2026-05-13 14:00Z → 2026-05-13 17:00Z</span>
+          </div>
+        </div>
     </div>
 
     <dl class="kpis">
@@ -3335,8 +3739,10 @@ footer {
     </dl>
 
       <p class="impact-lead" style="margin-top: 18px;">
-        Top affected: <strong>www.example.com</strong>
-        <code class="mono">/login/*</code> —
+        Top affected host:
+<strong>www.example.com</strong> (95.3%, +210% vs baseline).      </p>
+      <p class="impact-lead">
+        Top path pattern: <code class="mono">/login/*</code> —
         1.50M requests
         (69.8% of window,
         +410% vs baseline).
@@ -3360,8 +3766,7 @@ footer {
               No targets were flagged by the suspicious-actor heuristics
               for this window. Either the cluster has no raw access log
               for this run, or no actor crossed the heuristic
-              thresholds. Scope evidence in <em>Full Evidence</em> below
-              still applies.
+              thresholds. Scope evidence still applies.
             </td>
           </tr>
         </tbody>
@@ -3369,7 +3774,7 @@ footer {
   </section>
 
   <section class="section section-attack split-2col">
-    <div>
+    <div class="print-pane">
       <div class="section-head">
         <div class="section-head-rule">
           <span class="kicker section-eyebrow">ATT&amp;CK Mapping</span>
@@ -3383,7 +3788,7 @@ footer {
       </div>
     </div>
 
-    <div>
+    <div class="print-pane">
       <div class="section-head">
         <div class="section-head-rule">
           <span class="kicker section-eyebrow">Top Paths</span>
@@ -3445,7 +3850,7 @@ footer {
 
 
   <section class="section section-geo split-2col">
-    <div>
+    <div class="print-pane">
       <div class="section-head">
         <div class="section-head-rule">
           <span class="kicker section-eyebrow">Top Countries</span>
@@ -3485,7 +3890,7 @@ footer {
         </table>
     </div>
 
-    <div>
+    <div class="print-pane">
       <div class="section-head">
         <div class="section-head-rule">
           <span class="kicker section-eyebrow">Traffic Cohorts</span>
@@ -3549,11 +3954,11 @@ footer {
     </div>
     <div class="right">
       <span class="label">Generated</span>
-      <span class="tnum">2026-05-18 02:03 UTC</span>
+      <span class="tnum">2026-05-18 18:43 UTC</span>
     </div>
   </footer>
 
-  <details id="evidence" class="full-evidence">
+  <details id="evidence" class="full-evidence print-raw-only">
     <summary>Full evidence — scope tables, per-field actor rankings, limitations</summary>
     <div class="full-evidence-body">
 
@@ -3668,14 +4073,6 @@ footer {
           </p>
       </section>
 
-        <section>
-          <div class="section-head" style="margin-top: 28px;">
-            <h3 class="display-lg">Analyst narrative</h3>
-          </div>
-            <h4>Executive summary</h4>
-            <div class="prose"><p>Volume on www.example.com is materially up (+210% on the top host) and 429s are spiking on <code>/login/*</code> — both consistent with a login-attack pattern, but per-actor evidence is unavailable on this cluster so naming specific origins is out of reach. The spike flags volume_up + rate_429_up are the only concurring signals, with no SIEM surface and no raw-log breakdown to confirm whether the increase is concentrated on a handful of actors or spread broadly. Escalation should wait on raw-log access for this scope rather than acting on summary evidence alone.</p>
-</div>
-        </section>
 
         <section>
           <div class="section-head" style="margin-top: 28px;">
@@ -3753,7 +4150,7 @@ footer {
   </div>
   <div class="purpose-cell">
     <div class="purpose-label">What this can't say</div>
-    <p>Rule-based scorecard. Mechanical features only — no malicious-intent claim or root-cause attribution.</p>
+    <p>This report describes traffic patterns, not intent. It is built from log rules, so it does not claim any actor is malicious or attribute a root cause.</p>
   </div>
 </section>
 
@@ -3763,7 +4160,7 @@ footer {
 </article>
 
   <footer>
-    Generated 2026-05-18 02:03 UTC · artifact bot_incident_scope.v1  </footer>
+    Generated 2026-05-18 18:43 UTC · artifact bot_incident_scope.v1  </footer>
 </main>
 </body>
 </html>

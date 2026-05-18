@@ -1455,6 +1455,127 @@ def test_incident_executive_view_full_html():
     assert 'class="brief-incident exec-view"' in actual
 
 
+def test_incident_report_print_layout_keeps_cover_and_raw_sections_separate():
+    fixture = ROOT / "skills/bot-insights/examples/incident-report.json"
+    actual = _normalize(_render(fixture, "--profile", "print"))
+
+    verdict_start = actual.index('<section id="verdict" class="verdict">')
+    verdict_end = actual.index('<div class="score-methodology"', verdict_start)
+    verdict_html = actual[verdict_start:verdict_end]
+
+    assert 'class="verdict-main"' in verdict_html
+    assert 'class="verdict-narrative prose"' in verdict_html
+    assert "targeted credential-stuffing pattern" in verdict_html
+    assert actual.count("targeted credential-stuffing pattern") == 1
+    assert 'class="verdict-findings"' in verdict_html
+    assert "Finding 01" in verdict_html
+    assert 'class="impact-chart verdict-volume-timeline"' in verdict_html
+    assert 'class="incident-volume-chart"' in verdict_html
+    assert 'class="score-methodology"' in actual
+    assert "How the score was calculated" in actual
+    assert "severity-weighted suspicious target counts" in actual
+    assert "hyperbolic" in actual
+    assert "normalized with a hyperbolic curve" in actual
+    assert "Risk 75/100 · Critical · High confidence" in actual
+    assert "spike flags fired" in actual
+    assert 'class="impact-print-pack"' in actual
+    assert 'class="print-pane"' in actual
+    assert "window-timeline-compact" in actual
+    assert 'class="impact-chart verdict-volume-timeline"' in actual
+    assert 'class="impact-chart impact-volume-timeline"' in actual
+    assert 'class="window-timeline-compact impact-timeline"' in actual
+    assert "429s per minute timeline" in actual
+    assert "Current period vs baseline" in actual
+    assert "Current period" in actual
+    assert "Incident window (" in actual
+    assert "swatch-incident" in actual
+    assert "highlight_start_fraction" not in actual
+    assert "Evidence timeline" in actual
+    assert "Baseline:" in actual
+    assert "Current:" in actual
+    assert 'class="profile-print"' in actual
+    assert ".brief-incident .verdict {" in actual
+    assert "break-after: page" in actual
+    assert "page-break-after: always" in actual
+    assert ".brief-incident .verdict-main {" in actual
+    assert "grid-column: 1 / -1" in actual
+    assert ".brief-incident .verdict-narrative.prose {" in actual
+    assert "grid-template-columns: repeat(3, minmax(0, 1fr))" in actual
+    assert ".brief-incident .section-impact {" in actual
+    assert "break-before: page" in actual
+    assert ".brief-incident .verdict-score-card { display: none; }" in actual
+    assert ".brief-incident .verdict-level-pill { display: none; }" in actual
+    assert ".brief-incident .print-risk-pill { display: inline-block; }" in actual
+    assert 'class="pill pill-critical pill-lg print-risk-pill"' in actual
+    assert ".brief-incident .verdict-assessment { display: none; }" in actual
+    assert ".brief-incident .exec-readout { display: none !important; }" in actual
+    assert ".brief-incident .verdict-volume-timeline {" in actual
+    assert ".brief-incident .impact-volume-timeline," in actual
+    assert ".brief-incident .impact-timeline {" in actual
+    assert "print-raw-only" in actual
+    assert ".brief-incident .print-raw-only" in actual
+    assert ".brief-incident .full-evidence" in actual
+    assert ".brief-incident .section-urls" in actual
+    assert ".brief-incident .section-ioc" in actual
+    assert ".brief-incident .cta { display: none !important; }" in actual
+    assert "display: none !important" in actual
+
+
+def test_incident_report_verdict_falls_back_to_deterministic_summary_without_note():
+    fixture = FIXTURES / "incident_report_deterministic_only.json"
+    actual = _normalize(_render(fixture, "--profile", "print"))
+
+    verdict_start = actual.index('<section id="verdict" class="verdict">')
+    verdict_end = actual.index('<div class="score-methodology"', verdict_start)
+    verdict_html = actual[verdict_start:verdict_end]
+
+    assert 'class="finding-body verdict-narrative"' in verdict_html
+    assert (
+        "this window is consistent with a high-severity targeted incident"
+        in verdict_html
+    )
+    assert 'class="verdict-narrative prose"' not in verdict_html
+
+
+def test_incident_report_renders_detected_anomaly_and_scoped_window(tmp_path):
+    fixture = ROOT / "skills/bot-insights/examples/incident-report.json"
+    data = json.loads(fixture.read_text())
+    scope_art = next(
+        artifact for artifact in data["artifacts"]
+        if artifact.get("schema_version") == "bot_incident_scope.v1"
+    )
+    scope_art["scope"]["start"] = "2026-05-13T15:00:00Z"
+    scope_art["scope"]["end"] = "2026-05-13T16:00:00Z"
+    scope_art["incident_detection"] = {
+        "detected_start": "2026-05-13T14:00:00Z",
+        "detected_end": "2026-05-13T17:00:00Z",
+        "core_start": "2026-05-13T14:00:00Z",
+        "core_end": "2026-05-13T15:00:00Z",
+        "peak_time": "2026-05-13T14:30:00Z",
+        "peak_value": 100,
+        "series_name": "req_429_per_minute",
+        "series_label": "429s per minute",
+        "method": {},
+    }
+    out = tmp_path / "incident-detected.json"
+    out.write_text(json.dumps(data))
+
+    actual = _normalize(_render(out, "--profile", "print"))
+
+    assert "Detected anomaly period" in actual
+    assert "Incident window (" in actual
+    assert "swatch-scope" in actual
+
+
+def test_incident_report_without_detection_keeps_scope_highlight_fallback():
+    fixture = ROOT / "skills/bot-insights/examples/incident-report.json"
+    actual = _normalize(_render(fixture, "--profile", "print"))
+
+    assert "Detected anomaly period" not in actual
+    assert "Incident window (" in actual
+    assert "swatch-incident" in actual
+
+
 def test_incident_executive_view_no_notes_html():
     """Empty ``analyst_notes`` exercises the graceful-degradation
     strings — every analyst slot has a fallback."""
