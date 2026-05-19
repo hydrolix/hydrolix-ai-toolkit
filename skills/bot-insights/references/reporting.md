@@ -282,6 +282,11 @@ cat control_review.json \
 
 Raw artifact arrays always require `--report-type`.
 
+When optional render dependencies are absent, `render_report.py`
+automatically re-runs itself through `uv --with` before reading input. The
+base renderer provisions `jinja2`, `markdown-it-py`, and `bleach`; PDF output
+also provisions `playwright`.
+
 ## Warnings and Evidence Limits
 
 The renderer emits warnings to stderr and to a Warnings section in the

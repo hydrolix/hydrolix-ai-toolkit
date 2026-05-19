@@ -306,8 +306,7 @@ For report extension or skinning changes, also run targeted renderer tests or
 render an existing example in both formats. A lightweight smoke command is:
 
 ```bash
-uv run --with jinja2 --with markdown-it-py --with bleach \
-  python skills/bot-insights/scripts/render_report.py \
+uv run python skills/bot-insights/scripts/render_report.py \
   --file skills/bot-insights/examples/scorecard-brief.json \
   --format markdown \
   --output /tmp/scorecard-brief.md

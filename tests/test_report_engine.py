@@ -2325,6 +2325,111 @@ def test_render_report_cli_accepts_print_pdf_and_analysis_mode(monkeypatch):
     assert args.analysis_mode == "both"
 
 
+def test_render_report_bootstrap_reexecs_for_missing_html_deps(monkeypatch):
+    from _render_report import cli
+
+    def fake_find_spec(name):
+        return None
+
+    captured = {}
+
+    def fake_execvp(file, cmd):
+        captured["file"] = file
+        captured["cmd"] = cmd
+        raise RuntimeError("exec")
+
+    monkeypatch.delenv(cli.BOOTSTRAP_ENV, raising=False)
+    monkeypatch.setattr(cli.importlib.util, "find_spec", fake_find_spec)
+    monkeypatch.setattr(cli.shutil, "which", lambda name: "/usr/bin/uv")
+    monkeypatch.setattr(cli.os, "execvp", fake_execvp)
+    monkeypatch.setattr(sys, "argv", ["render_report.py", "--format", "html"])
+
+    with pytest.raises(RuntimeError, match="exec"):
+        cli._bootstrap_render_deps(SimpleNamespace(format="html"))
+
+    assert captured["file"] == "uv"
+    assert captured["cmd"][:2] == ["uv", "run"]
+    assert captured["cmd"].count("--with") == 3
+    assert "jinja2" in captured["cmd"]
+    assert "markdown-it-py" in captured["cmd"]
+    assert "bleach" in captured["cmd"]
+    assert "playwright" not in captured["cmd"]
+    assert captured["cmd"][-2:] == ["--format", "html"]
+    assert os.environ[cli.BOOTSTRAP_ENV] == "1"
+
+
+def test_render_report_bootstrap_adds_playwright_for_pdf(monkeypatch):
+    from _render_report import cli
+
+    captured = {}
+
+    def fake_execvp(file, cmd):
+        captured["cmd"] = cmd
+        raise RuntimeError("exec")
+
+    monkeypatch.delenv(cli.BOOTSTRAP_ENV, raising=False)
+    monkeypatch.setattr(cli.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(cli.shutil, "which", lambda name: "/usr/bin/uv")
+    monkeypatch.setattr(cli.os, "execvp", fake_execvp)
+    monkeypatch.setattr(sys, "argv", ["render_report.py", "--format", "pdf"])
+
+    with pytest.raises(RuntimeError, match="exec"):
+        cli._bootstrap_render_deps(SimpleNamespace(format="pdf"))
+
+    assert captured["cmd"].count("--with") == 4
+    assert "playwright" in captured["cmd"]
+
+
+def test_render_report_bootstrap_guard_prevents_recursive_reexec(monkeypatch):
+    from _render_report import cli
+
+    called = False
+
+    def fake_execvp(file, cmd):
+        nonlocal called
+        called = True
+
+    monkeypatch.setenv(cli.BOOTSTRAP_ENV, "1")
+    monkeypatch.setattr(cli.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(cli.shutil, "which", lambda name: "/usr/bin/uv")
+    monkeypatch.setattr(cli.os, "execvp", fake_execvp)
+
+    cli._bootstrap_render_deps(SimpleNamespace(format="html"))
+
+    assert called is False
+
+
+def test_render_report_bootstrap_skips_when_deps_importable(monkeypatch):
+    from _render_report import cli
+
+    called = False
+
+    def fake_execvp(file, cmd):
+        nonlocal called
+        called = True
+
+    monkeypatch.delenv(cli.BOOTSTRAP_ENV, raising=False)
+    monkeypatch.setattr(cli.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(cli.shutil, "which", lambda name: "/usr/bin/uv")
+    monkeypatch.setattr(cli.os, "execvp", fake_execvp)
+
+    cli._bootstrap_render_deps(SimpleNamespace(format="pdf"))
+
+    assert called is False
+
+
+def test_producer_pdf_render_command_includes_playwright():
+    from producers.rendering import render_report_command
+
+    cmd = render_report_command(
+        wrapper_path=Path("/tmp/wrapper.json"),
+        output_path=Path("/tmp/report.pdf"),
+        output_format="pdf",
+    )
+
+    assert "playwright" in cmd
+
+
 def test_render_report_analysis_mode_both_derives_sibling_outputs():
     from _render_report import cli
 

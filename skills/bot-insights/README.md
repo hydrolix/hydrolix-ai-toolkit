@@ -81,12 +81,14 @@ over tool friction.
 Render a saved demo payload:
 
 ```bash
-uv run --with jinja2 --with markdown-it-py --with bleach \
-  python skills/bot-insights/scripts/render_report.py \
+uv run python skills/bot-insights/scripts/render_report.py \
   --file skills/bot-insights/examples/scorecard-brief.json \
   --format html \
   --output /tmp/scorecard-brief.html
 ```
+
+The renderer automatically re-runs through `uv --with` when optional render
+dependencies are absent. PDF output also provisions Playwright this way.
 
 Read the authoritative references before changing report behavior:
 
@@ -108,9 +110,9 @@ Use this checklist whenever changing the README:
   [references/reporting.md](references/reporting.md).
 - Keep directory descriptions aligned with the files actually present in this
   skill directory.
-- Keep examples runnable through `uv run`; include explicit `--with`
-  dependencies when a script needs packages that are not installed in the
-  default environment.
+- Keep examples runnable through `uv run`; `render_report.py` self-provisions
+  optional render dependencies when they are not installed in the default
+  environment.
 - Prefer links to the authoritative files over duplicated explanations.
 
 When in doubt, make `SKILL.md` precise and keep this README short.

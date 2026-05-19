@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import copy
+import importlib.util
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -39,6 +41,14 @@ __all__ = [
     'render',
     'main',
 ]
+
+BOOTSTRAP_ENV = "BOT_INSIGHTS_RENDER_DEPS_BOOTSTRAPPED"
+BASE_RENDER_DEPS = (
+    ("jinja2", "jinja2"),
+    ("markdown-it-py", "markdown_it"),
+    ("bleach", "bleach"),
+)
+PDF_RENDER_DEPS = (("playwright", "playwright"),)
 
 
 def parse_args() -> argparse.Namespace:
@@ -136,6 +146,43 @@ def read_input(args: argparse.Namespace) -> str:
     if args.text:
         return " ".join(args.text)
     return sys.stdin.read()
+
+
+def _render_deps_for_format(output_format: str) -> tuple[tuple[str, str], ...]:
+    deps = BASE_RENDER_DEPS
+    if output_format == "pdf":
+        deps += PDF_RENDER_DEPS
+    return deps
+
+
+def _missing_render_deps(output_format: str) -> list[str]:
+    missing: list[str] = []
+    for package_name, module_name in _render_deps_for_format(output_format):
+        if importlib.util.find_spec(module_name) is None:
+            missing.append(package_name)
+    return missing
+
+
+def _render_dep_packages_for_format(output_format: str) -> list[str]:
+    return [package_name for package_name, _ in _render_deps_for_format(output_format)]
+
+
+def _bootstrap_render_deps(args: argparse.Namespace) -> None:
+    missing = _missing_render_deps(args.format)
+    if not missing:
+        return
+    if os.environ.get(BOOTSTRAP_ENV):
+        return
+    if shutil.which("uv") is None:
+        return
+
+    os.environ[BOOTSTRAP_ENV] = "1"
+    script_path = Path(__file__).resolve().parents[1] / "render_report.py"
+    cmd = ["uv", "run"]
+    for dep in _render_dep_packages_for_format(args.format):
+        cmd.extend(["--with", dep])
+    cmd.extend(["python", str(script_path), *sys.argv[1:]])
+    os.execvp("uv", cmd)
 
 
 def render(
@@ -241,11 +288,12 @@ def render(
 def main() -> int:
     args = parse_args()
     try:
-        value = json.loads(read_input(args))
         if args.format == "pdf" and args.output is None:
             raise ReportError("--format pdf requires --output.")
         if args.analysis_mode == "both" and args.output is None:
             raise ReportError("--analysis-mode both requires --output.")
+        _bootstrap_render_deps(args)
+        value = json.loads(read_input(args))
 
         render_jobs = _render_jobs(value, args)
         all_warnings: list[str] = []

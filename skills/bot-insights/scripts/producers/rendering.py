@@ -5,7 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 
 
-RENDER_DEPS = ("jinja2", "markdown-it-py", "bleach")
+BASE_RENDER_DEPS = ("jinja2", "markdown-it-py", "bleach")
+PDF_RENDER_DEPS = ("playwright",)
+
+
+def render_deps_for_format(output_format: str) -> tuple[str, ...]:
+    deps = BASE_RENDER_DEPS
+    if output_format == "pdf":
+        deps += PDF_RENDER_DEPS
+    return deps
 
 
 def render_report_command(
@@ -17,7 +25,7 @@ def render_report_command(
 ) -> list[str]:
     """Build the dependency-safe renderer command used by producers."""
     cmd = ["uv", "run"]
-    for dep in RENDER_DEPS:
+    for dep in render_deps_for_format(output_format):
         cmd.extend(["--with", dep])
     cmd.extend(
         [
