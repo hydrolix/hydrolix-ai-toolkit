@@ -602,37 +602,47 @@ def _findings(ctx: dict[str, Any]) -> list[dict[str, Any]]:
 def _assessment(ctx: dict[str, Any]) -> dict[str, Any]:
     note = (ctx.get("notes_by_slot") or {}).get("executive_summary") or {}
     fallback = ctx.get("analyst_assessment") or {}
+    impact_tiles = (ctx.get("impact") or {}).get("tiles") or []
+    top_signal_tiles = sorted(
+        (
+            tile for tile in impact_tiles
+            if float(tile.get("rank_score") or 0) > 0 and tile.get("value") != "—"
+        ),
+        key=lambda tile: float(tile.get("rank_score") or 0),
+        reverse=True,
+    )[:3]
+    why_stood_out = [
+        {
+            "stat": tile.get("value"),
+            "caption_html": _html(f"{tile.get('label')}: {tile.get('sub')}")
+        }
+        for tile in impact_tiles[:3]
+    ]
     prose = note.get("text") or fallback.get("conclusion") or (ctx.get("deterministic_summary") or {}).get("headline")
+    if not note and top_signal_tiles:
+        signal_text = "; ".join(
+            _text(
+                f"{tile.get('label')} {tile.get('value')}"
+                + (f" ({tile.get('sub')})" if tile.get("sub") else "")
+            )
+            for tile in top_signal_tiles
+            if tile.get("value") or tile.get("label")
+        )
+        if signal_text:
+            prose = f"{prose} Highest signals: {signal_text}."
     return {
         "headline": "Analyst Assessment",
         "prose_html": _prose(prose),
         "observed": ["Volume shift", "Actor concentration", "Edge response"],
-        "inferred": ["Intent", "Root cause"],
-        "why_stood_out": [
-            {
-                "stat": tile.get("value"),
-                "caption_html": _html(f"{tile.get('label')}: {tile.get('sub')}")
-            }
-            for tile in ((ctx.get("impact") or {}).get("tiles") or [])[:3]
-        ],
+        "inferred": ["Automation hypothesis", "Credential-access lead"],
+        "why_stood_out": why_stood_out,
     }
 
 
 def _verdict_prose(ctx: dict[str, Any], summary: dict[str, Any]) -> str:
-    note = (ctx.get("notes_by_slot") or {}).get("executive_summary") or {}
-    fallback = ctx.get("analyst_assessment") or {}
-    prose = note.get("text") or fallback.get("conclusion")
-    if prose:
-        hosts = ((ctx.get("impact") or {}).get("top_affected_hosts") or {}).get("hosts") or []
-        lead_host = _text((hosts[0] if hosts else {}).get("host") or (hosts[0] if hosts else {}).get("value"))
-        customer = _text(ctx.get("headline") or (ctx.get("scope") or {}).get("request_host") or "the monitored property")
-        target = f"{customer}, led by {lead_host}" if lead_host and lead_host != customer else customer
-        confidence = "High-confidence" if summary.get("confidence") == "high" else "Evidence-bounded"
-        return _html(
-            f"{confidence} targeted surge across {target}, with 429/5xx pressure and edge response above baseline. "
-            "Use time-boxed controls while analysts validate root cause and false-positive risk."
-        )
-    return _html(summary.get("headline"))
+    claim_profile = ctx.get("claim_profile") or {}
+    prose = claim_profile.get("hero_summary") or summary.get("headline")
+    return _html(prose)
 
 
 def _primary(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -797,7 +807,9 @@ def build_print_report(ctx: dict[str, Any]) -> dict[str, Any]:
         "verdict": {
             "risk_score": score,
             "risk_max": 100,
-            "confidence": summary.get("confidence_label") or "Evidence bounded",
+            "confidence": (ctx.get("claim_profile") or {}).get(
+                "traffic_anomaly_confidence_label"
+            ) or summary.get("confidence_label") or "Evidence bounded",
             "confidence_total": 5,
             "confidence_filled": 4 if summary.get("confidence") == "high" else 3,
             "prose_html": _verdict_prose(ctx, summary),

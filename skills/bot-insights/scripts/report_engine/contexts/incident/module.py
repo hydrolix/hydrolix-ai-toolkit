@@ -7,6 +7,7 @@ from ...theme import editorial_palette
 from datetime import datetime, timezone
 
 from .actions import _recommended_actions_view
+from .claim_gates import build_claim_profile
 from .cohorts import _compute_actor_cohort_overlap
 from .concentration import _concentration_chart_view
 from .findings import _incident_findings
@@ -619,6 +620,9 @@ def prepare(artifact: dict) -> dict:
     deterministic_summary = _deterministic_summary(
         scope_art, actors_art, action_targets_art, suspicious_targets
     )
+    claim_profile = build_claim_profile(
+        scope_art, actors_art, action_targets_art, suspicious_targets
+    )
     scope_rows = _build_scope_view_rows(scope_art, actors_art)
     soc_evidence = _build_soc_evidence_block(
         actors_art, action_targets_art, suspicious_targets
@@ -651,6 +655,7 @@ def prepare(artifact: dict) -> dict:
         **_build_suspicious_targets_visible(suspicious_targets),
         "concentration_chart": _concentration_chart_view(suspicious_targets),
         "deterministic_summary": deterministic_summary,
+        "claim_profile": claim_profile,
         **_build_editorial_extensions(
             scope_art, actors_art, action_targets_art, scope_meta,
             suspicious_targets, deterministic_summary, scope_rows,

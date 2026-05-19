@@ -69,9 +69,15 @@
               Risk: {{ risk_score.value }}/100
             </span>
             <span class="pill pill-medium pill-lg"
-                  title="Aggregate confidence — reflects which evidence sources were available (raw access log, edge-response data). Per-indicator confidence is shown separately on each flagged-target row in the Who Hit It table.">
-              Confidence: {{ deterministic_summary.confidence_label }}
+                  title="Traffic-anomaly confidence reflects spike evidence, baseline availability, raw access-log drilldown, and edge-response evidence. Targeted-automation confidence is separate.">
+              {{ claim_profile.traffic_anomaly_confidence_label if claim_profile else "Confidence: " ~ deterministic_summary.confidence_label }}
             </span>
+            {% if claim_profile %}
+              <span class="pill pill-medium pill-lg"
+                    title="Targeted automation remains a hypothesis unless multi-signal actor/path evidence and a stronger baseline are present.">
+                {{ claim_profile.targeted_automation_confidence_label }}
+              </span>
+            {% endif %}
           </div>
 
           {# 5-step severity ladder. The .is-on / .is-current state +
@@ -94,11 +100,10 @@
           {% if orientation and orientation.cant_say %}
             <p class="verdict-caveat">{{ orientation.cant_say }}</p>
             <p class="verdict-caveat">
-              Confidence labels reflect how much evidence was available.
-              The overall confidence is based on the data sources we had
-              (raw access log and edge actions). Each indicator row carries
+              Confidence labels separate the observed traffic anomaly from
+              the targeted-automation hypothesis. Each indicator row carries
               its own confidence — that may be higher or lower than the
-              overall.
+              report-level gates.
             </p>
           {% endif %}
           <div class="story-grid" style="margin-top: 14px;">

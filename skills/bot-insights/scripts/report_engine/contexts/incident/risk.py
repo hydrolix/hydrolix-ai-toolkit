@@ -70,8 +70,8 @@ _SEVERITY_LADDER_CSS_VARS = {
 
 
 _HEADLINE_MAP = {
-    "critical": "this window is consistent with a high-severity targeted incident and warrants escalation.",
-    "high": "this window is consistent with a likely targeted incident.",
+    "critical": "this window shows a high-severity traffic anomaly with suspicious automation indicators and warrants escalation.",
+    "high": "this window shows a traffic anomaly with suspicious automation indicators.",
     "elevated": "this window shows critical-tier targets without full corroborating signal — investigate before standing down.",
     "medium": "this window shows movement worth investigating; the evidence is not yet decisive.",
     "low": "this window does not present evidence of an active incident.",
@@ -95,9 +95,12 @@ def _critical_signal_fires(
     critical_targets: list[dict],
     spike_flags: list[str],
     raw_drilldown_available: bool,
+    raw_volume_signal: bool = False,
 ) -> bool:
     return bool(
-        critical_targets and "volume_up" in spike_flags and raw_drilldown_available
+        critical_targets
+        and ("volume_up" in spike_flags or raw_volume_signal)
+        and raw_drilldown_available
     )
 
 
@@ -106,12 +109,13 @@ def _high_signal_fires(
     high_targets: list[dict],
     spike_flags: list[str],
     raw_drilldown_available: bool,
+    raw_volume_signal: bool = False,
 ) -> bool:
     if not (critical_targets or high_targets):
         return False
     if not raw_drilldown_available:
         return False
-    return bool({"volume_up", "rate_429_up"} & set(spike_flags))
+    return bool({"volume_up", "rate_429_up"} & set(spike_flags)) or raw_volume_signal
 
 
 def _determine_incident_level(
@@ -120,6 +124,7 @@ def _determine_incident_level(
     critical_targets: list[dict],
     high_targets: list[dict],
     any_flagged: bool,
+    raw_volume_signal: bool = False,
 ) -> str:
     """5-tier level rule. See ``_deterministic_summary`` docstring.
 
@@ -129,10 +134,13 @@ def _determine_incident_level(
     signal" tier the editorial ladder needs so a 4→5 promotion does
     not have to overstate the verdict.
     """
-    if _critical_signal_fires(critical_targets, spike_flags, raw_drilldown_available):
+    if _critical_signal_fires(
+        critical_targets, spike_flags, raw_drilldown_available, raw_volume_signal
+    ):
         return "critical"
     if _high_signal_fires(
-        critical_targets, high_targets, spike_flags, raw_drilldown_available
+        critical_targets, high_targets, spike_flags, raw_drilldown_available,
+        raw_volume_signal
     ):
         return "high"
     if critical_targets or high_targets:
@@ -150,6 +158,25 @@ def _determine_confidence(
     if raw_drilldown_available or edge_response_available:
         return "medium"
     return "low"
+
+
+def _raw_fallback_volume_signal(scope_art: dict, critical_targets: list[dict]) -> bool:
+    """Raw fallback can produce decisive target evidence without spike flags.
+
+    Expedia-style captures use raw ``akamai.logs`` fallback when summary
+    spike fields are unavailable. In that mode ``spike_flags`` may be
+    empty even though the artifact has a large raw current window and
+    many critical action targets. Treat that as corroborating volume
+    evidence for the incident-level ladder only when critical targets
+    already exist.
+    """
+    scope_meta = scope_art.get("scope") or {}
+    window = scope_art.get("window_confirmation") or {}
+    return bool(
+        critical_targets
+        and (scope_meta.get("raw_fallback_used") or window.get("source") == "raw")
+        and float(window.get("requests") or 0) > 0
+    )
 
 
 def _named_targets(targets: list[dict]) -> str:
@@ -294,10 +321,12 @@ def _deterministic_summary(
     critical_targets, high_targets, medium_targets, low_targets = (
         _classify_severity_buckets(suspicious_targets)
     )
+    raw_volume_signal = _raw_fallback_volume_signal(scope_art, critical_targets)
 
     level = _determine_incident_level(
         spike_flags, raw_drilldown_available,
         critical_targets, high_targets, bool(suspicious_targets),
+        raw_volume_signal,
     )
     confidence = _determine_confidence(
         raw_drilldown_available, edge_response_available

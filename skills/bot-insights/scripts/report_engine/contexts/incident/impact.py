@@ -54,13 +54,19 @@ def _edge_blocks_tile(requests: float, blocked_share: object) -> dict:
     is available (neither SIEM actionClass share nor action_applied
     share from raw akamai.logs)."""
     if blocked_share is None:
-        return {"label": "Edge blocks", "value": "—", "sub": "no edge block data"}
+        return {
+            "label": "Edge blocks",
+            "value": "—",
+            "sub": "no edge block data",
+            "rank_score": 0,
+        }
     blocked = float(blocked_share or 0)
     req_blocks = int(requests * blocked / 100.0) if requests else 0
     return {
         "label": "Edge blocks",
         "value": _format_count(req_blocks),
         "sub": _format_pct(blocked_share) + " of window",
+        "rank_score": blocked,
     }
 
 
@@ -69,7 +75,12 @@ def _top_path_share_tile(paths_rows: list[dict]) -> dict:
     when the path_pattern_rows are empty so the strip never collapses."""
     top_path_row = paths_rows[0] if paths_rows else None
     if not top_path_row:
-        return {"label": "Top path share", "value": "—", "sub": "no path data"}
+        return {
+            "label": "Top path share",
+            "value": "—",
+            "sub": "no path data",
+            "rank_score": 0,
+        }
     path_label = str(top_path_row.get("value") or "")
     delta_display = _format_signed_pct(top_path_row.get("delta_vs_baseline_pct"))
     if path_label and delta_display != "—":
@@ -82,14 +93,19 @@ def _top_path_share_tile(paths_rows: list[dict]) -> dict:
         "label": "Top path share",
         "value": _format_pct(top_path_row.get("share_pct")),
         "sub": sub,
+        "rank_score": abs(
+            float(_safe_number(top_path_row.get("delta_vs_baseline_pct")) or 0)
+        ) or float(_safe_number(top_path_row.get("share_pct")) or 0),
     }
 
 
 def _requests_tile(requests: float, hosts_rows: list[dict]) -> dict:
+    delta = _top_delta(hosts_rows)
     return {
         "label": "Requests",
         "value": _format_count(requests),
-        "sub": _format_signed_pct(_top_delta(hosts_rows)),
+        "sub": _format_signed_pct(delta),
+        "rank_score": abs(float(_safe_number(delta) or 0)),
     }
 
 
@@ -100,6 +116,7 @@ def _served_rate_tile(label: str, requests: float, rate_pct: float) -> dict:
         "label": label,
         "value": _format_count(served),
         "sub": _format_pct(rate_pct) + " of window",
+        "rank_score": float(_safe_number(rate_pct) or 0),
     }
 
 
@@ -121,6 +138,7 @@ def _build_impact_tiles(scope_art: dict, window: dict) -> list[dict]:
             "label": "Hosts affected",
             "value": _format_int(hosts_affected),
             "sub": "in window",
+            "rank_score": float(hosts_affected),
         },
         _top_path_share_tile(paths_rows),
     ]

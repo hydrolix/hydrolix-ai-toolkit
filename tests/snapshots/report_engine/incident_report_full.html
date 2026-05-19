@@ -3974,9 +3974,13 @@ footer {
               Risk: 75/100
             </span>
             <span class="pill pill-medium pill-lg"
-                  title="Aggregate confidence — reflects which evidence sources were available (raw access log, edge-response data). Per-indicator confidence is shown separately on each flagged-target row in the Who Hit It table.">
-              Confidence: High
+                  title="Traffic-anomaly confidence reflects spike evidence, baseline availability, raw access-log drilldown, and edge-response evidence. Targeted-automation confidence is separate.">
+              High traffic-anomaly confidence
             </span>
+              <span class="pill pill-medium pill-lg"
+                    title="Targeted automation remains a hypothesis unless multi-signal actor/path evidence and a stronger baseline are present.">
+                Medium targeted-automation hypothesis confidence
+              </span>
           </div>
 
           <div class="severity-ladder" role="img"
@@ -4004,11 +4008,10 @@ footer {
 
             <p class="verdict-caveat">This report describes traffic patterns, not intent. It is built from log rules, so it does not claim any actor is malicious or attribute a root cause.</p>
             <p class="verdict-caveat">
-              Confidence labels reflect how much evidence was available.
-              The overall confidence is based on the data sources we had
-              (raw access log and edge actions). Each indicator row carries
+              Confidence labels separate the observed traffic anomaly from
+              the targeted-automation hypothesis. Each indicator row carries
               its own confidence — that may be higher or lower than the
-              overall.
+              report-level gates.
             </p>
         </div>
 

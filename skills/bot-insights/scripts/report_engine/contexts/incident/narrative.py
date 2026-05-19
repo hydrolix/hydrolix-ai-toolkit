@@ -139,6 +139,7 @@ def _analyst_assessment_fallback(
     headline = deterministic_summary.get("headline") or (
         "Observed traffic patterns crossed the incident-report heuristic ladder."
     )
+    conclusion = headline[:1].upper() + headline[1:] if headline else headline
     pillars: list[str] = []
     for finding in incident_findings[:2]:
         lead = finding.get("lead")
@@ -172,7 +173,7 @@ def _analyst_assessment_fallback(
 
     return {
         "source": "deterministic",
-        "conclusion": headline,
+        "conclusion": conclusion,
         "pillars": pillars[:4],
         "boundary": (
             f"Confidence is {deterministic_summary.get('confidence_label', 'evidence-bound')}. "

@@ -6,7 +6,7 @@
 
 **Critical** · Confidence: High
 
-Assessed with high confidence: this window is consistent with a high-severity targeted incident and warrants escalation.
+Assessed with high confidence: this window shows a high-severity traffic anomaly with suspicious automation indicators and warrants escalation.
 
 **Why it fires:**
 

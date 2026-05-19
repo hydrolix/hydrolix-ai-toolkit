@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1503,6 +1504,8 @@ def test_incident_report_print_uses_fixed_letter_template():
     assert "START ·" in cover_html
     assert "END ·" in cover_html
     assert "PEAK ·" in cover_html
+    assert "targeted surge" not in cover_html
+    assert "Targeted automation remains a medium-confidence hypothesis" in cover_html
 
     ordered = [
         "Analyst Assessment",
@@ -1528,11 +1531,132 @@ def test_incident_report_verdict_falls_back_to_deterministic_summary_without_not
 
     assert 'data-pdf-layout="fixed-letter"' in actual
     assert "Analyst Assessment" in actual
-    assert (
-        "this window is consistent with a high-severity targeted incident"
-        in actual
-    )
+    assert "high-severity targeted incident" not in actual
+    assert "This window shows a high-severity traffic anomaly" in actual
+    assert "Highest signals:" in actual
+    assert "Requests:" in actual
+    assert "Top path share 68.2%" in actual
     assert "LLM-driven interpretation" not in actual
+
+
+def test_incident_report_deterministic_assessment_omits_empty_signal_clause():
+    from report_engine.contexts.incident import module
+
+    fixture = FIXTURES / "incident_report_deterministic_only.json"
+    data = deepcopy(json.loads(fixture.read_text()))
+    scope = data["artifacts"][0]
+    scope["window_confirmation"] = {
+        "requests": 0,
+        "bot_share_pct": 0,
+        "rate_429_pct": 0,
+        "rate_5xx_pct": 0,
+        "blocked_share_pct": 0,
+        "spike_flags": [],
+    }
+    scope["top_targeted_hosts"] = []
+    scope["top_targeted_path_patterns"] = []
+
+    ctx = module.prepare(module.assemble(data["artifacts"]))
+    ctx["profile"] = "print"
+    module.post_prepare(ctx)
+
+    prose = ctx["print_report"]["analyst_assessment"]["prose_html"]
+    assert "Highest signals:" not in prose
+
+
+def test_incident_claim_profile_same_hour_prior_day_is_medium_for_targeted_hypothesis():
+    from report_engine.contexts.incident import module
+
+    fixture = FIXTURES / "incident_report_deterministic_only.json"
+    data = json.loads(fixture.read_text())
+    scope = data["artifacts"][0]
+    scope["scope"]["baseline_start"] = "2026-05-12T14:00:00Z"
+    scope["scope"]["baseline_end"] = "2026-05-12T17:00:00Z"
+    scope["volume_timeseries"]["baseline_start"] = "2026-05-12T14:00:00Z"
+    scope["volume_timeseries"]["baseline_end"] = "2026-05-12T17:00:00Z"
+
+    ctx = module.prepare(module.assemble(data["artifacts"]))
+    profile = ctx["claim_profile"]
+
+    assert profile["baseline_strength"] == "single_prior_day"
+    assert profile["traffic_anomaly_confidence"] == "high"
+    assert profile["targeted_automation_confidence"] == "medium"
+    assert profile["credential_access_allowed"] is False
+    assert "Targeted automation remains a medium-confidence hypothesis" in profile["hero_summary"]
+
+
+def test_incident_claim_profile_rolling_baseline_allows_high_targeted_hypothesis():
+    from report_engine.contexts.incident import module
+
+    fixture = FIXTURES / "incident_report_deterministic_only.json"
+    data = json.loads(fixture.read_text())
+    scope = data["artifacts"][0]
+    scope["scope"]["baseline_start"] = "2026-05-10T14:00:00Z"
+    scope["scope"]["baseline_end"] = "2026-05-13T14:00:00Z"
+    scope["volume_timeseries"]["baseline_start"] = "2026-05-10T14:00:00Z"
+    scope["volume_timeseries"]["baseline_end"] = "2026-05-13T14:00:00Z"
+    scope.setdefault("top_raw_paths", []).insert(
+        0,
+        {
+            "value": "/login/submit",
+            "requests": 100000,
+            "share_pct": 50.0,
+            "distinct_actors": 3,
+        },
+    )
+
+    profile = module.prepare(module.assemble(data["artifacts"]))["claim_profile"]
+
+    assert profile["baseline_strength"] == "rolling_multi_day"
+    assert profile["targeted_automation_confidence"] == "high"
+    assert "rolling baseline validation" in profile["hero_summary"]
+
+
+def test_incident_claim_profile_missing_raw_or_edge_lowers_confidence():
+    from report_engine.contexts.incident import module
+
+    fixture = FIXTURES / "incident_report_deterministic_only.json"
+    data = deepcopy(json.loads(fixture.read_text()))
+    data["artifacts"][0]["window_confirmation"].pop("blocked_share_pct", None)
+    data["artifacts"][1]["raw_drilldown_available"] = False
+
+    profile = module.prepare(module.assemble(data["artifacts"]))["claim_profile"]
+
+    assert profile["traffic_anomaly_confidence"] == "low"
+    assert profile["targeted_automation_confidence"] == "low"
+
+
+def test_incident_expedia_canonical_wrapper_keeps_expected_incident_context():
+    from report_engine.contexts.incident import module
+
+    fixture = Path(
+        "/Users/turtlebender/src/expedia-analysis/reports/"
+        "incident_canonical_2026-04-19/sample/incident_wrapper_canonical.json"
+    )
+    if not fixture.exists():
+        pytest.skip("canonical Expedia incident wrapper not available")
+    data = json.loads(fixture.read_text())
+
+    ctx = module.prepare(module.assemble(data["artifacts"]))
+    scope_art = data["artifacts"][0]
+    action_art = data["artifacts"][2]
+
+    assert ctx["deterministic_summary"]
+    assert ctx["deterministic_summary"]["level"] in {"high", "critical"}
+    assert ctx["risk_score"]["value"] >= 75
+    assert ctx["analyst_assessment"]["conclusion"]
+    assert scope_art["scope"]["start"] == "2026-04-19T10:00:00Z"
+    assert scope_art["scope"]["end"] == "2026-04-19T17:00:00Z"
+    assert scope_art["window_confirmation"]["spike_flags"] == [
+        "volume_up",
+        "rate_429_up",
+        "rate_5xx_up",
+    ]
+    assert scope_art["top_targeted_hosts"][0]["value"] == "api.expedia.com"
+    top_paths = {row["value"] for row in scope_art["top_targeted_path_patterns"]}
+    assert {"/:slug", "/graphql"} <= top_paths
+    target_values = {target["target_value"] for target in action_art["targets"]}
+    assert {"5.180.30.239", "5.180.30.203", "5.180.30.200"} <= target_values
 
 
 def test_incident_report_print_degraded_fixture_renders_missing_data_states():

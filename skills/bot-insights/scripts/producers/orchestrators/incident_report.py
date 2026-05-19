@@ -94,12 +94,10 @@ from producers.wrapper import analyst_note_from_args, build_report_wrapper
 
 INCIDENT_INTERPRETATION_CONTRACT: dict[str, list[str]] = {
     "allowed": [
-        "Lead the executive_summary slot with a CISA-style assessment "
-        "opening: 'Assessed with [high|medium|low] confidence: <criticality "
-        "call>.' (Or an equivalent decisive first sentence that carries "
-        "the same authority.) The slot renders above the Impact tiles, "
-        "so a reader who only reads the opening should know whether to "
-        "escalate and how solid the call is.",
+        "Lead the executive_summary slot with separate confidence statements "
+        "for: traffic anomaly, targeted-automation hypothesis, operational "
+        "impact, credential-access hypothesis, and attribution/intent. Make "
+        "clear which confidence applies to which claim.",
         "Explain *why* the evidence reads that way - which combination of "
         "spike flags, suspicious-target reason flags, and SIEM signals "
         "is driving the call. State this as an opinion grounded in the "
@@ -124,9 +122,10 @@ INCIDENT_INTERPRETATION_CONTRACT: dict[str, list[str]] = {
         "ASNs only when they are present in the evidence.",
         "Reference evidence with human-readable labels (Client IP, Client ASN, "
         "Request Path, User Agent, Country, Request host, Status code).",
-        "State limitations explicitly when the actors section is empty or SIEM "
-        "evidence is missing - including how that affects confidence in the "
-        "criticality call.",
+        "State limitations explicitly when the actors section is empty, only a "
+        "single prior-day or prior-window baseline exists, auth telemetry is "
+        "missing, or SIEM evidence is missing - including how that affects "
+        "confidence in targeted-automation and credential-access hypotheses.",
         "Name the top 1-3 suspicious targets explicitly using their "
         "human-readable label (Client IP `203.0.113.10`, Client ASN 64500, "
         "User Agent `python-requests/2.31`).",
@@ -140,18 +139,27 @@ INCIDENT_INTERPRETATION_CONTRACT: dict[str, list[str]] = {
         "present.",
         "Reference at least one target from the action-targets artifact in "
         "the next-steps slot.",
-        "Frame authentication-abuse labels as evidence-bounded pattern "
-        "language. Use 'consistent with credential stuffing' only when the "
-        "evidence contains authentication paths, repeated 429/auth-failure "
-        "style signals, or supplied analyst context. Do not state "
-        "'credential-stuffing attack' as established fact unless the packet "
-        "contains authentication outcome evidence.",
+        "Frame authentication-abuse labels as evidence-bounded investigation "
+        "leads. Credential-access mappings without auth-specific telemetry "
+        "must be called a 'possible investigation lead', not credential "
+        "stuffing or brute force.",
+        "Say 'human-classified anomalous traffic' when a Human/Browser cohort "
+        "is anomalous. Do not call it a Human-cohort attack or a proven "
+        "Human-cohort anomaly unless classifier-validation evidence is present.",
     ],
     "forbidden": [
         "Do not name internal tables (akamai.logs, bi_summary_*, "
         "bi_siem_policy_summary_*) — refer to 'this report's evidence' or to "
         "the report type by name.",
-        "Do not claim malicious intent, abuse, attack causality, or root cause.",
+        "Do not claim malicious intent, abuse, attack causality, actor intent, "
+        "or root cause.",
+        "Do not use targeted, attack, credential stuffing, brute force, botnet, "
+        "actor intent, or root cause as firm claims unless the evidence packet "
+        "contains the required corroborating fields. Targeted automation "
+        "requires multi-signal actor/path evidence and a rolling or multi-day "
+        "baseline before it can be high confidence. Credential access requires "
+        "an auth endpoint plus auth outcomes, account identifiers, or explicit "
+        "auth/SIEM correlation.",
         "Do not invent metrics, rankings, share percentages, deltas, severity "
         "labels, or dashboard URLs.",
         "Do not invent business or customer-impact facts such as revenue, "

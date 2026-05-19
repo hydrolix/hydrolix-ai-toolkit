@@ -839,11 +839,14 @@ class BotInsightsScriptTests(unittest.TestCase):
         forbidden = " ".join(contract["forbidden"])
 
         self.assertIn("count the distinct ASN", allowed)
-        self.assertIn("consistent with credential stuffing", allowed)
+        self.assertIn("possible investigation lead", allowed)
+        self.assertIn("human-classified anomalous traffic", allowed)
         self.assertIn("business or customer-impact facts", forbidden)
         self.assertIn("WAF push time", forbidden)
         self.assertIn("configuration certainty", forbidden)
         self.assertIn("single-ASN claim", forbidden)
+        self.assertIn("actor intent", forbidden)
+        self.assertIn("Credential access requires", forbidden)
 
     def test_template_packet_includes_interpretation_contract(self) -> None:
         packet = {
