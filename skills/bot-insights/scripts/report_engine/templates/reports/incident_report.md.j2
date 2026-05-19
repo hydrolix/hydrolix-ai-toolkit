@@ -33,6 +33,19 @@ _From {{ (exec_note.author_type or "analyst") | humanize_author | md_escape }}._
 _Mechanical — derived from artifact data only._
 
 {% endif %}
+### Confidence Drivers
+
+{% for reason in deterministic_summary.reasons[:3] %}
+- {{ reason | md_escape }}
+{% endfor %}
+- Raw actor rankings and action-target priority are shown separately so volume, severity, action class, and confidence remain distinct.
+
+### Open Validation Items
+
+- Validate edge-control candidates against protected traffic before enforcement.
+- {{ soc_evidence.credential_evidence_rule | md_escape }}
+- Confirm whether path-pattern rows are normalized routes, real path patterns, or aggregation artifacts before route-level controls.
+
 ## Impact
 
 {% if impact.volume_chart %}
@@ -48,32 +61,87 @@ _Mechanical — derived from artifact data only._
 
 {% endif %}
 {% if impact.top_affected_hosts %}
-Top affected {{ "host" if impact.top_affected_hosts.hosts | length == 1 else "hosts" }}: {% for h in impact.top_affected_hosts.hosts %}**{{ h.value | md_escape }}** ({{ h.share_pct_display | md_escape }}{% if impact.top_affected_hosts.hosts | length == 1 %}, {{ h.delta_pct_display | md_escape }} vs baseline{% endif %}){% if not loop.last %}, {% endif %}{% endfor %}{% if impact.top_affected_hosts.hosts | length > 1 %} — together {{ impact.top_affected_hosts.cumulative_share_pct_display | md_escape }} of window{% endif %}.
+Top affected {{ "host" if impact.top_affected_hosts.hosts | length == 1 else "hosts" }}: {% for h in impact.top_affected_hosts.hosts %}**{{ h.value | md_escape }}** ({{ h.share_pct_display | md_escape }} of incident requests{% if impact.top_affected_hosts.hosts | length == 1 %}, {{ h.delta_pct_display | md_escape }} vs baseline{% endif %}){% if not loop.last %}, {% endif %}{% endfor %}{% if impact.top_affected_hosts.hosts | length > 1 %} — together {{ impact.top_affected_hosts.cumulative_share_pct_display | md_escape }} of incident requests{% endif %}.
 
 {% endif %}
 {% if impact.top_path_pattern %}
-Top path pattern: `{{ impact.top_path_pattern.value | md_escape }}` — {{ impact.top_path_pattern.requests_display | md_escape }} requests ({{ impact.top_path_pattern.share_pct_display | md_escape }} of window, {{ impact.top_path_pattern.delta_pct_display | md_escape }} vs baseline).
+Top path pattern: `{{ impact.top_path_pattern.value | md_escape }}` — {{ impact.top_path_pattern.requests_display | md_escape }} requests ({{ impact.top_path_pattern.share_pct_display | md_escape }} of target traffic, {{ impact.top_path_pattern.delta_pct_display | md_escape }} vs baseline).
 
 {% endif %}
-## Suspicious Targets
+{% if mitigation_coverage %}
+## Mitigation Coverage
+
+{{ mitigation_coverage.interpretation | md_escape }}
+
+| Coverage metric | Value |
+| --- | --- |
+{% for tile in mitigation_coverage.tiles %}
+| {{ tile.label | md_escape }} | {{ tile.value | md_escape }} |
+{% endfor %}
+
+{% if mitigation_coverage.top_deny_rule %}Top deny rule: `{{ mitigation_coverage.top_deny_rule.value | md_escape }}` ({{ mitigation_coverage.top_deny_rule.share | md_escape }}).
+
+{% endif %}
+_{{ mitigation_coverage.boundary | md_escape }}_
+
+{% endif %}
+{% if entity_clusters %}
+## Entity Clusters
+
+{% for cluster in entity_clusters %}
+### {{ cluster.title | md_escape }} — {{ cluster.confidence_label | md_escape }} confidence
+
+{{ cluster.member_count_text | md_escape }}{% if cluster.confidence_basis %} · {{ cluster.confidence_basis | md_escape }}{% endif %}
+
+{% if cluster.shared_facets %}Shared evidence: {% for facet in cluster.shared_facets %}{{ facet.label | md_escape }} `{{ facet.display | md_escape }}`{% if not loop.last %}; {% endif %}{% endfor %}.
+
+{% endif %}
+{% if cluster.aggregate_behavior %}Aggregate behavior: {{ cluster.aggregate_behavior | md_escape }}
+
+{% endif %}
+{% if cluster.coverage_summary %}Mitigation coverage: {{ cluster.coverage_summary | md_escape }}
+
+{% endif %}
+{% if cluster.representative_actors %}Representative actors: {% for member in cluster.representative_actors %}`{{ member.target_value | md_escape }}` ({{ member.target_type | md_escape }}, {{ member.requests_display | md_escape }} requests){% if not loop.last %}; {% endif %}{% endfor %}.
+
+{% endif %}
+_{{ cluster.boundary | md_escape }}_
+
+{% endfor %}
+{% endif %}
+## Drilldown: Flagged Signals
 
 {% if suspicious_targets %}
+Source: `bot_incident_action_targets.v1` action-target heuristic. This is the authoritative priority list; raw actor volume appears separately below.
+
 {% if concentration_chart.rows %}
-**Top {{ concentration_chart.top_n }} of {{ concentration_chart.total_count }} flagged targets, by share of window traffic:**
+**Top {{ concentration_chart.top_n }} of {{ concentration_chart.total_count }} flagged targets, by % of incident requests:**
 
 {% for row in concentration_chart.rows %}
 - **{{ row.target_type_label | md_escape }}** `{{ row.target_value | md_escape }}` — {{ row.share_pct_display | md_escape }} ({{ row.severity_label | md_escape }})
 {% endfor %}
 
 {% endif %}
-| Type | Target | Reasons | ATT&CK (consistent with) | Requests | Share | 429s | Severity | Confidence |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Type | Target | Reasons | ATT&CK (consistent with) | Requests | % of incident requests | Scoped 429s | Severity | Confidence | Why ranked here |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 {% for row in suspicious_targets %}
-| {{ row.target_type_label | md_escape }} | `{{ row.target_value | md_escape }}` | {% for label in row.reason_flag_labels %}{{ label | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %} | {{ row.attack_techniques_summary | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} | {{ row.req_429_display | md_escape }} | {{ row.severity_label | md_escape }} | {{ row.confidence_label | md_escape }} |
+| {{ row.target_type_label | md_escape }} | `{{ row.target_value | md_escape }}` | {% for label in row.reason_flag_labels %}{{ label | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %} | {{ row.attack_techniques_summary | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} | {{ row.req_429_display | md_escape }} | {{ row.severity_label | md_escape }} | {{ row.confidence_label | md_escape }} | {{ row.why_ranked_here | md_escape }} |
 {% endfor %}
 
 {% else %}
 > **No flagged targets** — no targets crossed the suspicious-actor heuristic thresholds for this window. Either the cluster has no raw access log, or no actor crossed the heuristic thresholds. Scope evidence below still applies.
+
+{% endif %}
+{% if attack_aggregation %}
+## ATT&CK Mapping
+
+Techniques the observed signal is consistent with, not attribution. Credential-access techniques are investigation leads unless auth-specific telemetry is present.
+
+| Technique | Class | Supporting evidence | Metric chips | Tactic |
+| --- | --- | --- | --- | --- |
+{% for tech in attack_aggregation %}
+| {{ tech.id | md_escape }} {{ tech.name | md_escape }} | {{ tech.mapping_class | md_escape }} | {{ tech.supporting_evidence_text | md_escape }} | {% for chip in tech.metric_chips %}{{ chip | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %} | {{ tech.tactic | md_escape }} |
+{% endfor %}
 
 {% endif %}
 ## Section A — Scope Confirmation
@@ -90,10 +158,22 @@ Top path pattern: `{{ impact.top_path_pattern.value | md_escape }}` — {{ impac
 Spike flags: {% for flag in window_confirmation.spike_flags %}{{ flag.label | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %}
 
 {% endif %}
+{% if baseline_context.metric_rows %}
+### Baseline defensibility
+
+Current: {{ baseline_context.current_window.start | md_escape }} → {{ baseline_context.current_window.end | md_escape }}. Baseline: {{ baseline_context.baseline_window.start | md_escape }} → {{ baseline_context.baseline_window.end | md_escape }}. {{ baseline_context.strategy | md_escape }}
+
+| Metric | Current absolute | Baseline absolute | Δ | Source |
+| --- | --- | --- | --- | --- |
+{% for row in baseline_context.metric_rows %}
+| {{ row.metric | md_escape }} | {{ row.current_display | md_escape }} | {{ row.baseline_display | md_escape }} | {{ row.delta_display | md_escape }} | {{ row.source | md_escape }} |
+{% endfor %}
+
+{% endif %}
 {% if targeted_hosts_rows %}
 ### Top targeted hosts
 
-| Host | Requests | Share | Δ vs baseline |
+| Host | Requests | % of incident requests | Δ vs baseline |
 | --- | --- | --- | --- |
 {% for row in targeted_hosts_rows %}
 | {{ row.value | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} | {{ row.delta_vs_baseline_display | md_escape }} |
@@ -103,7 +183,7 @@ Spike flags: {% for flag in window_confirmation.spike_flags %}{{ flag.label | md
 {% if path_pattern_rows %}
 ### Top targeted path patterns
 
-| Path pattern | Requests | Share | Δ vs baseline |
+| Path pattern | Requests | % of target traffic | Δ vs baseline |
 | --- | --- | --- | --- |
 {% for row in path_pattern_rows %}
 | {{ row.value | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} | {{ row.delta_vs_baseline_display | md_escape }} |
@@ -113,7 +193,7 @@ Spike flags: {% for flag in window_confirmation.spike_flags %}{{ flag.label | md
 {% if status_mix_rows %}
 ### Status mix
 
-| Status | Requests | Share |
+| Status | Requests | % of incident requests |
 | --- | --- | --- |
 {% for row in status_mix_rows %}
 | {{ row.value | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} |
@@ -123,7 +203,7 @@ Spike flags: {% for flag in window_confirmation.spike_flags %}{{ flag.label | md
 {% if country_mix_rows %}
 ### Country mix
 
-| Country | Requests | Share | Δ vs baseline |
+| Country | Requests | % of incident requests | Δ vs baseline |
 | --- | --- | --- | --- |
 {% for row in country_mix_rows %}
 | {{ row.value | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} | {{ row.delta_vs_baseline_display | md_escape }} |
@@ -134,7 +214,7 @@ Spike flags: {% for flag in window_confirmation.spike_flags %}{{ flag.label | md
 {% if siem_action_rows %}
 ### SIEM action mix
 
-| Action | Requests | Share | Δ vs baseline |
+| Action | Requests | % of incident requests | Δ vs baseline |
 | --- | --- | --- | --- |
 {% for row in siem_action_rows %}
 | {{ row.value | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} | {{ row.delta_vs_baseline_display | md_escape }} |
@@ -144,7 +224,7 @@ Spike flags: {% for flag in window_confirmation.spike_flags %}{{ flag.label | md
 {% if siem_policy_rows %}
 ### SIEM policy mix
 
-| Policy | Requests | Share | Δ vs baseline |
+| Policy | Requests | % of incident requests | Δ vs baseline |
 | --- | --- | --- | --- |
 {% for row in siem_policy_rows %}
 | {{ row.value | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} | {{ row.delta_vs_baseline_display | md_escape }} |
@@ -154,7 +234,7 @@ Spike flags: {% for flag in window_confirmation.spike_flags %}{{ flag.label | md
 {% if siem_bot_type_rows %}
 ### SIEM bot-type mix
 
-| Bot type | Requests | Share | Δ vs baseline |
+| Bot type | Requests | % of incident requests | Δ vs baseline |
 | --- | --- | --- | --- |
 {% for row in siem_bot_type_rows %}
 | {{ row.value | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} | {{ row.delta_vs_baseline_display | md_escape }} |
@@ -177,10 +257,30 @@ _From {{ (op_note.author_type or "analyst") | humanize_author | md_escape }}._
 > **Raw drilldown unavailable** — the cluster's raw access log was not available for this report, so per-actor rankings are not shown. Scope-confirmation evidence in Section A above still applies. See the limitations appendix for the captured detail.
 
 {% else %}
+### Highest volume raw actors
+
+Source: `bot_incident_actors.v1` / `actor_rankings.client_ip`.
+
+| # | Client IP | Requests | Share | 429s | 5xx | Paths | ASN | Baseline | Edge action | Why ranked here |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+{% for row in raw_actor_rows %}
+| {{ row.rank }} | `{{ row.value | md_escape }}` | {{ row.requests_display | md_escape }} | {{ row.share_display | md_escape }} | {{ row.req_429_display | md_escape }} / {{ row.req_429_rate_display | md_escape }} | {{ row.req_5xx_display | md_escape }} / {{ row.req_5xx_rate_display | md_escape }} | {{ row.distinct_paths_display | md_escape }} | {{ row.asn | md_escape }} | {{ row.baseline_presence | md_escape }} | {{ row.edge_action | md_escape }} | {{ row.why_ranked_here | md_escape }} |
+{% endfor %}
+
+### Highest priority action targets
+
+Source: `bot_incident_action_targets.v1` / `targets`.
+
+| # | Type | Target | Severity | Action class | Confidence | Evidence refs | Why ranked here |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+{% for row in action_target_rows[:10] %}
+| {{ row.priority_rank }} | {{ row.target_type_label | md_escape }} | `{{ row.target_value | md_escape }}` | {{ row.severity_label | md_escape }} | {{ row.action_class_label | md_escape }} | {{ row.confidence_label | md_escape }} | {{ row.evidence_refs_display | md_escape }} | {{ row.why_ranked_here | md_escape }} |
+{% endfor %}
+
 {% for ranking in actor_rankings %}
 ### {{ ranking.field_label | md_escape }} — top {{ ranking.rows | length }}
 
-| {{ ranking.field_label | md_escape }} | Requests | Bytes | Distinct paths | 429s | 429 share | 5xx | 5xx share |
+| {{ ranking.field_label | md_escape }} | Requests | Bytes | Distinct paths | 429s | 429 rate within row traffic | 5xx | 5xx share |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 {% for row in ranking.rows %}
 | {{ row.value | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.bytes_display | md_escape }} | {{ row.distinct_paths_display | md_escape }} | {{ row.req_429_display | md_escape }} | {{ row.req_429_share_display | md_escape }} | {{ row.req_5xx_display | md_escape }} | {{ row.req_5xx_share_display | md_escape }} |
@@ -188,6 +288,14 @@ _From {{ (op_note.author_type or "analyst") | humanize_author | md_escape }}._
 
 {% endfor %}
 {% endif %}
+## Recommended Actions
+
+| Action | Target | Duration | Risk | Validation | Rollback |
+| --- | --- | --- | --- | --- | --- |
+{% for action in recommended_actions %}
+| {{ action.step | md_escape }} | {{ action.target | md_escape }} | {{ action.duration | md_escape }} | {{ action.risk | md_escape }} | {{ action.validation | md_escape }} | {{ action.rollback | md_escape }} |
+{% endfor %}
+
 {% set next_note = notes_by_slot.get("next_steps") if notes_by_slot else None %}
 {% if next_note %}
 ## Next Steps
@@ -219,13 +327,30 @@ The same flagged targets, restructured as a portable indicator feed (schema `{{ 
 {% endfor %}
 
 {% endif %}
+## SOC Evidence Appendix
+
+### Artifact source map
+
+| Claim | Artifact | Source fields |
+| --- | --- | --- |
+{% for row in soc_evidence.source_map %}
+| {{ row.claim | md_escape }} | `{{ row.artifact | md_escape }}` | {{ row.source | md_escape }} |
+{% endfor %}
+
+{{ soc_evidence.credential_evidence_rule | md_escape }}
+
 ## Method
 
-Incident report for {{ scope.cluster | cluster_display | md_escape }}{% if scope.database %} · {{ scope.database | cluster_display | md_escape }}{% endif %}, scope-confirmed against a trailing equal-length baseline.
+Incident report for {{ scope.cluster | cluster_display | md_escape }}{% if scope.database %} · {{ scope.database | cluster_display | md_escape }}{% endif %}, scope-confirmed against {{ baseline_context.strategy | lower | md_escape }}
 
 - Schema: `{{ method.schema_version }}`
+- Comparison: {{ baseline_context.current_window.start | md_escape }} → {{ baseline_context.current_window.end | md_escape }} vs {{ baseline_context.baseline_window.start | md_escape }} → {{ baseline_context.baseline_window.end | md_escape }}
 {% if method.producer_limit is not none %}
 - Top-N per actor field: {{ method.producer_limit }}
+{% endif %}
+{% if method.scoring_thresholds %}
+- Scoring thresholds: {% for c in method.scoring_thresholds %}{{ c | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %}
+
 {% endif %}
 {% if method.interpretation_constraints %}
 - Constraints: {% for c in method.interpretation_constraints %}{{ c | humanize_constraint | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %}

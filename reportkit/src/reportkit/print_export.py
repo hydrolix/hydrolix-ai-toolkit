@@ -15,6 +15,7 @@ def render_pdf_from_html(
     *,
     title: str | None = None,
     paper_format: str = "Letter",
+    full_bleed: bool = False,
 ) -> None:
     """Render ``html`` to a PDF file using Playwright when available."""
 
@@ -41,27 +42,45 @@ def render_pdf_from_html(
                         "(value) => { document.title = value; }",
                         title,
                     )
-                page.pdf(
-                    path=str(output_path),
-                    format=paper_format,
-                    prefer_css_page_size=True,
-                    print_background=True,
-                    display_header_footer=True,
-                    header_template="<span></span>",
-                    footer_template=(
-                        "<div style=\"width:100%; font-size:7px; color:#777; "
-                        "padding:0 0.38in; text-align:right; "
-                        "font-family:Arial, sans-serif;\">"
-                        "<span class=\"pageNumber\"></span>/<span class=\"totalPages\"></span>"
-                        "</div>"
-                    ),
-                    margin={
-                        "top": "0.48in",
-                        "right": "0.42in",
-                        "bottom": "0.54in",
-                        "left": "0.42in",
-                    },
-                )
+                pdf_options = {
+                    "path": str(output_path),
+                    "format": paper_format,
+                    "prefer_css_page_size": True,
+                    "print_background": True,
+                }
+                if full_bleed:
+                    pdf_options.update(
+                        {
+                            "display_header_footer": False,
+                            "margin": {
+                                "top": "0",
+                                "right": "0",
+                                "bottom": "0",
+                                "left": "0",
+                            },
+                        }
+                    )
+                else:
+                    pdf_options.update(
+                        {
+                            "display_header_footer": True,
+                            "header_template": "<span></span>",
+                            "footer_template": (
+                                "<div style=\"width:100%; font-size:7px; color:#777; "
+                                "padding:0 0.38in; text-align:right; "
+                                "font-family:Arial, sans-serif;\">"
+                                "<span class=\"pageNumber\"></span>/<span class=\"totalPages\"></span>"
+                                "</div>"
+                            ),
+                            "margin": {
+                                "top": "0.48in",
+                                "right": "0.42in",
+                                "bottom": "0.54in",
+                                "left": "0.42in",
+                            },
+                        }
+                    )
+                page.pdf(**pdf_options)
             finally:
                 browser.close()
     except PlaywrightError as exc:

@@ -20,6 +20,7 @@ from .targets import *  # noqa: F401, F403
 from .iocs import *  # noqa: F401, F403
 from .windows import *  # noqa: F401, F403
 from .views import *  # noqa: F401, F403
+from .narrative import *  # noqa: F401, F403
 from .module import *  # noqa: F401, F403
 
 __all__ = [
@@ -83,11 +84,22 @@ __all__ = [
     '_top_raw_paths_rows',
     '_status_mix_rows',
     '_actor_rankings_view',
+    '_analyst_assessment_fallback',
+    '_primary_concern_view',
+    '_stood_out_bullets',
+    '_observed_inferred_taxonomy',
+    '_coordination_signals',
+    '_temporal_progression_view',
+    '_behavior_clusters_view',
+    '_entity_clusters_view',
+    '_mitigation_coverage_view',
     'SCHEMA',
     'REPORT_TYPE',
     'TEMPLATE',
+    'PRINT_TEMPLATE',
     'PURPOSE',
     'NOTE_ID_TO_SLOT',
     'assemble',
     'prepare',
+    'post_prepare',
 ]

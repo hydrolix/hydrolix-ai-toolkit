@@ -375,6 +375,88 @@ LIMIT {int(top_n)}
 """.strip()
 
 
+def _incident_bucketed_dimension_timeseries_sql(
+    summary_table: str,
+    dimension: str,
+    granularity: str,
+    start: datetime,
+    end: datetime,
+    host: str | None,
+    asn: str | None,
+    path_pattern: str | None,
+    top_n: int,
+    summary_time_column: str = "reqTimeSec",
+    summary_count_column: str = "count()",
+    summary_path_pattern_column: str = "requestPathPattern",
+) -> str:
+    """Bucketed current-window series for a top dimension.
+
+    This enriches incident artifacts without changing existing required
+    fields. It is used only when the relevant summary dimension exists.
+    """
+    summary_time = _incident_summary_time_expr(summary_time_column)
+    summary_count = _incident_summary_count_expr(summary_count_column)
+    scope = _incident_scope_predicate(
+        host,
+        asn,
+        path_pattern,
+        path_pattern_column=summary_path_pattern_column,
+    )
+    bucket_fn = {
+        "minute": "toStartOfMinute",
+        "hour": "toStartOfHour",
+        "day": "toStartOfDay",
+    }.get(granularity, "toStartOfMinute")
+    dim_expr = _incident_identifier(dimension)
+    return f"""
+SELECT
+  {bucket_fn}({summary_time}) AS bucket,
+  toString({dim_expr}) AS value,
+  {summary_count} AS requests
+FROM {summary_table}
+WHERE {_incident_time_predicate(start, end).replace('reqTimeSec', summary_time)}
+  AND ({scope})
+GROUP BY bucket, value
+HAVING requests > 0
+ORDER BY bucket, requests DESC
+LIMIT {int(top_n) * 500}
+""".strip()
+
+
+def _incident_bucketed_edge_action_timeseries_sql(
+    granularity: str,
+    start: datetime,
+    end: datetime,
+    host: str | None,
+    asn: str | None,
+    path_pattern: str | None,
+    top_n: int,
+    raw_path_column: str = "request_path",
+) -> str:
+    """Bucketed current-window edge-action mix from raw logs."""
+    scope = _incident_raw_scope_predicate(
+        host, asn, path_pattern, path_column=raw_path_column
+    )
+    bucket_fn = {
+        "minute": "toStartOfMinute",
+        "hour": "toStartOfHour",
+        "day": "toStartOfDay",
+    }.get(granularity, "toStartOfMinute")
+    return f"""
+SELECT
+  {bucket_fn}(reqTimeSec) AS bucket,
+  toString(action_applied) AS value,
+  count() AS requests
+FROM akamai.logs
+WHERE {_incident_time_predicate(start, end)}
+  AND ({scope})
+GROUP BY bucket, value
+HAVING requests > 0
+ORDER BY bucket, requests DESC
+LIMIT {int(top_n) * 500}
+""".strip()
+
+
 def _incident_deny_rule_mix_sql(
     start: datetime,
     end: datetime,
@@ -416,6 +498,73 @@ HAVING current_requests > 0
 ORDER BY current_requests DESC
 LIMIT {int(top_n)}
 """.strip()
+
+
+def _incident_target_bucket_evidence_sql(
+    targets: list[dict],
+    granularity: str,
+    start: datetime,
+    end: datetime,
+    host: str | None,
+    asn: str | None,
+    path_pattern: str | None,
+    raw_column_by_field: dict[str, str],
+    raw_path_column: str = "request_path",
+    top_n: int = 10,
+) -> str:
+    """Bucketed per-target telemetry for already-computed suspicious targets.
+
+    The query is intentionally current-window only. It supports
+    first/last/peak derivation, dominant path / UA / cohort / edge action,
+    and overlap-based behavior clustering without implying mitigation
+    response or synchronization by itself.
+    """
+    scope = _incident_raw_scope_predicate(
+        host, asn, path_pattern, path_column=raw_path_column
+    )
+    bucket_fn = {
+        "minute": "toStartOfMinute",
+        "hour": "toStartOfHour",
+        "day": "toStartOfDay",
+    }.get(granularity, "toStartOfMinute")
+    clauses: list[str] = []
+    allowed = {"client_ip", "user_agent", "request_path", "trafficCohort", "country", "asn"}
+    ua_expr = raw_column_by_field.get("user_agent")
+    cohort_expr = raw_column_by_field.get("trafficCohort")
+    action_expr = raw_column_by_field.get("action_applied")
+    for target in targets[: int(top_n)]:
+        target_type = str(target.get("target_type") or "")
+        target_value = str(target.get("target_value") or "")
+        if target_type not in allowed or not target_value:
+            continue
+        column = raw_column_by_field.get(target_type, target_type)
+        clauses.append(
+            f"SELECT {sql_literal(target_type)} AS target_type, "
+            f"{sql_literal(target_value)} AS target_value, "
+            f"{bucket_fn}(reqTimeSec) AS bucket, "
+            "count() AS requests, "
+            f"anyHeavy(toString({raw_path_column})) AS dominant_path, "
+            + (
+                f"anyHeavy(toString({ua_expr})) AS dominant_user_agent, "
+                if ua_expr else "'' AS dominant_user_agent, "
+            )
+            + (
+                f"anyHeavy(toString({cohort_expr})) AS dominant_cohort, "
+                if cohort_expr else "'' AS dominant_cohort, "
+            )
+            + (
+                f"anyHeavy(toString({action_expr})) AS dominant_edge_action "
+                if action_expr else "'' AS dominant_edge_action "
+            )
+            + "FROM akamai.logs "
+            f"WHERE {_incident_time_predicate(start, end)} "
+            f"AND ({scope}) "
+            f"AND toString({column}) = {sql_literal(target_value)} "
+            "GROUP BY bucket"
+        )
+    if not clauses:
+        return "SELECT '' AS target_type, '' AS target_value, now() AS bucket, toUInt64(0) AS requests WHERE 0"
+    return "\nUNION ALL\n".join(clauses)
 
 
 def _incident_status_mix_sql(

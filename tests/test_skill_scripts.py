@@ -1491,6 +1491,197 @@ class BotInsightsScriptTests(unittest.TestCase):
             baseline_sql,
         )
 
+    def test_incident_optional_enrichment_fields_are_projected(self) -> None:
+        from producers.evidence.incident import (
+            _incident_behavior_clusters,
+            _incident_bucketed_mix_timeseries,
+            _incident_entity_clusters,
+            _incident_mitigation_effectiveness,
+            _incident_target_evidence_rows,
+        )
+
+        mix = _incident_bucketed_mix_timeseries(
+            [
+                {"bucket": "2026-05-02 00:00:00", "value": "Human", "requests": 10},
+                {"bucket": "2026-05-02 00:01:00", "value": "Human", "requests": 20},
+            ],
+            series_type="cohort",
+            value_label="Traffic cohort",
+        )
+        self.assertEqual(mix["series_type"], "cohort")
+        self.assertEqual(len(mix["points"]), 2)
+
+        evidence = _incident_target_evidence_rows(
+            [
+                {
+                    "target_type": "client_ip",
+                    "target_value": "203.0.113.10",
+                    "bucket": "2026-05-02 00:00:00",
+                    "requests": 10,
+                    "dominant_path": "/login",
+                    "dominant_user_agent": "curl",
+                    "dominant_cohort": "Human",
+                    "dominant_edge_action": "Allow",
+                },
+                {
+                    "target_type": "client_ip",
+                    "target_value": "203.0.113.10",
+                    "bucket": "2026-05-02 00:01:00",
+                    "requests": 40,
+                    "dominant_path": "/login",
+                    "dominant_user_agent": "curl",
+                    "dominant_cohort": "Human",
+                    "dominant_edge_action": "Allow",
+                },
+                {
+                    "target_type": "user_agent",
+                    "target_value": "curl",
+                    "bucket": "2026-05-02 00:01:00",
+                    "requests": 25,
+                    "dominant_path": "/login",
+                    "dominant_user_agent": "curl",
+                    "dominant_cohort": "Human",
+                    "dominant_edge_action": "",
+                },
+                {
+                    "target_type": "client_ip",
+                    "target_value": "203.0.113.11",
+                    "bucket": "2026-05-02 00:01:00",
+                    "requests": 20,
+                    "dominant_path": "/login",
+                    "dominant_user_agent": "curl",
+                    "dominant_cohort": "Human",
+                    "dominant_edge_action": "Allow",
+                },
+            ]
+        )
+        first = evidence["client_ip:203.0.113.10"]
+        self.assertEqual(first["first_seen"], "2026-05-02 00:00:00")
+        self.assertEqual(first["last_seen"], "2026-05-02 00:01:00")
+        self.assertEqual(first["peak_bucket"], "2026-05-02 00:01:00")
+        self.assertEqual(first["peak_requests"], 40)
+        self.assertEqual(first["dominant_path"]["value"], "/login")
+        self.assertEqual(first["dominant_edge_action"]["action_share_pct"], 100)
+        self.assertEqual(
+            evidence["user_agent:curl"]["dominant_edge_action"]["value"],
+            "No Action",
+        )
+
+        clusters = _incident_behavior_clusters(
+            [
+                {"target_type": "client_ip", "target_value": "203.0.113.10", "supporting": {}},
+                {"target_type": "user_agent", "target_value": "curl", "supporting": {}},
+            ],
+            evidence,
+        )
+        bases = {cluster["basis"] for cluster in clusters}
+        self.assertIn("shared_path", bases)
+        self.assertIn("overlapping_peak_bucket", bases)
+
+        entity_clusters = _incident_entity_clusters(
+            [
+                {
+                    "target_type": "client_ip",
+                    "target_value": "203.0.113.10",
+                    "severity": "critical",
+                    "supporting": {
+                        "requests": 10,
+                        "asn_cluster_id": 64500,
+                        "asn_cluster_org": "Example ASN",
+                    },
+                },
+                {
+                    "target_type": "client_ip",
+                    "target_value": "203.0.113.11",
+                    "severity": "critical",
+                    "supporting": {
+                        "requests": 20,
+                        "asn_cluster_id": 64500,
+                        "asn_cluster_org": "Example ASN",
+                    },
+                },
+                {"target_type": "user_agent", "target_value": "curl", "supporting": {}},
+            ],
+            evidence,
+        )
+        asn_cluster = next(c for c in entity_clusters if c["basis"] == "shared_asn")
+        self.assertEqual(asn_cluster["member_count"], 2)
+        self.assertEqual(asn_cluster["total_observed_requests"], 30)
+        self.assertIn("Example ASN", asn_cluster["shared_facets"][0]["display"])
+        self.assertIn("confidence_label", asn_cluster)
+        self.assertIn("aggregate_behavior", asn_cluster)
+        self.assertIn("coverage_summary", asn_cluster)
+        self.assertIn(
+            "shared_path",
+            {facet["basis"] for facet in asn_cluster["shared_facets"]},
+        )
+
+        mixed_entity_cluster = _incident_entity_clusters(
+            [
+                {
+                    "target_type": "client_ip",
+                    "target_value": "203.0.113.10",
+                    "supporting": {"requests": 10},
+                },
+                {
+                    "target_type": "user_agent",
+                    "target_value": "curl",
+                    "supporting": {"requests": 25},
+                },
+            ],
+            evidence,
+        )[0]
+        self.assertEqual(mixed_entity_cluster["basis"], "shared_path")
+        self.assertIsNone(mixed_entity_cluster["total_observed_requests"])
+
+        mitigation = _incident_mitigation_effectiveness(
+            {
+                "window_confirmation": {"blocked_share_pct": 5.0},
+                "edge_action_mix": [
+                    {"value": "", "share_pct": 92.0},
+                    {"value": "Deny", "share_pct": 4.0},
+                    {"value": "Monitor", "share_pct": 4.0},
+                ],
+                "deny_rule_mix": [{"value": "rule-1", "share_pct": 4.0}],
+            },
+            [{"severity": "critical"}],
+        )
+        self.assertEqual(mitigation["tone"], "gap")
+        self.assertEqual(mitigation["no_action_share_pct"], 92.0)
+        self.assertEqual(
+            mitigation["coverage_assessment"],
+            "Low relative to anomaly severity",
+        )
+
+    def test_incident_target_evidence_sql_is_optional_and_bounded(self) -> None:
+        from producers.sql.incident import _incident_target_bucket_evidence_sql
+
+        sql = _incident_target_bucket_evidence_sql(
+            [
+                {"target_type": "client_ip", "target_value": "203.0.113.10"},
+                {"target_type": "unsupported", "target_value": "ignored"},
+            ],
+            "minute",
+            datetime(2026, 5, 2, tzinfo=timezone.utc),
+            datetime(2026, 5, 2, 1, tzinfo=timezone.utc),
+            "www.example.com",
+            None,
+            None,
+            {
+                "client_ip": "cliIP",
+                "user_agent": "UA",
+                "trafficCohort": "trafficCohort",
+                "action_applied": "action_applied",
+            },
+            "reqPath",
+            10,
+        )
+
+        self.assertIn("'client_ip' AS target_type", sql)
+        self.assertIn("toString(cliIP) = '203.0.113.10'", sql)
+        self.assertIn("anyHeavy(toString(reqPath)) AS dominant_path", sql)
+        self.assertNotIn("unsupported", sql)
+
     def test_incident_expedia_minimized_oracle_facts_remain_calibrated(self) -> None:
         oracle_path = (
             ROOT

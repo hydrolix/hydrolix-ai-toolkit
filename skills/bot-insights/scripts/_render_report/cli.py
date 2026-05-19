@@ -263,6 +263,7 @@ def main() -> int:
                         output,
                         output_path,
                         title=getattr(job_args, "title", None),
+                        full_bleed='data-pdf-layout="fixed-letter"' in output,
                     )
                 except PrintExportError as exc:
                     raise ReportError(str(exc)) from exc

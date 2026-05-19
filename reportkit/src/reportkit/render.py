@@ -206,11 +206,11 @@ class ReportRenderer:
     ) -> dict[str, Any]:
         ctx = module.prepare(artifact)
         ctx["notes_by_slot"] = notes_by_slot
-        if hasattr(module, "post_prepare"):
-            module.post_prepare(ctx)
         ctx["mode"] = mode
         ctx["profile"] = profile
         ctx["report_type"] = module.REPORT_TYPE
+        if hasattr(module, "post_prepare"):
+            module.post_prepare(ctx)
         overrides_note = notes_by_slot.get("finding_overrides")
         if (
             self.finding_override_applier is not None
@@ -260,4 +260,7 @@ class ReportRenderer:
             palette_registry=self.palette_registry,
             chart_module=self.chart_module,
         )
-        return env.get_template(template_for(module, output_format)).render(**ctx)
+        template_name = template_for(module, output_format)
+        if output_format == "html" and profile == "print":
+            template_name = getattr(module, "PRINT_TEMPLATE", template_name)
+        return env.get_template(template_name).render(**ctx)

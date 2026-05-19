@@ -26,7 +26,7 @@ Login conversion not measurably affected; no confirmed customer reports.
 
 Edge block deployed for the top ASN; rate-limit tightened on `/login/submit`.
 
-1. Block Client IP `203.0.113.10` at edge for 24h, monitor 429 trajectory — _SOC, now_ · Observed volume: 540.00K (12.7% of window).
+1. Time-boxed edge control candidate: Client IP `203.0.113.10` — _SOC, now_ · Observed volume: 540.00K (12.7% of window).
 2. Enrich the 3 critical target(s) in case management — `203.0.113.10`, `198.51.100.42`, `192.0.2.17` — _Threat Intel, today_
 3. Investigate behavioral-anomaly cohort — Traffic cohort `Browser` — _AppSec, this week_
 4. Continue investigating in the linked Grafana dashboard (pre-scoped to the incident window) — _IR Lead, now_

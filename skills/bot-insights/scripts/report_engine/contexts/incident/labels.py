@@ -33,7 +33,7 @@ SPIKE_FLAG_LABELS = {
 
 REASON_FLAG_LABELS = {
     "high_volume_share": "high volume share",
-    "high_rate_429_share": "high 429 share",
+    "high_rate_429_share": "high 429 rate",
     "single_path_concentration": "single-path concentration",
     "new_in_window": "new in window",
     "single_asn_cluster": "single-ASN cluster",

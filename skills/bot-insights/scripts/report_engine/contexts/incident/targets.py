@@ -289,7 +289,81 @@ def _scope_views_for_indicator(
     return result
 
 
-def _update_attack_tally(tally: dict[str, dict], technique: dict) -> None:
+_REASON_DISPLAY_PRIORITY = (
+    "high 429 rate",
+    "single path concentration",
+    "high volume share",
+    "high volume new actor",
+    "new in window",
+    "single ASN cluster",
+    "automation user-agent",
+    "behavioral anomaly",
+)
+
+
+def _operational_reason_labels(labels: list[str], limit: int = 3) -> list[str]:
+    ordered: list[str] = []
+    lower_to_label = {label.lower(): label for label in labels}
+    for preferred in _REASON_DISPLAY_PRIORITY:
+        if preferred in lower_to_label:
+            ordered.append(lower_to_label[preferred])
+    for label in labels:
+        if label not in ordered:
+            ordered.append(label)
+    return ordered[:limit]
+
+
+def _attack_supporting_evidence(target: dict) -> str:
+    type_label = target.get("target_type_label") or TARGET_TYPE_LABELS.get(
+        target.get("target_type") or "",
+        str(target.get("target_type") or "Target").replace("_", " ").title(),
+    )
+    value = str(target.get("target_value") or "").strip()
+    severity = target.get("severity_label") or str(target.get("severity") or "").title()
+    flags = set(target.get("reason_flags") or [])
+    labels = [
+        REASON_FLAG_LABELS.get(f, f.replace("_", " "))
+        for f in target.get("reason_flags") or []
+    ]
+    concise = _operational_reason_labels(labels, limit=2)
+    descriptors: list[str] = []
+    if "single_asn_cluster" in flags or (target.get("supporting") or {}).get("asn_cluster_id"):
+        descriptors.append("shared ASN")
+    if "single_path_concentration" in flags:
+        descriptors.append("path concentration")
+    if any(flag in flags for flag in ("high_volume_share", "high_volume_new_actor")):
+        descriptors.append("high volume")
+    if "high_429_share" in flags:
+        descriptors.append("elevated 429 rate")
+    if "automation_user_agent" in flags:
+        descriptors.append("automation UA")
+    if not descriptors and concise:
+        descriptors.extend(concise)
+    if not descriptors:
+        descriptors.append("flagged heuristic evidence")
+    subject = f"{type_label} `{value}`" if value else type_label
+    return (
+        f"{severity} {subject} matched "
+        f"{', '.join(descriptors[:3])} evidence."
+    )
+
+
+def _attack_metric_chips(target: dict) -> list[str]:
+    chips: list[str] = []
+    supporting = target.get("supporting") or {}
+    requests = _format_count(supporting.get("requests"))
+    if requests and requests != "—":
+        chips.append(f"{requests} requests")
+    share = _format_pct(supporting.get("share_pct"))
+    if share and share != "—":
+        chips.append(f"{share} of incident requests")
+    req_429 = _format_pct(supporting.get("req_429_share_pct"))
+    if req_429 and req_429 != "—":
+        chips.append(f"{req_429} 429 rate within target traffic")
+    return chips[:2]
+
+
+def _update_attack_tally(tally: dict[str, dict], technique: dict, target: dict) -> None:
     """Merge one technique into the tally. Prefer the first-seen
     name/tactic; later occurrences with blank fields don't overwrite a
     populated name."""
@@ -303,6 +377,10 @@ def _update_attack_tally(tally: dict[str, dict], technique: dict) -> None:
             "name": technique.get("name") or "",
             "tactic": technique.get("tactic") or "",
             "count": 0,
+            "supporting_evidence": [],
+            "metric_chips": [],
+            "mapping_class": _attack_mapping_class(tid),
+            "evidence_requirement": _attack_evidence_requirement(tid),
         },
     )
     if not entry["name"] and technique.get("name"):
@@ -310,6 +388,37 @@ def _update_attack_tally(tally: dict[str, dict], technique: dict) -> None:
     if not entry["tactic"] and technique.get("tactic"):
         entry["tactic"] = technique.get("tactic")
     entry["count"] += 1
+    evidence = _attack_supporting_evidence(target)
+    if evidence and evidence not in entry["supporting_evidence"]:
+        entry["supporting_evidence"].append(evidence)
+    for chip in _attack_metric_chips(target):
+        if chip not in entry["metric_chips"]:
+            entry["metric_chips"].append(chip)
+
+
+def _attack_mapping_class(technique_id: str) -> str:
+    """Conservative display class for ATT&CK rows.
+
+    The incident artifacts can map request pressure to ATT&CK-like
+    techniques, but credential-access claims require auth telemetry the
+    access-log heuristic does not carry. Keep denial-of-service mappings
+    as observed-consistent; downgrade credential mappings to investigation
+    leads until auth endpoint/failure/account evidence is present.
+    """
+    if technique_id in {"T1110", "T1110.004"}:
+        return "possible investigation lead"
+    return "observed-consistent"
+
+
+def _attack_evidence_requirement(technique_id: str) -> str:
+    if technique_id in {"T1110", "T1110.004"}:
+        return (
+            "Requires auth-specific telemetry: auth endpoint, failure pattern, "
+            "account/user identifiers, or SIEM/auth correlation."
+        )
+    if technique_id == "T1498":
+        return "Supported by request volume, 429 pressure, or error-pressure evidence."
+    return "Requires analyst validation before treating as confirmed technique evidence."
 
 
 def _attack_aggregation(suspicious_targets: list[dict]) -> list[dict]:
@@ -324,8 +433,24 @@ def _attack_aggregation(suspicious_targets: list[dict]) -> list[dict]:
     tally: dict[str, dict] = {}
     for target in suspicious_targets or []:
         for technique in target.get("attack_techniques") or []:
-            _update_attack_tally(tally, technique)
-    return sorted(tally.values(), key=lambda r: (-r["count"], r["id"]))
+            _update_attack_tally(tally, technique, target)
+    rows = sorted(tally.values(), key=lambda r: (-r["count"], r["id"]))
+    for row in rows:
+        evidence = row.get("supporting_evidence") or []
+        mapping_class = row.get("mapping_class") or _attack_mapping_class(row["id"])
+        requirement = row.get("evidence_requirement") or _attack_evidence_requirement(row["id"])
+        row["supporting_evidence"] = evidence[:1]
+        evidence_text = (evidence[:1] or ["—"])[0]
+        if mapping_class == "possible investigation lead":
+            evidence_text = (
+                f"Possible investigation lead only. Observed signal: "
+                f"{evidence_text} {requirement}"
+            )
+        row["supporting_evidence_text"] = evidence_text
+        row["mapping_class"] = mapping_class
+        row["evidence_requirement"] = requirement
+        row["metric_chips"] = (row.get("metric_chips") or [])[:2]
+    return rows
 
 
 def _target_sort_key(row: dict) -> tuple[int, float]:
@@ -398,16 +523,25 @@ def _target_classification_fields(row: dict) -> dict:
 def _target_flag_fields(row: dict) -> dict:
     """Project the reason-flag / attack-technique lists into renderer-ready shape."""
     flags = list(row.get("reason_flags") or [])
+    labels = [
+        REASON_FLAG_LABELS.get(f, f.replace("_", " ")) for f in flags
+    ]
     attack_techniques = list(row.get("attack_techniques") or [])
+    summary_parts = []
+    for technique in attack_techniques:
+        tid = technique.get("id", "")
+        if not tid:
+            continue
+        if _attack_mapping_class(tid) == "possible investigation lead":
+            summary_parts.append(f"{tid} (lead)")
+        else:
+            summary_parts.append(tid)
     return {
         "reason_flags": flags,
-        "reason_flag_labels": [
-            REASON_FLAG_LABELS.get(f, f.replace("_", " ")) for f in flags
-        ],
+        "reason_flag_labels": labels,
+        "display_reason_labels": _operational_reason_labels(labels),
         "attack_techniques": attack_techniques,
-        "attack_techniques_summary": (
-            ", ".join(t.get("id", "") for t in attack_techniques) or "—"
-        ),
+        "attack_techniques_summary": ", ".join(summary_parts) or "—",
     }
 
 
@@ -416,8 +550,10 @@ def _suspicious_target_row(row: dict, actors_artifact: dict | None) -> dict:
     edge_action = _compute_edge_action_for_indicator(row, actors_artifact)
     top_label, top_share_display = _edge_action_display_fields(edge_action)
     confidence = row.get("confidence") or ""
+    evidence_refs = list(row.get("evidence_refs") or [])
+    classes = _target_classification_fields(row)
     return {
-        **_target_classification_fields(row),
+        **classes,
         "target_value": str(row.get("target_value") or ""),
         "edge_action": edge_action,
         "edge_action_top_label": top_label,
@@ -425,7 +561,17 @@ def _suspicious_target_row(row: dict, actors_artifact: dict | None) -> dict:
         **_target_flag_fields(row),
         "confidence": confidence,
         "confidence_label": confidence.title(),
+        "why_ranked_here": (
+            f"{classes['severity_label']} severity; "
+            f"{classes['action_class_label']} action class; "
+            f"{confidence.title() if confidence else 'No'} confidence."
+        ),
         "suggested_action_hint": row.get("suggested_action_hint") or "review",
+        "evidence_refs": evidence_refs,
+        "evidence_refs_display": "; ".join(
+            f"{ref.get('artifact', 'artifact')} {ref.get('json_pointer', '')}".strip()
+            for ref in evidence_refs
+        ) or "—",
         **_project_supporting_metrics(row.get("supporting") or {}),
     }
 

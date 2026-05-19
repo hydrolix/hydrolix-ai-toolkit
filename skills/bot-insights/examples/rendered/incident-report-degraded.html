@@ -1666,6 +1666,7 @@ footer {
                     Menlo, Consolas, monospace;
   --label-tracking:        0.14em;
   --label-tracking-tight:  0.1em;
+  --action-rank-width: 72px;
 
   background: var(--paper);
   color: var(--paper-ink);
@@ -1929,7 +1930,13 @@ footer {
   align-items: start;
   margin-bottom: 24px;
 }
+.brief-incident .verdict-print-top-row {
+  display: contents;
+}
 .brief-incident .verdict-main {
+  grid-column: 1 / -1;
+}
+.brief-incident .verdict-interpretation {
   grid-column: 1 / -1;
 }
 .brief-incident .verdict-narrative {
@@ -2036,6 +2043,264 @@ footer {
 }
 .brief-incident .exec-readout-body p { margin: 0 0 6px; }
 .brief-incident .exec-readout-body p:last-child { margin-bottom: 0; }
+
+.brief-incident .analyst-assessment,
+.brief-incident .primary-concern,
+.brief-incident .cluster-card,
+.brief-incident .mitigation-panel,
+.brief-incident .story-panel,
+.brief-incident .coordination-matrix {
+  border: 1px solid var(--paper-rule-soft);
+  background: var(--paper-surface);
+  box-shadow: none;
+}
+.brief-incident .analyst-assessment {
+  margin: 0 0 18px;
+  padding: 18px 20px;
+  border-left: 4px solid var(--paper-red);
+}
+.brief-incident .assessment-source {
+  margin: 4px 0 10px;
+  font-family: var(--mono-editorial);
+  font-size: 10.5px;
+  letter-spacing: var(--label-tracking-tight);
+  text-transform: uppercase;
+  color: var(--paper-mute);
+}
+.brief-incident .assessment-conclusion {
+  margin: 10px 0 0;
+  font-size: 17px;
+  line-height: 1.42;
+  font-weight: 700;
+  color: var(--paper-ink);
+}
+.brief-incident .assessment-pillars,
+.brief-incident .story-bullets,
+.brief-incident .taxonomy-grid ul,
+.brief-incident .primary-concern ul {
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+.brief-incident .assessment-pillars li,
+.brief-incident .story-bullets li,
+.brief-incident .taxonomy-grid li,
+.brief-incident .primary-concern li {
+  margin-top: 5px;
+}
+.brief-incident .assessment-boundary {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--paper-mute);
+}
+.brief-incident .assessment-prose {
+  font-size: 14px;
+  line-height: 1.55;
+}
+.brief-incident .assessment-prose p:first-child { margin-top: 0; }
+.brief-incident .assessment-prose p:last-child { margin-bottom: 0; }
+.brief-incident .primary-concern {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(220px, 0.6fr);
+  gap: 20px;
+  margin: 0 0 20px;
+  padding: 16px 18px;
+  border-left: 4px solid var(--paper-orange);
+  background: var(--paper-orange-bg);
+}
+.brief-incident .primary-concern h2,
+.brief-incident .story-panel h3,
+.brief-incident .coordination-matrix h3 {
+  margin: 4px 0 0;
+  font-size: 17px;
+  line-height: 1.25;
+  color: var(--paper-ink);
+}
+.brief-incident .primary-concern p {
+  margin: 8px 0 0;
+  color: var(--paper-body);
+}
+.brief-incident .section-analytic-story {
+  border-top: 1px solid var(--paper-ink);
+  padding-top: 28px;
+}
+.brief-incident .story-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.brief-incident .story-panel,
+.brief-incident .coordination-matrix {
+  padding: 16px 18px;
+}
+.brief-incident .story-panel h3,
+.brief-incident .coordination-matrix h3 {
+  margin-top: 0;
+}
+.brief-incident .taxonomy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.brief-incident .taxonomy-label {
+  font-family: var(--mono-editorial);
+  font-size: 10.5px;
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--paper-mute);
+}
+.brief-incident .coordination-matrix {
+  margin-top: 18px;
+}
+.brief-incident .signal-status {
+  display: inline-block;
+  min-width: 74px;
+  padding: 2px 7px;
+  border: 1px solid var(--paper-rule);
+  border-radius: 999px;
+  font-family: var(--mono-editorial);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: center;
+  white-space: nowrap;
+}
+.brief-incident .signal-yes {
+  border-color: var(--paper-red);
+  background: var(--paper-red-bg);
+  color: var(--paper-red-ink);
+}
+.brief-incident .signal-partial {
+  border-color: var(--paper-gold);
+  background: var(--paper-gold-bg);
+  color: var(--paper-gold-ink);
+}
+.brief-incident .signal-not-observed {
+  border-color: var(--paper-rule);
+  background: transparent;
+  color: var(--paper-mute);
+}
+.brief-incident .signal-not-available {
+  border-color: var(--paper-rule-soft);
+  background: var(--paper-bg);
+  color: var(--paper-mute);
+}
+.brief-incident .section-progression,
+.brief-incident .section-mitigation-coverage,
+.brief-incident .section-entity-clusters {
+  border-top: 1px solid var(--paper-rule-soft);
+  padding-top: 24px;
+}
+.brief-incident .mitigation-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.7fr);
+  gap: 16px;
+  padding: 16px 18px;
+  border-left: 4px solid var(--paper-gold);
+  background: var(--paper-gold-bg);
+}
+.brief-incident .mitigation-gap {
+  border-left-color: var(--paper-orange);
+  background: var(--paper-orange-bg);
+}
+.brief-incident .mitigation-interpretation {
+  margin: 0;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.brief-incident .mitigation-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+.brief-incident .mitigation-tiles div {
+  border: 1px solid var(--paper-rule-soft);
+  background: var(--paper-surface);
+  padding: 8px 10px;
+}
+.brief-incident .mitigation-tiles dt {
+  font-family: var(--mono-editorial);
+  font-size: 10px;
+  letter-spacing: var(--label-tracking-tight);
+  text-transform: uppercase;
+  color: var(--paper-mute);
+}
+.brief-incident .mitigation-tiles dd {
+  margin: 4px 0 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+.brief-incident .mitigation-rule {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 12.5px;
+}
+.brief-incident .cluster-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.brief-incident .cluster-card {
+  padding: 14px 16px;
+  border-left: 4px solid var(--paper-blue);
+  background: linear-gradient(90deg, rgba(78, 121, 167, 0.08), transparent 42%);
+}
+.brief-incident .cluster-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.brief-incident .cluster-card h3 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.25;
+}
+.brief-incident .cluster-count {
+  font-family: var(--mono-editorial);
+  font-size: 10.5px;
+  letter-spacing: var(--label-tracking-tight);
+  text-transform: uppercase;
+  color: var(--paper-mute);
+  white-space: nowrap;
+}
+.brief-incident .cluster-card p {
+  margin: 8px 0 0;
+}
+.brief-incident .cluster-facet code,
+.brief-incident .cluster-facets code,
+.brief-incident .cluster-members code {
+  font-family: var(--mono-editorial);
+  font-size: 11px;
+}
+.brief-incident .cluster-facets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.brief-incident .cluster-facets span {
+  border: 1px solid var(--paper-rule-soft);
+  background: var(--paper-surface);
+  padding: 2px 6px;
+  font-size: 11.5px;
+}
+.brief-incident .cluster-volume strong {
+  font-family: var(--mono-editorial);
+}
+.brief-incident .cluster-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+.brief-incident .cluster-members code {
+  border: 1px solid var(--paper-rule);
+  background: var(--paper-surface);
+  padding: 1px 5px;
+}
 .brief-incident .verdict-score-card {
   border-left: 1px solid var(--paper-faint);
   padding-left: 24px;
@@ -2604,6 +2869,11 @@ footer {
 .brief-incident .actors-table tbody tr {
   border-bottom: 1px solid var(--paper-rule-soft);
 }
+.brief-incident .actors-table tbody tr.row-strong,
+.brief-incident .mini-table tbody tr.row-strong {
+  background: #fff7f2;
+  border-left: 3px solid var(--paper-orange);
+}
 .brief-incident .actors-table td {
   padding: 10px 8px;
   vertical-align: top;
@@ -2844,6 +3114,15 @@ footer {
   border-bottom: 1px solid var(--paper-rule-soft);
   align-items: baseline;
 }
+.brief-incident .attack-row-head {
+  padding: 0 0 5px;
+  font-family: var(--mono-editorial);
+  font-size: 10.5px;
+  letter-spacing: var(--label-tracking-tight);
+  text-transform: uppercase;
+  color: var(--paper-mute);
+  border-bottom-color: var(--paper-rule);
+}
 .brief-incident .attack-row code {
   font-family: var(--mono-editorial);
   font-size: 12px;
@@ -2854,6 +3133,26 @@ footer {
   font-size: 14px;
   font-weight: 500;
   color: var(--paper-ink);
+}
+.brief-incident .attack-row .attack-evidence {
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--paper-mute);
+  line-height: 1.35;
+}
+.brief-incident .attack-metric-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+}
+.brief-incident .attack-metric-chips span {
+  border: 1px solid var(--paper-rule-soft);
+  background: var(--paper-surface);
+  padding: 1px 5px;
+  font-family: var(--mono-editorial);
+  font-size: 10.5px;
+  color: var(--paper-mute);
 }
 .brief-incident .attack-row .tactic {
   font-family: var(--mono-editorial);
@@ -2982,34 +3281,100 @@ footer {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
 }
 .brief-incident .actions-list li {
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
-  gap: 20px;
-  align-items: baseline;
-  padding: 16px 0;
-  border-bottom: 1px solid var(--paper-rule-soft);
+  grid-template-columns: var(--action-rank-width) minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
+  min-height: 118px;
+  padding: 0;
+  background: var(--paper);
+  border: 1px solid var(--paper-rule-soft);
+  border-left: 4px solid var(--paper-blue);
+  box-sizing: border-box;
+  overflow: hidden;
 }
-.brief-incident .actions-list li:last-child {
-  border-bottom: 1px solid var(--paper-ink);
+.brief-incident .actions-list li:first-child {
+  grid-column: 1 / -1;
+  grid-template-columns: var(--action-rank-width) minmax(0, 1fr);
+  min-height: 108px;
+  border-left-color: var(--paper-red);
+  background: var(--paper);
+}
+.brief-incident .action-rank {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  border-right: 1px solid var(--paper-rule-soft);
+  background: #f5f8fb;
+  box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
+  padding: 32px 6px 10px;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.brief-incident .actions-list li:first-child .action-rank {
+  background: var(--paper-red-bg);
+}
+.brief-incident .action-rank-label {
+  margin-top: 5px;
+  font-family: var(--mono-editorial);
+  font-size: 8.5px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--paper-mute);
+}
+.brief-incident .action-content {
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 14px 16px 13px 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
 }
 .brief-incident .actions-list .num {
   font-family: var(--sans-editorial);
   font-weight: 800;
-  font-size: 28px;
+  font-size: 25px;
   line-height: 1;
-  letter-spacing: -0.03em;
-  color: var(--paper-faint);
+  color: var(--paper-blue);
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  max-width: 100%;
+  text-align: center;
+}
+.brief-incident .actions-list li:first-child .num {
+  color: var(--paper-red-ink);
+}
+.brief-incident .action-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 9px;
+  align-items: center;
 }
 .brief-incident .actions-list .step {
   font-family: var(--sans-editorial);
-  font-weight: 600;
-  font-size: 15px;
-  line-height: 1.4;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.35;
   letter-spacing: -0.008em;
   color: var(--paper-ink);
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.brief-incident .actions-list li:first-child .step {
+  font-size: 16px;
+  line-height: 1.32;
 }
 
 /* Action effect — mute, mono-digit sub-line under each recommended
@@ -3018,13 +3383,39 @@ footer {
    Spans the full row below the step + pills, so the action ladder reads
    as: step on top, who-when on the right, effect underneath. */
 .brief-incident .actions-list .action-effect {
-  grid-column: 2 / -1;
-  margin-top: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--paper-rule-soft);
   font-family: var(--sans-editorial);
   font-size: 12px;
   line-height: 1.45;
   color: var(--paper-mute);
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.brief-incident .actions-list .action-reason {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--paper-body);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .brief-incident {
+    --action-rank-width: 64px;
+  }
+  .brief-incident .actions-list {
+    grid-template-columns: 1fr;
+  }
+  .brief-incident .actions-list li,
+  .brief-incident .actions-list li:first-child {
+    grid-column: auto;
+    grid-template-columns: var(--action-rank-width) minmax(0, 1fr);
+  }
+  .brief-incident .action-content {
+    padding-left: 14px;
+  }
 }
 
 /* IOC export */
@@ -3202,30 +3593,85 @@ footer {
   .brief-incident .verdict-cover {
     display: block;
   }
+  .brief-incident .verdict-print-top-row {
+    display: grid;
+    grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+    gap: 10pt;
+    align-items: stretch;
+    margin-bottom: 15pt;
+  }
+  .brief-incident .verdict-main {
+    grid-column: auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 126pt;
+    box-sizing: border-box;
+    background: #fff;
+    border: 1px solid #dfe4ea;
+    padding: 9pt 9pt 7pt;
+  }
   .brief-incident .verdict-score-card { display: none; }
   .brief-incident .verdict-level-pill { display: none; }
   .brief-incident .print-risk-pill { display: inline-block; }
-  .brief-incident .verdict-pills { margin: 8pt 0 10pt; }
-  .brief-incident .severity-ladder { margin-top: 10pt; }
+  .brief-incident .verdict-pills {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4pt;
+    margin: 8pt 0 10pt;
+  }
+  .brief-incident .verdict-main .pill-lg {
+    padding: 2.4pt 7pt;
+    font-size: 7.6pt;
+    line-height: 1.1;
+    letter-spacing: 0.11em;
+    border-radius: 999px;
+  }
+  .brief-incident .severity-ladder { margin-top: auto; }
   .brief-incident .severity-ladder-bars {
-    gap: 5pt;
+    gap: 4pt;
     margin-bottom: 6pt;
   }
-  .brief-incident .severity-ladder-bar { height: 8pt; }
+  .brief-incident .severity-ladder-bar { height: 6.5pt; }
   .brief-incident .severity-ladder-labels { gap: 4pt; }
-  .brief-incident .severity-ladder-labels span { font-size: 7.2pt; }
+  .brief-incident .severity-ladder-labels span { font-size: 6.7pt; }
+  .brief-incident .severity-ladder-bar.is-current::after {
+    top: -11pt;
+    border-left-width: 4pt;
+    border-right-width: 4pt;
+    border-top-width: 5.5pt;
+  }
   .brief-incident .verdict-caveat { display: none; }
   .brief-incident .verdict-assessment { display: none; }
   .brief-incident .verdict-narrative {
     display: block;
     max-width: none;
   }
+  .brief-incident .verdict-interpretation {
+    display: block;
+    margin: 0 0 10pt;
+    padding: 7pt 9pt 7pt 10pt;
+    background: #f8fafc;
+    border: 1px solid #dfe4ea;
+    border-left: 3pt solid #9a3330;
+    box-sizing: border-box;
+  }
   .brief-incident .verdict-narrative.prose {
-    font-size: 8.4pt;
-    line-height: 1.34;
+    font-size: 8.2pt;
+    line-height: 1.38;
+    color: #26313d;
   }
   .brief-incident .verdict-narrative.prose p {
-    margin: 0 0 5pt;
+    margin: 0;
+  }
+  .brief-incident .verdict-narrative.prose strong:first-child {
+    display: block;
+    margin-bottom: 3pt;
+    font-family: var(--mono-editorial);
+    font-size: 7.1pt;
+    line-height: 1.1;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #5b1f1e;
   }
   .brief-incident .verdict-narrative.prose ul,
   .brief-incident .verdict-narrative.prose ol {
@@ -3277,11 +3723,17 @@ footer {
     font-size: 6.8pt;
   }
   .brief-incident .verdict-volume-timeline {
-    display: block;
-    margin-top: 10pt;
-    padding: 7pt 7pt 5pt;
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    min-height: 126pt;
+    box-sizing: border-box;
+    padding: 9pt 9pt 6pt;
   }
-  .brief-incident .verdict-volume-timeline .timeline-title { margin-bottom: 5pt; }
+  .brief-incident .verdict-volume-timeline .timeline-title {
+    align-items: baseline;
+    margin-bottom: 4pt;
+  }
   .brief-incident .verdict-volume-timeline .timeline-range {
     font-size: 7.4pt;
     font-weight: 600;
@@ -3289,13 +3741,15 @@ footer {
   }
   .brief-incident .verdict-volume-timeline svg {
     max-width: 100%;
-    max-height: 72pt;
+    max-height: 62pt;
   }
   .brief-incident .timeline-series-legend {
     display: flex;
-    gap: 10pt;
+    flex-wrap: wrap;
+    gap: 4pt 8pt;
+    margin-top: auto;
     padding: 3pt 0 0;
-    font-size: 7pt;
+    font-size: 6.8pt;
     color: #333;
   }
   .brief-incident .timeline-series-legend .swatch {
@@ -3436,29 +3890,53 @@ footer {
   .brief-incident .mini-table th,
   .brief-incident .mini-table td { padding: 4pt 0; }
 
+  .brief-incident {
+    --action-rank-width: 48pt;
+  }
+  .brief-incident .actions-list {
+    grid-template-columns: 1fr;
+    gap: 7pt;
+  }
   .brief-incident .actions-list li {
-    display: block;
-    padding: 8pt 0;
+    display: grid;
+    grid-template-columns: var(--action-rank-width) minmax(0, 1fr);
+    min-height: 62pt;
+    padding: 0;
+    box-shadow: none;
+    border-color: #cfd7df;
+    background: #fff;
     break-inside: avoid;
     page-break-inside: avoid;
   }
+  .brief-incident .actions-list li:first-child {
+    grid-column: auto;
+    grid-template-columns: var(--action-rank-width) minmax(0, 1fr);
+    min-height: 64pt;
+  }
+  .brief-incident .action-rank {
+    min-height: 100%;
+    background: #f3f6f9 !important;
+    padding: 16pt 4pt 5pt;
+  }
+  .brief-incident .actions-list li:first-child .action-rank {
+    background: #f7dedf !important;
+  }
   .brief-incident .actions-list .num {
-    display: inline-block;
-    width: 2.1em;
-    font-size: 12pt;
-    vertical-align: top;
+    font-size: 13pt;
   }
+  .brief-incident .action-rank-label { font-size: 5.8pt; letter-spacing: 0.06em; }
+  .brief-incident .action-content { padding: 7pt 8pt 7pt 9pt; }
+  .brief-incident .action-meta { gap: 4pt; margin-bottom: 4pt; }
   .brief-incident .actions-list .step {
-    display: inline;
-    font-size: 10.2pt;
+    font-size: 8.6pt;
+    line-height: 1.28;
   }
-  .brief-incident .actions-list .pill {
-    display: none;
-  }
+  .brief-incident .actions-list li:first-child .step { font-size: 9.4pt; }
   .brief-incident .actions-list .action-effect {
-    display: block;
-    margin: 3pt 0 0 2.7em;
-    font-size: 8.8pt;
+    margin-top: 4pt;
+    padding-top: 4pt;
+    font-size: 7.6pt;
+    line-height: 1.35;
   }
 
   .brief-incident .ioc-export {
@@ -3571,65 +4049,89 @@ footer {
 
   <section id="verdict" class="verdict">
     <div class="verdict-cover">
-      <div class="verdict-main">
-        <div class="kicker section-eyebrow">The Verdict</div>
-        <div class="verdict-pills">
-          <span class="pill pill-monitor pill-lg verdict-level-pill">
-            Medium
-          </span>
-          <span class="pill pill-monitor pill-lg print-risk-pill">
-            Risk: 20/100
-          </span>
-          <span class="pill pill-medium pill-lg"
-                title="Aggregate confidence — reflects which evidence sources were available (raw access log, edge-response data). Per-indicator confidence is shown separately on each flagged-target row in the Who Hit It table.">
-            Confidence: Low
-          </span>
+      <div class="verdict-print-top-row">
+        <div class="verdict-main">
+          <div class="kicker section-eyebrow">The Verdict</div>
+          <div class="verdict-pills">
+            <span class="pill pill-monitor pill-lg verdict-level-pill">
+              Medium
+            </span>
+            <span class="pill pill-monitor pill-lg print-risk-pill">
+              Risk: 20/100
+            </span>
+            <span class="pill pill-medium pill-lg"
+                  title="Aggregate confidence — reflects which evidence sources were available (raw access log, edge-response data). Per-indicator confidence is shown separately on each flagged-target row in the Who Hit It table.">
+              Confidence: Low
+            </span>
+          </div>
+
+          <div class="severity-ladder" role="img"
+               aria-label="Severity ladder — current level Medium">
+            <div class="severity-ladder-bars">
+                <div class="severity-ladder-bar is-on"
+                     style="--bar-color: var(--sev-observe);"></div>
+                <div class="severity-ladder-bar is-on is-current"
+                     style="--bar-color: var(--sev-monitor);"></div>
+                <div class="severity-ladder-bar"
+                     style="--bar-color: var(--sev-elevated);"></div>
+                <div class="severity-ladder-bar"
+                     style="--bar-color: var(--sev-high);"></div>
+                <div class="severity-ladder-bar"
+                     style="--bar-color: var(--sev-critical);"></div>
+            </div>
+            <div class="severity-ladder-labels">
+                <span>Observe</span>
+                <span class="is-current">Monitor</span>
+                <span>Elevated</span>
+                <span>High</span>
+                <span>Critical</span>
+            </div>
+          </div>
+
+            <p class="verdict-caveat">This report describes traffic patterns, not intent. It is built from log rules, so it does not claim any actor is malicious or attribute a root cause.</p>
+            <p class="verdict-caveat">
+              Confidence labels reflect how much evidence was available.
+              The overall confidence is based on the data sources we had
+              (raw access log and edge actions). Each indicator row carries
+              its own confidence — that may be higher or lower than the
+              overall.
+            </p>
+          <div class="story-grid" style="margin-top: 14px;">
+            <div class="story-panel">
+              <h3>Confidence Drivers</h3>
+              <ul class="story-bullets">
+                  <li>spike flags fired (Volume up, 429 rate up)</li>
+                  <li>raw-log drilldown unavailable on this cluster, so target naming is out of reach</li>
+                  <li>no edge-response signal available (neither SIEM action class nor raw action_applied), so block coverage cannot be cross-checked</li>
+                <li>Raw actor and action-target rows are separated below so rank, severity, and action class stay explicit.</li>
+              </ul>
+            </div>
+            <div class="story-panel">
+              <h3>Open Validation Items</h3>
+              <ul class="story-bullets">
+                <li>Validate edge-control candidates against protected traffic before enforcement.</li>
+                <li>Credential-access findings require auth endpoint, failure pattern, account/user identifiers, or SIEM/auth correlation. Without those, T1110/T1110.004 remain investigation leads.</li>
+                <li>Confirm whether path-pattern rows are normalized routes or aggregation artifacts before route-level controls.</li>
+              </ul>
+            </div>
+          </div>
         </div>
 
-        <div class="severity-ladder" role="img"
-             aria-label="Severity ladder — current level Medium">
-          <div class="severity-ladder-bars">
-              <div class="severity-ladder-bar is-on"
-                   style="--bar-color: var(--sev-observe);"></div>
-              <div class="severity-ladder-bar is-on is-current"
-                   style="--bar-color: var(--sev-monitor);"></div>
-              <div class="severity-ladder-bar"
-                   style="--bar-color: var(--sev-elevated);"></div>
-              <div class="severity-ladder-bar"
-                   style="--bar-color: var(--sev-high);"></div>
-              <div class="severity-ladder-bar"
-                   style="--bar-color: var(--sev-critical);"></div>
-          </div>
-          <div class="severity-ladder-labels">
-              <span>Observe</span>
-              <span class="is-current">Monitor</span>
-              <span>Elevated</span>
-              <span>High</span>
-              <span>Critical</span>
-          </div>
-        </div>
-
-          <p class="verdict-caveat">This report describes traffic patterns, not intent. It is built from log rules, so it does not claim any actor is malicious or attribute a root cause.</p>
-          <p class="verdict-caveat">
-            Confidence labels reflect how much evidence was available.
-            The overall confidence is based on the data sources we had
-            (raw access log and edge actions). Each indicator row carries
-            its own confidence — that may be higher or lower than the
-            overall.
-          </p>
-
-        <p class="verdict-pills verdict-assessment" style="margin-top: 18px;">
-          <span class="kicker section-eyebrow">Assessed with low confidence</span>
-        </p>
-          <div class="verdict-narrative prose"><p>Volume on www.example.com is materially up (+210% on the top host) and 429s are spiking on <code>/login/*</code> — both consistent with a login-attack pattern, but per-actor evidence is unavailable on this cluster so naming specific origins is out of reach. The spike flags volume_up + rate_429_up are the only concurring signals, with no SIEM surface and no raw-log breakdown to confirm whether the increase is concentrated on a handful of actors or spread broadly. Escalation should wait on raw-log access for this scope rather than acting on summary evidence alone.</p>
-</div>
       </div>
 
       <aside class="verdict-score-card">
         <div class="kicker section-eyebrow">Risk Score</div>
         <div class="verdict-score-num tnum">20<small>/100</small></div>
       </aside>
+
     </div>
+
+    <section class="analyst-assessment">
+      <div class="kicker section-eyebrow">Analyst Assessment</div>
+        <div class="assessment-prose prose"><p>Volume on www.example.com is materially up (+210% on the top host) and 429s are spiking on <code>/login/*</code> — both consistent with a login-attack pattern, but per-actor evidence is unavailable on this cluster so naming specific origins is out of reach. The spike flags volume_up + rate_429_up are the only concurring signals, with no SIEM surface and no raw-log breakdown to confirm whether the increase is concentrated on a handful of actors or spread broadly. Escalation should wait on raw-log access for this scope rather than acting on summary evidence alone.</p>
+</div>
+    </section>
+
 
     <ol class="verdict-findings">
         <li>
@@ -3648,7 +4150,6 @@ footer {
           <p class="finding-body">this window shows movement worth investigating; the evidence is not yet decisive.</p>
         </li>
     </ol>
-
 
     <div class="score-methodology" aria-label="How the score was calculated">
       <div class="score-methodology-head">
@@ -3671,6 +4172,68 @@ footer {
     </div>
   </section>
 
+
+  <section id="actions" class="section section-actions">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">Recommended</span>
+        <span class="hr"></span>
+      </div>
+      <h2 class="display">What to do next</h2>
+    </div>
+      <ol class="actions-list">
+          <li>
+            <div class="action-rank">
+              <span class="num tnum">01</span>
+              <span class="action-rank-label">Priority</span>
+            </div>
+            <div class="action-content">
+              <div class="action-meta">
+                <span class="pill pill-mono pill-sm">IR Lead</span>
+                <span class="pill pill-neutral pill-sm">this week</span>
+              </div>
+              <div class="step">Schedule retrospective — review SIEM coverage on affected endpoints</div>
+              <div class="action-effect tnum">Target: Detection and response coverage · Duration: Post-incident</div>
+              <div class="action-reason">Risk: Low; process review.</div>
+              <div class="action-reason">Validation: Retrospective identifies whether SIEM and edge evidence agree.</div>
+              <div class="action-reason">Rollback: N/A.</div>
+                <div class="action-reason">Why this recommendation exists: observed edge action and flagged-target evidence can diverge after an incident.</div>
+            </div>
+          </li>
+      </ol>
+      <details class="full-evidence" style="margin-top: 24px;">
+        <summary>Analyst note — next steps narrative</summary>
+        <div class="full-evidence-body prose">
+          <ul>
+<li>Confirm the spike in the linked dashboard against a longer baseline.</li>
+<li>Stand up raw-log access on this cluster so the actors section can populate the next time this scope is investigated.</li>
+</ul>
+
+        </div>
+      </details>
+      <table class="mini-table" style="margin-top: 18px;">
+        <thead>
+          <tr>
+            <th>Action</th>
+            <th>Target</th>
+            <th>Duration</th>
+            <th>Risk</th>
+            <th>Validation</th>
+            <th>Rollback</th>
+          </tr>
+        </thead>
+        <tbody>
+            <tr>
+              <td>Schedule retrospective — review SIEM coverage on affected endpoints</td>
+              <td>Detection and response coverage</td>
+              <td>Post-incident</td>
+              <td>Low; process review.</td>
+              <td>Retrospective identifies whether SIEM and edge evidence agree.</td>
+              <td>N/A.</td>
+            </tr>
+        </tbody>
+      </table>
+  </section>
 
   <section id="impact" class="section section-impact">
     <div class="impact-print-pack">
@@ -3744,20 +4307,129 @@ footer {
       <p class="impact-lead">
         Top path pattern: <code class="mono">/login/*</code> —
         1.50M requests
-        (69.8% of window,
+        (69.8% of target traffic,
         +410% vs baseline).
       </p>
   </section>
 
+  <section class="section section-analytic-story">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">Why This Stood Out</span>
+        <span class="hr"></span>
+      </div>
+      <h2 class="display">Evidence chain before the tables</h2>
+    </div>
+
+    <div class="story-grid">
+      <div class="story-panel">
+        <h3>Why this stood out</h3>
+          <ul class="story-bullets">
+              <li>Observed path concentration: <code>/login/*</code> carried 69.8% of scoped requests.</li>
+              <li>5xx and 429 behavior diverged from baseline: 429 rate up fired against the comparison window.</li>
+          </ul>
+      </div>
+
+      <div class="story-panel">
+        <h3>Observed vs inferred</h3>
+        <div class="taxonomy-grid">
+          <div>
+            <div class="taxonomy-label">Observed</div>
+            <ul>
+                <li>request concentration</li>
+                <li>path concentration</li>
+                <li>cohort distribution</li>
+                <li>5xx/429 rates</li>
+                <li>edge action mix</li>
+            </ul>
+          </div>
+          <div>
+            <div class="taxonomy-label">Inferred</div>
+            <ul>
+                <li>coordinated infrastructure</li>
+                <li>evasive automation</li>
+                <li>application-layer flooding</li>
+            </ul>
+          </div>
+        </div>
+        <p class="assessment-boundary">Inferred labels are analytic interpretations of observed log patterns; they are not attribution, root cause, or intent claims.</p>
+      </div>
+    </div>
+
+    <div class="coordination-matrix">
+      <h3>Coordination Signals</h3>
+      <table class="mini-table">
+        <thead>
+          <tr>
+            <th scope="col">Signal</th>
+            <th scope="col">Status</th>
+            <th scope="col">Evidence boundary</th>
+          </tr>
+        </thead>
+        <tbody>
+            <tr>
+              <td>ASN concentration</td>
+              <td><span class="signal-status signal-not-observed">not observed</span></td>
+              <td>No single-ASN flag was present in flagged rows.</td>
+            </tr>
+            <tr>
+              <td>Shared path targeting</td>
+              <td><span class="signal-status signal-not-observed">not observed</span></td>
+              <td>No shared-path or single-path signal was present.</td>
+            </tr>
+            <tr>
+              <td>Overlapping active window</td>
+              <td><span class="signal-status signal-not-available">not available</span></td>
+              <td>Per-target bucket evidence was not present in this artifact.</td>
+            </tr>
+            <tr>
+              <td>Shared UA/cohort</td>
+              <td><span class="signal-status signal-not-available">not available</span></td>
+              <td>Per-target dominant UA/cohort evidence was not present.</td>
+            </tr>
+            <tr>
+              <td>Shared edge action profile</td>
+              <td><span class="signal-status signal-not-available">not available</span></td>
+              <td>No edge-action evidence was available.</td>
+            </tr>
+            <tr>
+              <td>IP/UA co-occurrence</td>
+              <td><span class="signal-status signal-not-available">not available</span></td>
+              <td>No IP/UA co-occurrence artifact was available.</td>
+            </tr>
+            <tr>
+              <td>Disjoint cohort overlap</td>
+              <td><span class="signal-status signal-partial">partial</span></td>
+              <td>Overlap could not be computed from available fields.</td>
+            </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section section-progression">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">Temporal Progression</span>
+        <span class="hr"></span>
+      </div>
+      <h2 class="display">How the pressure evolved</h2>
+    </div>
+      <p class="finding-body muted">Temporal progression is not available in this artifact.</p>
+  </section>
+
+
+
   <section id="flagged" class="section section-actors">
     <div class="section-head">
       <div class="section-head-rule">
-        <span class="kicker section-eyebrow">Who Hit It</span>
+        <span class="kicker section-eyebrow">Drilldown</span>
         <span class="hr"></span>
         <span class="section-head-count">0 flagged</span>
       </div>
-      <h2 class="display">Flagged signals, ranked by strength</h2>
-    </div>
+        <h2 class="display">Drilldown: Flagged Signals</h2>
+        <p class="attack-note">Source: action-target heuristic (`bot_incident_action_targets.v1`). These rows are the authoritative priority list; raw volume rankings are shown separately in Full Evidence.</p>
+      </div>
 
       <table class="actors-table" data-state="empty">
         <tbody>
@@ -3773,22 +4445,8 @@ footer {
       </table>
   </section>
 
-  <section class="section section-attack split-2col">
-    <div class="print-pane">
-      <div class="section-head">
-        <div class="section-head-rule">
-          <span class="kicker section-eyebrow">ATT&amp;CK Mapping</span>
-          <span class="hr"></span>
-        </div>
-        <h2 class="display-lg">Consistent with</h2>
-      </div>
-      <p class="attack-note">Techniques the observed signal is consistent with — not an attribution.</p>
-      <div class="attack-list" data-state="empty">
-          <p class="finding-body">No ATT&amp;CK techniques were associated with flagged targets in this window.</p>
-      </div>
-    </div>
-
-    <div class="print-pane">
+  <section class="section section-paths">
+    <div>
       <div class="section-head">
         <div class="section-head-rule">
           <span class="kicker section-eyebrow">Top Paths</span>
@@ -3801,7 +4459,7 @@ footer {
             <tr>
               <th scope="col">Path</th>
               <th scope="col" class="is-num">Reqs</th>
-              <th scope="col" class="is-num">Share</th>
+              <th scope="col" class="is-num">% of incident requests</th>
               <th scope="col" class="is-num">Share bar</th>
             </tr>
           </thead>
@@ -3853,34 +4511,38 @@ footer {
     <div class="print-pane">
       <div class="section-head">
         <div class="section-head-rule">
-          <span class="kicker section-eyebrow">Top Countries</span>
+          <span class="kicker section-eyebrow">Geo Mix</span>
           <span class="hr"></span>
         </div>
-        <h2 class="display-lg">Where it came from</h2>
+        <h2 class="display-lg">Geo mix shifted</h2>
+        <p class="attack-note">
+          Country mix is baseline-divergence context. It is not actor-origin
+          attribution and does not identify where a request operator is located.
+        </p>
       </div>
         <table class="mini-table">
           <thead>
             <tr>
               <th scope="col">Country</th>
               <th scope="col" class="is-num">Reqs</th>
-              <th scope="col" class="is-num">Share</th>
+              <th scope="col" class="is-num">% of incident requests</th>
               <th scope="col" class="is-num">Δ vs baseline</th>
             </tr>
           </thead>
           <tbody>
-              <tr>
+              <tr class="row-strong">
                 <td><code class="mono">US</code></td>
                 <td class="is-num">1.10M</td>
                 <td class="is-num"><strong>51.2%</strong></td>
                 <td class="is-num">+220%</td>
               </tr>
-              <tr>
+              <tr class="row-strong">
                 <td><code class="mono">DE</code></td>
                 <td class="is-num">380.00K</td>
                 <td class="is-num"><strong>17.7%</strong></td>
                 <td class="is-num">+290%</td>
               </tr>
-              <tr>
+              <tr class="row-strong">
                 <td><code class="mono">BR</code></td>
                 <td class="is-num">250.00K</td>
                 <td class="is-num"><strong>11.6%</strong></td>
@@ -3909,32 +4571,18 @@ footer {
   </section>
 
 
-  <section id="actions" class="section section-actions">
+  <section class="section section-attack">
     <div class="section-head">
       <div class="section-head-rule">
-        <span class="kicker section-eyebrow">Recommended</span>
+        <span class="kicker section-eyebrow">ATT&amp;CK Mapping</span>
         <span class="hr"></span>
       </div>
-      <h2 class="display">What to do next</h2>
+      <h2 class="display">Consistent with</h2>
     </div>
-      <ol class="actions-list">
-          <li>
-            <span class="num tnum">01</span>
-            <span class="step">Schedule retrospective — review SIEM coverage on affected endpoints</span>
-            <span class="pill pill-mono pill-sm">IR Lead</span>
-            <span class="pill pill-neutral pill-sm">this week</span>
-          </li>
-      </ol>
-      <details class="full-evidence" style="margin-top: 24px;">
-        <summary>Analyst note — next steps narrative</summary>
-        <div class="full-evidence-body prose">
-          <ul>
-<li>Confirm the spike in the linked dashboard against a longer baseline.</li>
-<li>Stand up raw-log access on this cluster so the actors section can populate the next time this scope is investigated.</li>
-</ul>
-
-        </div>
-      </details>
+    <p class="attack-note">Techniques the observed signal is consistent with — not an attribution. Credential-access techniques are investigation leads unless auth-specific telemetry is present.</p>
+    <div class="attack-list" data-state="empty">
+        <p class="finding-body">No ATT&amp;CK techniques were associated with flagged targets in this window.</p>
+    </div>
   </section>
 
 
@@ -3954,7 +4602,7 @@ footer {
     </div>
     <div class="right">
       <span class="label">Generated</span>
-      <span class="tnum">2026-05-18 18:43 UTC</span>
+      <span class="tnum">2026-05-19 02:44 UTC</span>
     </div>
   </footer>
 
@@ -4001,7 +4649,7 @@ footer {
               <tr>
                 <th>Host</th>
                 <th class="is-num">Requests</th>
-                <th class="is-num">Share</th>
+                <th class="is-num">% of incident requests</th>
                 <th class="is-num">Δ vs baseline</th>
               </tr>
             </thead>
@@ -4033,7 +4681,7 @@ footer {
               <tr>
                 <th>Status</th>
                 <th class="is-num">Requests</th>
-                <th class="is-num">Share</th>
+                <th class="is-num">% of target traffic</th>
               </tr>
             </thead>
             <tbody>
@@ -4064,7 +4712,7 @@ footer {
 
       <section>
         <div class="section-head" style="margin-top: 28px;">
-          <h3 class="display-lg">Section B — Per-field actor rankings</h3>
+          <h3 class="display-lg">Section B — Highest volume raw actors</h3>
         </div>
           <p class="finding-body">
             The cluster's raw access log was not available for this report,
@@ -4084,6 +4732,22 @@ footer {
               <li>Suspicious-target heuristics produced no flagged rows because the cluster has no raw access log; only summary-level scope evidence is available.</li>
           </ul>
         </section>
+
+      <section>
+        <div class="section-head" style="margin-top: 28px;">
+          <h3 class="display-lg">SOC Evidence Appendix</h3>
+        </div>
+        <h4>Artifact source map</h4>
+        <table class="mini-table">
+          <thead><tr><th>Claim</th><th>Artifact</th><th>Source fields</th></tr></thead>
+          <tbody>
+              <tr><td>Scope metrics and baseline deltas</td><td><code>bot_incident_scope.v1</code></td><td>window_confirmation, volume_timeseries, and scope dimension rows</td></tr>
+              <tr><td>Highest-volume raw actors</td><td><code>bot_incident_actors.v1</code></td><td>actor_rankings/client_ip</td></tr>
+              <tr><td>Highest-priority action targets</td><td><code>bot_incident_action_targets.v1</code></td><td>targets plus evidence_refs</td></tr>
+          </tbody>
+        </table>
+        <p class="finding-body">Credential-access findings require auth endpoint, failure pattern, account/user identifiers, or SIEM/auth correlation. Without those, T1110/T1110.004 remain investigation leads.</p>
+      </section>
 
       <section>
         <div class="section-head" style="margin-top: 28px;">
@@ -4160,7 +4824,7 @@ footer {
 </article>
 
   <footer>
-    Generated 2026-05-18 18:43 UTC · artifact bot_incident_scope.v1  </footer>
+    Generated 2026-05-19 02:44 UTC · artifact bot_incident_scope.v1  </footer>
 </main>
 </body>
 </html>

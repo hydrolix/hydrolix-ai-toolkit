@@ -1,0 +1,1468 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>BotInsights Incident Report — {{ customer }} · {{ window.date }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800&family=Inconsolata:wght@500;600;700&display=swap" rel="stylesheet" />
+<style>
+  /* ---------- TOKENS ---------- */
+  :root {
+    /* Brand neutrals */
+    --bg: #F4F6F8;
+    --paper: #FFFFFF;
+    --line: #DEE3E6;
+    --line-2: #B8C3CB;
+    --ink-3: #8B9FAD;
+    --ink-2: #4A5F73;
+    --ink-1: #424D57;
+    --ink: #0A1E2E;
+    --abyss: #000000;
+
+    /* Brand primaries */
+    --teal: #00A99D;
+    --teal-light: #6EF6D9;
+    --teal-pale: #D1FBFF;
+    --teal-deep: #035F60;
+    --teal-darker: #024545;
+    --teal-darkest: #002B2C;
+
+    --navy: #003D66;
+    --navy-deep: #003366;
+    --navy-darker: #092747;
+    --navy-mid: #05549C;
+    --blue: #4A90E2;
+    --blue-pale: #C6E7FC;
+    --blue-paler: #D1FBFF;
+
+    --gold: #FFB800;
+    --gold-pale: #FFEF5D;
+    --gold-deep: #CD8D00;
+    --orange: #FF8C1A;
+
+    /* Severity (Tableau-aligned) */
+    --critical: #E63946;
+    --critical-deep: #A6434B;
+    --critical-pale: #FFAAB1;
+    --high: #FF8C1A;
+    --elevated: #FFB800;
+    --monitor: #4A90E2;
+    --observe: #B8C3CB;
+    --ok: #00A99D;
+
+    /* Neons (callouts only) */
+    --neon-yellow: #F8FF28;
+    --neon-green: #D5FF1D;
+    --neon-cyan: #8DFFF9;
+
+    /* Type */
+    --sans: 'Public Sans', system-ui, sans-serif;
+    --mono: 'Inconsolata', ui-monospace, monospace;
+  }
+
+  /* ---------- RESET / BASE ---------- */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: var(--sans);
+    color: var(--ink);
+    background: #DCE2E6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "ss01", "cv11", "cv10";
+  }
+
+  /* ---------- PAGE ---------- */
+  @page { size: letter; margin: 0; }
+  .doc {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+    padding: 32px 0;
+  }
+  .page {
+    width: 8.5in;
+    height: 11in;
+    background: var(--bg);
+    color: var(--ink);
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 24px 60px -20px rgba(9,39,71,.25), 0 0 0 1px rgba(9,39,71,.06);
+    page-break-after: always;
+    break-after: page;
+    font-size: 9.5pt;
+    line-height: 1.42;
+    display: flex;
+    flex-direction: column;
+  }
+  .page:last-child { page-break-after: auto; }
+
+  @media print {
+    body { background: #fff; }
+    .doc { padding: 0; gap: 0; }
+    .page { box-shadow: none; margin: 0; }
+  }
+
+  /* ---------- LAYOUT GRID ---------- */
+  .pad { padding: 0.35in 0.55in 0.35in; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ---------- HEADER / FOOTER ---------- */
+  .top-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 0.55in;
+    height: 0.42in;
+    flex: 0 0 auto;
+    color: var(--ink-2);
+    font-family: var(--mono);
+    font-size: 7.5pt;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--line);
+    background: var(--paper);
+    white-space: nowrap;
+  }
+  .top-bar > * { white-space: nowrap; }
+  .top-bar .meta span { white-space: nowrap; }
+  .top-bar .brand { display: flex; align-items: center; gap: 10px; color: var(--navy-darker); font-weight: 700; }
+  .top-bar .brand .mark { width: 14px; height: 14px; display: inline-block; position: relative; }
+  .top-bar .brand .mark::before, .top-bar .brand .mark::after {
+    content: ""; position: absolute; inset: 0; border-radius: 2px;
+    background: var(--teal); transform-origin: center;
+  }
+  .top-bar .brand .mark::before { transform: rotate(45deg); width: 3px; left: 50%; margin-left: -1.5px; }
+  .top-bar .brand .mark::after  { transform: rotate(-45deg); width: 3px; left: 50%; margin-left: -1.5px; }
+  .top-bar .meta { display: flex; gap: 24px; }
+  .top-bar .meta span { color: var(--ink-3); }
+  .top-bar .meta b { color: var(--ink); font-weight: 600; }
+
+  .foot-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 0.55in;
+    color: var(--ink-3);
+    font-family: var(--mono);
+    font-size: 7.5pt;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-top: 1px solid var(--line);
+    height: 0.4in;
+    flex: 0 0 auto;
+    white-space: nowrap;
+    background: var(--paper);
+  }
+  .foot-bar > * { white-space: nowrap; }
+
+  /* ---------- SECTION NAV (persistent spine) ---------- */
+  .section-nav {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: stretch;
+    height: 0.34in;
+    background: var(--paper);
+    border-bottom: 1px solid var(--line);
+    padding: 0 0.55in;
+    gap: 0;
+    position: relative;
+  }
+  .section-nav .sn {
+    flex: 1; display: flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-weight: 600;
+    font-size: 7pt; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--ink-3);
+    border-right: 1px solid var(--line);
+    padding: 0 8px;
+    position: relative;
+  }
+  .section-nav .sn:last-child { border-right: none; }
+  .section-nav .sn .n { font-weight: 700; color: var(--line-2); }
+  .section-nav .sn.done { color: var(--ink-2); }
+  .section-nav .sn.done .n { color: var(--teal-deep); }
+  .section-nav .sn.current {
+    color: var(--navy-darker); font-weight: 700;
+    background: linear-gradient(180deg, rgba(0,169,157,.08) 0%, rgba(0,169,157,0) 100%);
+  }
+  .section-nav .sn.current .n { color: var(--teal-deep); }
+  .section-nav .sn.current::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: -1px;
+    height: 2px; background: var(--teal-deep);
+  }
+
+  /* ---------- SECTION INTRO (persistent header pattern) ---------- */
+  .section-intro { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+  .section-intro .eyebrow { font-size: 7.5pt; }
+  .section-intro h2 { font-size: 22pt; line-height: 1.08; max-width: 22ch; }
+  .section-intro .lede { font-size: 9.5pt; line-height: 1.5; color: var(--ink-1); max-width: 70ch; margin: 4px 0 0; }
+  .foot-bar .page-no { color: var(--navy-darker); font-weight: 700; }
+
+  /* ---------- TYPOGRAPHY ---------- */
+  .eyebrow {
+    font-family: var(--mono);
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-size: 8.5pt;
+    color: var(--teal-deep);
+  }
+  .eyebrow.muted { color: var(--ink-3); }
+  .eyebrow.on-dark { color: var(--teal-light); }
+
+  h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.02em; }
+  h1 { font-size: 36pt; line-height: 1.04; }
+  h2 { font-size: 22pt; line-height: 1.08; }
+  h3 { font-size: 14pt; line-height: 1.15; }
+  h4 { font-size: 10.5pt; line-height: 1.2; }
+
+  .num { font-family: var(--mono); font-weight: 700; font-feature-settings: "tnum"; }
+  .label {
+    font-family: var(--mono); font-weight: 600;
+    letter-spacing: 0.12em; text-transform: uppercase; font-size: 7.5pt;
+    color: var(--ink-3);
+  }
+  .lede { font-size: 10.5pt; line-height: 1.5; color: var(--ink-1); }
+  .lede strong { color: var(--ink); font-weight: 600; }
+  .small { font-size: 8pt; color: var(--ink-2); line-height: 1.45; }
+  .tiny { font-size: 7pt; color: var(--ink-3); letter-spacing: 0.02em; }
+
+  /* ---------- PRECISION FRAME ---------- */
+  /* Bottom-right rounded corner per Hydrolix brand */
+  .pf {
+    background: var(--paper);
+    border-radius: 0 0 34px 0;
+    border: 1px solid var(--line);
+  }
+  .pf-sm { border-radius: 0 0 21px 0; }
+  .pf-lg { border-radius: 0 0 55px 0; }
+  .pf-xl { border-radius: 0 0 89px 0; }
+
+  /* ---------- COMPONENTS ---------- */
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 18px; padding: 0 8px;
+    font-family: var(--mono); font-weight: 700; font-size: 7.5pt;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--ink); background: var(--line); border-radius: 2px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .chip.critical { background: var(--critical); color: #fff; }
+  .chip.high { background: var(--high); color: #1a1100; }
+  .chip.elevated { background: var(--elevated); color: #1a1100; }
+  .chip.monitor { background: var(--monitor); color: #fff; }
+  .chip.observe { background: var(--observe); color: #1a1100; }
+  .chip.ok { background: var(--teal-deep); color: #fff; }
+  .chip.ghost { background: transparent; border: 1px solid var(--line-2); color: var(--ink-2); }
+  .chip.dark { background: var(--navy-darker); color: var(--teal-light); }
+  .cover-action-list {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    margin-top: 1px;
+  }
+  .cover-action {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    column-gap: 8px;
+    align-items: start;
+  }
+  .cover-action .chip {
+    height: 13px;
+    padding: 0 5px;
+    font-size: 5.5pt;
+    letter-spacing: 0.08em;
+    justify-content: center;
+    overflow: hidden;
+    max-width: 42px;
+  }
+  .cover-action span:last-child {
+    color: var(--ink);
+    font-size: 7.1pt;
+    line-height: 1.25;
+  }
+
+  .stat {
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .stat .v { font-family: var(--mono); font-weight: 700; font-size: 18pt; letter-spacing: -0.01em; color: var(--ink); line-height: 1; }
+  .stat .l { font-family: var(--mono); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; font-size: 7.5pt; color: var(--ink-3); }
+  .stat .d { font-size: 8pt; color: var(--ink-2); }
+  .stat .v.up { color: var(--critical); }
+
+  /* ---------- VERDICT BAND ---------- */
+  .verdict-band {
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    gap: 4px; height: 28px;
+    font-family: var(--mono); font-weight: 700; font-size: 7.5pt;
+    letter-spacing: 0.14em; text-transform: uppercase;
+  }
+  .verdict-band > div {
+    display: flex; align-items: center; justify-content: center;
+    background: var(--line); color: var(--ink-3);
+    border-radius: 2px;
+  }
+  .verdict-band > div.active { color: #fff; }
+  .verdict-band > div.observe.active { background: var(--observe); color: var(--ink); }
+  .verdict-band > div.monitor.active { background: var(--monitor); }
+  .verdict-band > div.elevated.active { background: var(--elevated); color: #1a1100; }
+  .verdict-band > div.high.active { background: var(--high); color: #1a1100; }
+  .verdict-band > div.critical.active { background: var(--critical); }
+
+  /* ---------- TABLES ---------- */
+  table.tbl { width: 100%; border-collapse: collapse; font-size: 8.5pt; }
+  table.tbl th {
+    text-align: left;
+    font-family: var(--mono); font-weight: 600;
+    letter-spacing: 0.12em; text-transform: uppercase; font-size: 7pt;
+    color: var(--ink-3);
+    padding: 8px 10px 6px;
+    border-bottom: 1px solid var(--line);
+  }
+  table.tbl td {
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: middle;
+  }
+  table.tbl tr:last-child td { border-bottom: none; }
+  table.tbl td.num, table.tbl th.num { font-family: var(--mono); font-feature-settings: "tnum"; }
+  table.tbl td.num { font-weight: 600; }
+  table.tbl td.right, table.tbl th.right { text-align: right; }
+  table.tbl tr.zebra td { background: rgba(244,246,248,.6); }
+  table.tbl.actor-table { font-size: 8pt; }
+  table.tbl.actor-table th { padding: 6px 8px 5px; }
+  table.tbl.actor-table td { padding: 5px 8px; line-height: 1.28; }
+  table.tbl.actor-table .actor-ip { font-size: 8.8pt; }
+  table.tbl.actor-table .chip { height: 16px; padding: 0 6px; font-size: 6.8pt; letter-spacing: 0.1em; }
+  table.tbl.actor-table .basis { font-size: 7.6pt; line-height: 1.2; }
+
+  /* Bar in cell */
+  .bar {
+    position: relative; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden;
+    width: 100%;
+  }
+  .bar > i { display: block; height: 100%; background: var(--teal-deep); border-radius: 3px; }
+  .bar.crit > i { background: var(--critical); }
+  .bar.high > i { background: var(--high); }
+  .bar.mid > i { background: var(--gold-deep); }
+
+  /* ---------- UTIL ---------- */
+  .row { display: flex; }
+  .col { display: flex; flex-direction: column; }
+  .grow { flex: 1; }
+  .gap-4 { gap: 4px; }
+  .gap-8 { gap: 8px; }
+  .gap-12 { gap: 12px; }
+  .gap-16 { gap: 16px; }
+  .gap-20 { gap: 20px; }
+  .gap-24 { gap: 24px; }
+  .between { justify-content: space-between; }
+  .center { align-items: center; }
+  .end { align-items: flex-end; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+
+  /* ---------- DARK CARD ---------- */
+  .dark-card {
+    background: var(--navy-darker);
+    color: #E8EEF3;
+    border-radius: 0 0 34px 0;
+    border: 1px solid var(--navy-darker);
+  }
+  .dark-card .label { color: var(--teal-light); }
+  .dark-card .stat .v { color: #fff; }
+  .dark-card .stat .l { color: var(--teal-light); }
+  .dark-card .stat .d { color: rgba(232,238,243,.7); }
+
+  /* ---------- CHART (RPM TIMELINE) ---------- */
+  .chart-wrap { position: relative; width: 100%; }
+  .chart-wrap svg { width: 100%; display: block; }
+  .chart-wrap .yax {
+    position: absolute; left: 0; top: 0; bottom: 18px;
+    display: flex; flex-direction: column; justify-content: space-between;
+    font-family: var(--mono); font-size: 7pt; color: var(--ink-3);
+  }
+  .chart-wrap .xax {
+    display: flex; justify-content: space-between;
+    font-family: var(--mono); font-size: 7pt; color: var(--ink-3);
+    margin-top: 4px;
+  }
+
+  /* ---------- COVER PAGE specifics ---------- */
+  .cover {
+    background: var(--bg);
+  }
+  .cover .hero {
+    position: relative;
+    border-radius: 0 0 89px 0;
+    background:
+      radial-gradient(120% 80% at 100% 0%, rgba(0,169,157,.18), rgba(0,169,157,0) 60%),
+      linear-gradient(180deg, var(--navy-darker) 0%, #061a30 100%);
+    color: #fff;
+    padding: 24px 32px 22px;
+    overflow: hidden;
+  }
+  .cover .hero::before {
+    /* precision grid backdrop */
+    content: "";
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(110,246,217,.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(110,246,217,.07) 1px, transparent 1px);
+    background-size: 24px 24px;
+    mask-image: radial-gradient(120% 100% at 100% 50%, #000 30%, transparent 70%);
+    pointer-events: none;
+  }
+  .cover .hero::after { content: none; }
+  .crosshair {
+    position: absolute; right: 32px; top: 32px;
+    width: 56px; height: 56px; pointer-events: none;
+  }
+  .crosshair::before, .crosshair::after {
+    content: ""; position: absolute; background: rgba(110,246,217,.5);
+  }
+  .crosshair::before { left: 50%; top: -6px; bottom: -6px; width: 1px; transform: translateX(-50%); }
+  .crosshair::after  { top: 50%; left: -6px; right: -6px; height: 1px; transform: translateY(-50%); }
+
+  .risk-block {
+    display: grid; grid-template-columns: auto 1fr; gap: 22px; align-items: end;
+  }
+  .risk-num {
+    font-family: var(--mono); font-weight: 700;
+    font-size: 80pt; line-height: 0.85;
+    color: #fff;
+    letter-spacing: -0.04em;
+    white-space: nowrap;
+  }
+  .risk-num small {
+    color: var(--teal-light); font-size: 20pt; font-weight: 600;
+    display: inline; vertical-align: baseline; margin-left: 4px;
+    letter-spacing: -0.02em;
+  }
+
+  /* Severity bug ring */
+  .severity-ring {
+    width: 100%; height: 22px; position: relative;
+    background:
+      linear-gradient(90deg,
+        var(--observe) 0 20%,
+        var(--monitor) 20% 40%,
+        var(--elevated) 40% 60%,
+        var(--high) 60% 80%,
+        var(--critical) 80% 100%);
+    border-radius: 2px;
+  }
+  .severity-ring::after {
+    content: ""; position: absolute; top: -3px; bottom: -3px;
+    left: calc(var(--ring-pos, 98%) - 2px); width: 4px; background: #fff;
+    box-shadow: 0 0 0 1px var(--navy-darker);
+  }
+
+  /* hosts horizontal bar */
+  .host-row { display: grid; grid-template-columns: 130px 1fr 56px; gap: 10px; align-items: center; font-size: 8.5pt; padding: 4px 0; }
+  .host-row .name { font-family: var(--mono); font-weight: 600; color: var(--ink); }
+  .host-row .pct { font-family: var(--mono); font-weight: 700; text-align: right; color: var(--ink); }
+  .host-row .bar { height: 8px; }
+
+  /* finding card */
+  .finding {
+    padding: 18px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 0 0 34px 0;
+    display: flex; flex-direction: column; gap: 12px;
+    position: relative;
+    overflow: hidden;
+  }
+  .finding .ix {
+    font-family: var(--mono); font-weight: 700;
+    font-size: 9pt; color: var(--teal-deep);
+    letter-spacing: 0.12em;
+  }
+  .finding .ix b { color: var(--ink); }
+  .finding h3 { color: var(--ink); }
+  .finding .stripe {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px; background: var(--teal-deep);
+  }
+  .finding.critical .stripe { background: var(--critical); }
+  .finding.critical .ix { color: var(--critical); }
+  .finding.high .stripe { background: var(--high); }
+  .finding.high .ix { color: var(--high); }
+
+  /* priority card */
+  .pri {
+    border: 1px solid var(--line);
+    background: var(--paper);
+    border-radius: 0 0 21px 0;
+    padding: 16px 16px 16px 20px;
+    position: relative;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .pri .stripe {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: var(--critical);
+  }
+  .pri .pri-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .pri .pri-num { font-family: var(--mono); font-weight: 700; color: var(--ink-3); font-size: 9pt; }
+  .pri h4 { color: var(--ink); }
+  .pri .pri-why { font-size: 8.5pt; color: var(--ink-2); line-height: 1.45; }
+
+  /* ATT&CK card */
+  .attck {
+    background: var(--paper); border: 1px solid var(--line);
+    border-radius: 0 0 21px 0; padding: 14px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .attck .tid {
+    font-family: var(--mono); font-weight: 700; font-size: 9.5pt;
+    color: var(--navy-darker); letter-spacing: 0.04em;
+  }
+  .attck .ttac {
+    font-family: var(--mono); font-weight: 600;
+    letter-spacing: 0.12em; text-transform: uppercase; font-size: 7pt;
+    color: var(--critical);
+  }
+  .attck .tname { font-weight: 600; color: var(--ink); font-size: 10pt; }
+  .attck .tevidence { font-size: 7.5pt; color: var(--ink-2); line-height: 1.4; }
+
+  /* geo bar list */
+  .geo-row {
+    display: grid; grid-template-columns: 28px 1fr 60px 56px; gap: 10px;
+    align-items: center; font-size: 8.5pt;
+    padding: 6px 0;
+    border-bottom: 1px dashed var(--line);
+  }
+  .geo-row:last-child { border-bottom: none; }
+  .geo-row .flag {
+    width: 28px; height: 16px; background: var(--ink); color: #fff;
+    font-family: var(--mono); font-weight: 700; font-size: 7pt;
+    display: flex; align-items: center; justify-content: center; letter-spacing: 0.06em;
+  }
+  .geo-row .cc { font-family: var(--mono); font-weight: 700; color: var(--ink); }
+  .geo-row .barline { background: var(--line); height: 6px; border-radius: 3px; position: relative; overflow: hidden; }
+  .geo-row .barline > i { display: block; height: 100%; background: var(--navy-mid); }
+  .geo-row .reqs { font-family: var(--mono); font-weight: 600; color: var(--ink); text-align: right; }
+  .geo-row .delta { font-family: var(--mono); font-weight: 700; color: var(--critical); text-align: right; }
+
+  /* IP card */
+  .ip-card {
+    background: var(--paper); border: 1px solid var(--line);
+    border-radius: 0 0 21px 0; padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 8px;
+    position: relative; overflow: hidden;
+  }
+  .ip-card .ip {
+    font-family: var(--mono); font-weight: 700; font-size: 10pt;
+    color: var(--ink); letter-spacing: -0.01em;
+  }
+  .ip-card .asn { font-size: 7.5pt; color: var(--ink-2); font-family: var(--mono); }
+
+  /* sig list */
+  .sig-row { display: grid; grid-template-columns: 1fr 110px 1.4fr; gap: 12px; align-items: start; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .sig-row:last-child { border-bottom: none; }
+  .sig-row .name { font-weight: 600; color: var(--ink); font-size: 9pt; }
+  .sig-row .ev { font-size: 8pt; color: var(--ink-2); line-height: 1.45; }
+
+  /* compact signal row (used on page 5 side-by-side) */
+  .sig-row-compact {
+    display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center;
+    padding: 7px 0;
+    border-bottom: 1px dashed var(--line);
+  }
+  .sig-row-compact:last-child { border-bottom: none; }
+  .sig-row-compact .sname { font-weight: 600; color: var(--ink); font-size: 8.5pt; }
+
+  .status-dot { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-weight: 700; font-size: 7.5pt; letter-spacing: 0.1em; text-transform: uppercase; }
+  .status-dot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3); }
+  .status-dot.yes { color: var(--critical); }
+  .status-dot.yes::before { background: var(--critical); }
+  .status-dot.partial { color: var(--high); }
+  .status-dot.partial::before { background: var(--high); }
+  .status-dot.no, .status-dot.na { color: var(--ink-3); }
+  .status-dot.no::before, .status-dot.na::before { background: var(--ink-3); }
+
+  /* observed/inferred pills */
+  .pill {
+    display: inline-block;
+    padding: 4px 10px;
+    border: 1px solid var(--line-2);
+    border-radius: 2px;
+    font-family: var(--mono); font-weight: 600;
+    font-size: 7.5pt; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--ink-1); background: var(--paper);
+    margin-right: 4px; margin-bottom: 4px;
+    white-space: nowrap;
+  }
+  .pill.observed { color: var(--teal-deep); border-color: var(--teal-deep); background: rgba(0,169,157,.06); }
+  .pill.inferred { color: var(--critical-deep); border-color: var(--critical-pale); background: rgba(230,57,70,.06); }
+
+  /* tag */
+  .tag {
+    font-family: var(--mono); font-weight: 600;
+    font-size: 7pt; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--ink-3);
+    padding: 2px 6px;
+    background: var(--line);
+    border-radius: 2px;
+    display: inline-block;
+  }
+  .tag.new { background: var(--critical-pale); color: var(--critical-deep); }
+  .tag.crit { background: var(--critical); color: #fff; }
+
+  /* methodology dl */
+  dl.method { display: grid; grid-template-columns: 130px 1fr; gap: 6px 16px; margin: 0; font-size: 8.5pt; }
+  dl.method dt { font-family: var(--mono); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; font-size: 7.5pt; color: var(--ink-3); align-self: center; }
+  dl.method dd { margin: 0; color: var(--ink-1); font-family: var(--mono); }
+
+  /* divider */
+  hr.div { border: none; border-top: 1px solid var(--line); margin: 16px 0; }
+  hr.div.thin { border-top: 1px solid var(--line); margin: 10px 0; }
+
+  /* badge for confidence */
+  .confidence {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-weight: 600;
+    font-size: 8pt; letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .confidence-dots { display: inline-flex; gap: 2px; }
+  .confidence-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line-2); display: inline-block; }
+  .confidence-dots i.on { background: var(--teal-deep); }
+  .on-dark .confidence-dots i { background: rgba(255,255,255,.18); }
+  .on-dark .confidence-dots i.on { background: var(--teal-light); }
+
+  .kicker {
+    font-family: var(--mono); font-weight: 600;
+    font-size: 8pt; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--gold);
+  }
+
+  /* path bar */
+  .path-row {
+    display: grid; grid-template-columns: 1fr 60px 48px; gap: 10px; align-items: center;
+    padding: 6px 0;
+    border-bottom: 1px dashed var(--line);
+    font-size: 8.5pt;
+  }
+  .path-row:last-child { border-bottom: none; }
+  .path-row .p { font-family: var(--mono); font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .path-row .r { font-family: var(--mono); font-weight: 600; color: var(--ink-2); text-align: right; }
+  .path-row .s { font-family: var(--mono); font-weight: 700; color: var(--ink); text-align: right; }
+
+  /* progression item */
+  .prog-row {
+    display: grid; grid-template-columns: 100px 1fr;
+    gap: 14px; align-items: start;
+    padding: 10px 0;
+    border-top: 1px solid var(--line);
+  }
+  .prog-row:first-child { border-top: none; }
+  .prog-row .t { font-family: var(--mono); font-weight: 700; color: var(--navy-darker); font-size: 8.5pt; letter-spacing: 0.04em; }
+  .prog-row .body strong { color: var(--ink); }
+
+  /* horizontal attack-arc timeline (page 5) */
+  .timeline {
+    position: relative;
+    padding: 16px 6px 4px;
+  }
+  .timeline .track {
+    position: absolute;
+    left: 6%; right: 6%;
+    top: 26px;
+    height: 2px;
+    background: var(--line);
+  }
+  .timeline .track::before {
+    /* incident-window emphasis under the dots */
+    content: "";
+    position: absolute;
+    left: 17%; right: 17%;
+    top: -1px; height: 4px;
+    background: var(--critical);
+    border-radius: 2px;
+    opacity: 0.85;
+  }
+  .timeline .stops {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));
+    position: relative;
+  }
+  .timeline .stop {
+    display: flex; flex-direction: column; align-items: center;
+    text-align: center;
+    padding: 0 6px;
+  }
+  .timeline .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--navy-darker);
+    border: 2px solid var(--paper);
+    box-shadow: 0 0 0 1px var(--line-2);
+    margin-bottom: 8px;
+    z-index: 1;
+  }
+  .timeline .stop.peak .dot {
+    width: 14px; height: 14px;
+    background: var(--critical);
+    box-shadow: 0 0 0 1px var(--critical);
+    margin-top: -2px; margin-bottom: 6px;
+  }
+  .timeline .stop .time {
+    font-family: var(--mono); font-weight: 700;
+    font-size: 8pt; color: var(--navy-darker);
+    letter-spacing: 0.04em;
+  }
+  .timeline .stop .phase {
+    font-family: var(--mono); font-weight: 700;
+    font-size: 7pt; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--ink-3);
+    margin-top: 2px;
+  }
+  .timeline .stop.peak .phase { color: var(--critical); }
+  .timeline .stop .cap {
+    font-size: 7.5pt; color: var(--ink-2);
+    line-height: 1.35;
+    margin-top: 6px;
+    max-width: 14ch;
+  }
+  .timeline .stop strong { color: var(--ink); font-weight: 600; }
+
+  /* cohort bars */
+  .cohort-row { display: grid; grid-template-columns: 80px 1fr 60px; gap: 10px; align-items: center; padding: 6px 0; }
+  .cohort-row .cname { font-family: var(--mono); font-weight: 700; color: var(--ink); font-size: 9pt; }
+  .cohort-row .cbar { background: var(--line); height: 18px; position: relative; overflow: hidden; }
+  .cohort-row .cbar > i { display: block; height: 100%; background: var(--teal-deep); }
+  .cohort-row .cpct { font-family: var(--mono); font-weight: 700; color: var(--ink); font-size: 9pt; text-align: right; }
+  .cohort-row.flagged .cbar > i { background: var(--critical); }
+  .cohort-row.flagged .cname { color: var(--critical); }
+
+  /* edge action stacked bar */
+  .stack { width: 100%; height: 26px; display: flex; border-radius: 2px; overflow: hidden; border: 1px solid var(--line); }
+  .stack > div { display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-weight: 700; font-size: 7.5pt; color: #fff; letter-spacing: 0.06em; }
+  .stack .a-noaction { background: var(--ink-2); }
+  .stack .a-deny { background: var(--critical); }
+  .stack .a-monitor { background: var(--monitor); }
+  .stack .a-tarpit { background: var(--gold-deep); }
+  .stack .a-allow { background: var(--teal-deep); }
+
+  .stack-legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; font-family: var(--mono); font-size: 7.5pt; color: var(--ink-2); letter-spacing: 0.06em; text-transform: uppercase; }
+  .stack-legend i { display: inline-block; width: 8px; height: 8px; margin-right: 4px; vertical-align: middle; border-radius: 1px; }
+  .stack-legend .a-noaction { background: var(--ink-2); }
+  .stack-legend .a-deny { background: var(--critical); }
+  .stack-legend .a-monitor { background: var(--monitor); }
+  .stack-legend .a-tarpit { background: var(--gold-deep); }
+  .stack-legend .a-allow { background: var(--teal-deep); }
+
+</style>
+</head>
+<body class="profile-print" data-profile="print" data-pdf-layout="fixed-letter">
+<div class="doc">
+
+<!-- =========================================================
+     PAGE 1 — COVER / VERDICT
+     ========================================================= -->
+<section class="page cover" data-screen-label="01 Cover · Verdict">
+  <!-- Top brand bar -->
+  <div class="top-bar">
+    <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
+    <div class="meta" style="display:flex; gap:18px;"><span><b>{{ customer | upper }}</b></span><span>{{ window.date | upper }} · {{ window.start }} — {{ window.end }} {{ window.tz }}</span><span>RISK <b style="color:var(--{{ verdict.band }});">{{ verdict.risk_score }} / {{ verdict.band_label | upper }}</b></span></div>
+  </div>
+
+  <div class="pad" style="padding: 28px 0.55in 0;">
+    <!-- HERO BLOCK -->
+    <div class="hero pf-xl" style="border-radius: 0 0 89px 0; padding: 20px 28px 22px; display: grid; grid-template-columns: minmax(180px, 1fr) 2.1fr; gap: 28px; align-items: stretch;">
+
+      <!-- LEFT · Identity, fills full hero height -->
+      <div class="col" style="justify-content: space-between; padding: 2px 0;">
+        <div class="col gap-4">
+          <h2 style="color:#fff; font-size: 24pt; letter-spacing: -0.02em; line-height: 1;">{{ customer }}</h2>
+          <div class="small" style="color: var(--teal-light); font-family: var(--mono); letter-spacing: 0.04em; margin-top: 6px;">
+            {{ window.date }}
+          </div>
+          <div class="small" style="color: var(--teal-light); font-family: var(--mono); letter-spacing: 0.04em;">
+            {{ window.start }} — {{ window.end }} {{ window.tz }} · {{ window.duration_short }}
+          </div>
+        </div>
+        <div class="confidence on-dark" style="color: var(--teal-light);">
+          Confidence: {{ verdict.confidence }}
+          <span class="confidence-dots">
+            {% for i in range(verdict.confidence_total) %}<i {% if i < verdict.confidence_filled %}class="on"{% endif %}></i>{% endfor %}
+          </span>
+        </div>
+      </div>
+
+      <!-- RIGHT · Score + band, with summary below -->
+      <div class="col gap-12">
+        <div style="display: grid; grid-template-columns: auto 1fr; gap: 22px; align-items: center;">
+          <div class="risk-num" style="font-size: 64pt; line-height: 0.85; color: #fff;">{{ verdict.risk_score }}<small style="font-size: 16pt; color: var(--teal-light);">/{{ verdict.risk_max }}</small></div>
+          <div class="col gap-4">
+            <span class="label" style="color: var(--teal-light);">Risk band</span>
+            <div class="severity-ring" style="height: 20px; --ring-pos: {{ verdict.band_position_pct }}%;"></div>
+            <div class="row between" style="font-family: var(--mono); font-size: 6.5pt; letter-spacing: 0.1em; color: rgba(255,255,255,.6); text-transform: uppercase; margin-top: 2px;">
+              {% for b in verdict.bands %}<span {% if b.is_critical %}style="color: var(--critical-pale);"{% endif %}>{{ b.label }}</span>{% endfor %}
+            </div>
+          </div>
+        </div>
+        <p class="lede" style="color: #DDE7F0; margin: 0; font-size: 9.5pt; line-height: 1.5;">
+          {{ verdict.prose_html | safe }}
+        </p>
+      </div>
+    </div>
+
+    <!-- HERO TIMELINE -->
+    <div style="margin-top: 26px;">
+      <div class="row between center" style="margin-bottom: 8px;">
+        <div class="col">
+          <span class="eyebrow">{{ chart.title }}</span>
+          <div class="small" style="margin-top: 2px;">{{ chart.subtitle }}</div>
+        </div>
+        <div class="row gap-16 small" style="align-items: center;">
+          <div class="row gap-8 center"><i style="width:14px; height:3px; background: var(--teal-deep); display:inline-block;"></i><span>Current period</span></div>
+          <div class="row gap-8 center"><i style="width:14px; height:1px; background: var(--ink-2); display:inline-block;"></i><span>Baseline ({{ chart.baseline_label }})</span></div>
+          <div class="row gap-8 center"><i style="width:14px; height:8px; background: rgba(230,57,70,.18); border:1px solid rgba(230,57,70,.4); display:inline-block;"></i><span>Incident window</span></div>
+        </div>
+      </div>
+
+      <svg viewBox="0 0 760 220" xmlns="http://www.w3.org/2000/svg" style="width:100%; height: 220px; background: var(--paper); border: 1px solid var(--line); border-radius: 0 0 21px 0;">
+        <defs>
+          <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect width="6" height="6" fill="rgba(230,57,70,0.04)"/>
+            <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(230,57,70,0.16)" stroke-width="1"/>
+          </pattern>
+        </defs>
+
+        <!-- y gridlines -->
+        <g stroke="#DEE3E6" stroke-width="1">
+          <line x1="44" x2="744" y1="36"  y2="36"/>
+          <line x1="44" x2="744" y1="80"  y2="80"/>
+          <line x1="44" x2="744" y1="124" y2="124"/>
+          <line x1="44" x2="744" y1="168" y2="168"/>
+          <line x1="44" x2="744" y1="196" y2="196"/>
+        </g>
+        <!-- y labels -->
+        <g font-family="Inconsolata" font-size="9" fill="#8B9FAD" font-weight="600">
+          {% for tick in chart.y_ticks %}<text x="40" y="{{ tick.y }}" text-anchor="end">{{ tick.label }}</text>{% endfor %}
+        </g>
+
+        <!-- Incident window band: 10:00 to 17:00 maps to x ~230 to ~556 (06:00 = 44, 21:00 = 744, 15h span = 700px, so 1h = 46.67px; 10:00 = 44 + 4*46.67 = 230.7; 17:00 = 44 + 11*46.67 = 557.4) -->
+        <rect x="{{ chart.incident_band.x }}" y="{{ chart.incident_band.y }}" width="{{ chart.incident_band.width }}" height="{{ chart.incident_band.height }}" fill="url(#hatch)" stroke="rgba(230,57,70,0.35)" stroke-width="1" stroke-dasharray="3 3"/>
+        <text x="{{ chart.incident_band.label_x }}" y="{{ chart.incident_band.label_y }}" text-anchor="middle" font-family="Inconsolata" font-size="9" font-weight="700" fill="#A6434B" letter-spacing="1">{{ chart.incident_band.label }}</text>
+
+        <!-- Baseline series -->
+        <path d="{{ chart.baseline_path }}"
+              fill="none" stroke="#4A5F73" stroke-width="1.2" stroke-dasharray="3 3"/>
+
+        <!-- Current spike — ramp from 10:00, peak at 15:28 (~x=487), sustain, taper -->
+        <!-- 06:00 x=44, 07:00 x=90.7, 08:00 x=137, 09:00 x=184, 10:00 x=230.7, 11:00 x=277, 12:00 x=324, 13:00 x=370, 14:00 x=417, 15:00 x=464, 15:28 x=486, 16:00 x=510, 17:00 x=557, 18:00 x=604, 19:00 x=650, 20:00 x=697, 21:00 x=744 -->
+        <path d="{{ chart.spike_path }}" fill="none" stroke="#035F60" stroke-width="2"/>
+
+        <!-- Incident boundary / inflection markers -->
+        {% for point in chart.inflection_points %}
+        <line x1="{{ point.x }}" y1="36" x2="{{ point.x }}" y2="196" stroke="#A6434B" stroke-width="0.9" stroke-dasharray="3 3" opacity="0.45"/>
+        <text x="{{ point.x }}" y="{{ point.label_y }}" text-anchor="middle" font-family="Inconsolata" font-size="8" fill="#A6434B" font-weight="700" letter-spacing="0.8">{{ point.label }}</text>
+        {% endfor %}
+
+        <!-- Peak marker -->
+        <line x1="{{ chart.peak.x }}" y1="{{ chart.peak.y }}" x2="{{ chart.peak.x }}" y2="196" stroke="#E63946" stroke-width="1" stroke-dasharray="2 2" opacity="0.45"/>
+        <circle cx="{{ chart.peak.x }}" cy="{{ chart.peak.y }}" r="3.5" fill="#fff" stroke="#E63946" stroke-width="2"/>
+        <g transform="translate({{ chart.peak.label_x }}, {{ chart.peak.label_y }})">
+          <text x="0" y="0" font-family="Inconsolata" font-size="8.5" fill="#E63946" font-weight="700">PEAK · {{ chart.peak.time }} <tspan font-weight="600" opacity="0.85">· {{ chart.peak.value }}</tspan></text>
+        </g>
+
+        <!-- x ticks -->
+        <g font-family="Inconsolata" font-size="8" fill="#8B9FAD" font-weight="600">
+          {% for tick in chart.x_ticks %}<text x="{{ tick.x }}" y="212"{% if tick.anchor_end %} text-anchor="end"{% endif %}>{{ tick.label }}</text>{% endfor %}
+        </g>
+      </svg>
+    </div>
+
+    <!-- AT A GLANCE — Shape · Who · Do now -->
+    <div style="margin-top: 22px; display: flex; flex-direction: column; gap: 8px;">
+      <div class="row between center">
+        <span class="eyebrow">At a glance · The lede in three columns</span>
+        <span class="small" style="color: var(--ink-3);">{{ at_a_glance.footnote }}</span>
+      </div>
+
+      <div class="grid-3">
+        <!-- SHAPE -->
+        <div class="pf pf-sm" style="padding: 14px 16px; display:flex; flex-direction:column; gap:10px;">
+          <div class="row between center">
+            <span class="label" style="color: var(--teal-deep);">Shape</span>
+            <span class="tiny">{{ at_a_glance.shape.subtitle }}</span>
+          </div>
+          <div class="num" style="font-size: 22pt; line-height: 1; color: var(--ink); letter-spacing: -0.01em;">{{ at_a_glance.shape.hero | safe }}</div>
+          <div class="small" style="color: var(--ink-1);">{{ at_a_glance.shape.subline_html | safe }}</div>
+          <hr class="div thin" style="margin: 2px 0;"/>
+          <ul style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px;">
+            {% for fact in at_a_glance.shape.facts %}<li class="small" style="color: var(--ink-1);">{{ fact | safe }}</li>{% endfor %}
+          </ul>
+        </div>
+
+        <!-- WHO -->
+        <div class="pf pf-sm" style="padding: 14px 16px; display:flex; flex-direction:column; gap:10px;">
+          <div class="row between center">
+            <span class="label" style="color: var(--critical);">Who</span>
+            <span class="chip critical" style="font-size: 6.5pt; height: 14px; padding: 0 6px; letter-spacing: 0.1em;">{{ at_a_glance.who.chip }}</span>
+          </div>
+          <div class="num" style="font-size: 22pt; line-height: 1; color: var(--ink); letter-spacing: -0.01em;">{{ at_a_glance.who.hero }}</div>
+          <div class="small" style="color: var(--ink-1);">{{ at_a_glance.who.subline_html | safe }}</div>
+          <hr class="div thin" style="margin: 2px 0;"/>
+          <ul style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px;">
+            {% for fact in at_a_glance.who.facts %}<li class="small" style="color: var(--ink-1);">{{ fact | safe }}</li>{% endfor %}
+          </ul>
+        </div>
+
+        <!-- DO NOW -->
+        <div class="pf pf-sm cover-do-now" style="padding: 14px 16px; display:flex; flex-direction:column; gap:10px;">
+          <div class="row between center">
+            <span class="label" style="color: var(--gold-deep);">Do now</span>
+            <span class="tiny">{{ at_a_glance.do_now.subtitle }}</span>
+          </div>
+          <div class="cover-action-list">
+            {% for item in at_a_glance.do_now['items'] %}
+            <div class="cover-action">
+              <span class="chip {{ item.severity }}">{{ item.team }}</span>
+              <span>{{ item.action_html | safe }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot-bar" style="margin-top: auto;">
+    <div>{{ customer }} · {{ meta.schema | upper }}</div>
+    <div>Cover / Verdict</div>
+    <div class="page-no">01 / 08</div>
+  </div>
+</section>
+
+<!-- =========================================================
+     PAGE 2 — ANALYST ASSESSMENT + PRIMARY CONCERN
+     ========================================================= -->
+<section class="page" data-screen-label="02 Analyst Assessment">
+  <div class="top-bar">
+    <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
+    <div class="meta" style="display:flex; gap:18px;"><span><b>{{ customer | upper }}</b></span><span>{{ window.date | upper }} · {{ window.start }} — {{ window.end }} {{ window.tz }}</span><span>RISK <b style="color:var(--{{ verdict.band }});">{{ verdict.risk_score }} / {{ verdict.band_label | upper }}</b></span></div>
+  </div>
+
+  <div class="pad">
+    <!-- Analyst Assessment -->
+    <div class="row between center">
+      <span class="eyebrow">Analyst Assessment · High confidence</span>
+      <span class="chip critical">Critical</span>
+    </div>
+
+    <h2 style="margin-top: 10px; max-width: 18ch;">{{ analyst_assessment.headline }}</h2>
+
+    <p class="lede" style="margin-top: 14px; max-width: 70ch;">
+      {{ analyst_assessment.prose_html | safe }}
+    </p>
+
+    <!-- Observed vs Inferred -->
+    <hr class="div" />
+    <div class="grid-2">
+      <div>
+        <span class="label">Observed</span>
+        <div style="margin-top: 8px;">
+          {% for p in analyst_assessment.observed %}<span class="pill observed">{{ p }}</span>{% endfor %}
+        </div>
+      </div>
+      <div>
+        <span class="label">Inferred · analytic interpretation</span>
+        <div style="margin-top: 8px;">
+          {% for p in analyst_assessment.inferred %}<span class="pill inferred">{{ p }}</span>{% endfor %}
+        </div>
+        <div class="tiny" style="margin-top: 6px;">Inferred labels are interpretations of observed log patterns. They are <strong>not attribution, root cause, or intent</strong> claims.</div>
+      </div>
+    </div>
+
+    <!-- Why this stood out -->
+    <hr class="div" />
+    <span class="eyebrow muted">Why this stood out · evidence chain</span>
+    <div class="grid-3" style="margin-top: 10px; gap: 12px;">
+      {% for card in analyst_assessment.why_stood_out %}
+      <div class="pf pf-sm" style="padding: 12px 14px;">
+        <div class="num" style="font-size: 15pt; color: var(--ink); line-height: 1;">{{ card.stat }}</div>
+        <div class="small" style="color: var(--ink-1); margin-top: 6px;">{{ card.caption_html | safe }}</div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- PRIMARY CONCERN — dark hero card -->
+    <div class="dark-card" style="margin-top: auto; padding: 14px 18px 16px; border-radius: 0 0 34px 0; display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; align-items: center;">
+      <div>
+        <div class="row between center">
+          <span class="eyebrow on-dark">{{ primary_concern.eyebrow }}</span>
+          <span class="chip {{ primary_concern.chip_severity }}">{{ primary_concern.chip }}</span>
+        </div>
+        <h3 style="color: #fff; margin-top: 8px; max-width: 32ch; font-size: 14pt; line-height: 1.18;">{{ primary_concern.headline_html | safe }}</h3>
+        <p class="small" style="color: #C8D4DC; margin: 8px 0 0; max-width: 56ch; line-height: 1.45;">
+          {{ primary_concern.prose_html | safe }}
+        </p>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+        {% for s in primary_concern.stats %}
+        <div class="stat">
+          <span class="l">{{ s.label }}</span>
+          <span class="v" style="font-size: {{ s.value_size | default('15pt') }};">{{ s.value }}</span>
+          <span class="d" style="font-size: 7pt;">{{ s.detail }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="foot-bar">
+    <div>{{ customer }} · {{ meta.schema | upper }}</div>
+    <div>Analyst Assessment</div>
+    <div class="page-no">02 / 08</div>
+  </div>
+</section>
+
+<!-- =========================================================
+     PAGE 3 — FINDINGS 01–03
+     ========================================================= -->
+<section class="page" data-screen-label="03 Findings">
+  <div class="top-bar">
+    <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
+    <div class="meta" style="display:flex; gap:18px;"><span><b>{{ customer | upper }}</b></span><span>{{ window.date | upper }} · {{ window.start }} — {{ window.end }} {{ window.tz }}</span><span>RISK <b style="color:var(--{{ verdict.band }});">{{ verdict.risk_score }} / {{ verdict.band_label | upper }}</b></span></div>
+  </div>
+
+  <div class="pad">
+    <span class="eyebrow">{{ findings_page.eyebrow }}</span>
+    <h2 style="margin-top: 8px;">{{ findings_page.headline }}</h2>
+    <p class="small" style="margin-top: 8px; max-width: 70ch;">{{ findings_page.lede_html | safe }}</p>
+
+    {% set f = finding_ip_cluster %}
+    <!-- F01 — IP cluster finding -->
+    <div class="finding {{ f.severity }}" style="margin-top: 18px;">
+      <span class="stripe"></span>
+      <div class="row between center">
+        <span class="ix">Finding <b>{{ f.n }}</b> · {{ f.kicker }}</span>
+        <div class="row gap-8">
+          <span class="chip {{ f.severity }}">{{ f.severity_label }}</span>
+          {% for chip in f.chips %}<span class="chip {{ chip.class | default('ghost') }}">{{ chip.text }}</span>{% endfor %}
+        </div>
+      </div>
+      <h3>{{ f.headline }}</h3>
+      <p class="small" style="color: var(--ink-1);">{{ f.prose_html | safe }}</p>
+
+      <div class="grid-3" style="margin-top: 4px;">
+        {% for ip in f.ips %}
+        <div class="ip-card">
+          <div class="row between center"><span class="ip">{{ ip.ip }}</span>{% if ip.tag %}<span class="tag new">{{ ip.tag }}</span>{% endif %}</div>
+          <div class="asn">{{ ip.asn_label }}</div>
+          <div class="row between center" style="margin-top: 4px;">
+            <span class="num" style="color: var(--ink); font-size: 11pt;">{{ ip.volume }}</span>
+            <span class="num" style="color: var(--critical); font-size: 9pt;">{{ ip.share }} share</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    {% set f = finding_ua_share %}
+    <!-- F02 — UA share finding -->
+    <div class="finding {{ f.severity }}" style="margin-top: 14px;">
+      <span class="stripe"></span>
+      <div class="row between center">
+        <span class="ix">Finding <b>{{ f.n }}</b> · {{ f.kicker }}</span>
+        <div class="row gap-8">
+          <span class="chip {{ f.severity }}">{{ f.severity_label }}</span>
+          {% for chip in f.chips %}<span class="chip {{ chip.class | default('ghost') }}">{{ chip.text }}</span>{% endfor %}
+        </div>
+      </div>
+      <h3>{{ f.headline }}</h3>
+      <p class="small" style="color: var(--ink-1);">{{ f.prose_html | safe }}</p>
+
+      <div class="grid-2" style="margin-top: 4px;">
+        {% for ua in f.uas %}
+        <div class="ip-card">
+          <div class="row between center">
+            <span class="ip" style="font-size: 8pt;">{{ ua.label_html | safe }}</span>
+            <span class="num" style="color: var(--critical); font-size: 9pt;">{{ ua.share }}</span>
+          </div>
+          <div class="asn" style="font-size: 7pt; word-break: break-all; line-height: 1.35;">{{ ua.full }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+  </div>
+
+  <div class="foot-bar">
+    <div>{{ customer }} · {{ meta.schema | upper }}</div>
+    <div>Findings</div>
+    <div class="page-no">03 / 08</div>
+  </div>
+</section>
+
+<!-- =========================================================
+     PAGE 4 — RECOMMENDED ACTIONS
+     ========================================================= -->
+<section class="page" data-screen-label="04 Recommended actions">
+  <div class="top-bar">
+    <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
+    <div class="meta" style="display:flex; gap:18px;"><span><b>{{ customer | upper }}</b></span><span>{{ window.date | upper }} · {{ window.start }} — {{ window.end }} {{ window.tz }}</span><span>RISK <b style="color:var(--{{ verdict.band }});">{{ verdict.risk_score }} / {{ verdict.band_label | upper }}</b></span></div>
+  </div>
+
+  <div class="pad">
+    <span class="eyebrow">{{ actions_page.eyebrow }}</span>
+    <h2 style="margin-top: 8px;">{{ actions_page.headline }}</h2>
+    <p class="small" style="margin-top: 8px; max-width: 70ch;">{{ actions_page.lede_html | safe }}</p>
+
+    {% for a in actions %}
+    <div class="pri" style="margin-top: {% if loop.first %}18px{% else %}12px{% endif %};">
+      <span class="stripe" style="background: var(--{{ a.severity }});"></span>
+      <div class="pri-head">
+        <div class="row gap-12 center">
+          <span class="pri-num">{{ a.n }}</span>
+          <span class="chip {{ a.severity }}">{{ a.chip_text }}</span>
+        </div>
+        {% if a.meta_html %}<span class="tiny" style="color: var(--ink-3);">{{ a.meta_html | safe }}</span>{% endif %}
+      </div>
+      <h4>{{ a.title_html | safe }}</h4>
+      <div class="pri-why">
+        {{ a.why_html | safe }}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="foot-bar">
+    <div>{{ customer }} · {{ meta.schema | upper }}</div>
+    <div>Recommended actions</div>
+    <div class="page-no">04 / 08</div>
+  </div>
+</section>
+
+<!-- =========================================================
+     PAGE 5 — ATTACK SHAPE
+     ========================================================= -->
+<section class="page" data-screen-label="05 Attack shape">
+  <div class="top-bar">
+    <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
+    <div class="meta" style="display:flex; gap:18px;"><span><b>{{ customer | upper }}</b></span><span>{{ window.date | upper }} · {{ window.start }} — {{ window.end }} {{ window.tz }}</span><span>RISK <b style="color:var(--{{ verdict.band }});">{{ verdict.risk_score }} / {{ verdict.band_label | upper }}</b></span></div>
+  </div>
+
+  <div class="pad">
+    <span class="eyebrow">{{ attack_shape.eyebrow }}</span>
+    <h2 style="margin-top: 8px;">{{ attack_shape.headline }}</h2>
+    <p class="small" style="margin-top: 8px; max-width: 70ch;">{{ attack_shape.lede_html | safe }}</p>
+
+    <!-- Temporal progression — horizontal attack-arc -->
+    <div class="pf" style="margin-top: 18px; padding: 6px 14px 14px;">
+      <div class="timeline">
+        <div class="track"></div>
+        <div class="stops">
+          {% for stop in attack_shape.timeline %}
+          <div class="stop{% if stop.is_peak %} peak{% endif %}">
+            <span class="dot"></span>
+            <span class="time">{{ stop.time }}</span>
+            <span class="phase">{{ stop.phase }}</span>
+            <span class="cap">{{ stop.caption_html | safe }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Top paths · Coordination signals -->
+    <div class="grid-2" style="margin-top: 22px; gap: 14px;">
+      <!-- Top paths -->
+      <div>
+        <div class="row between center" style="margin-bottom: 6px; gap: 8px;">
+          <span class="eyebrow" style="flex: 1; min-width: 0;">Where they aimed</span>
+          <span class="small" style="color: var(--ink-3); white-space: nowrap;">{{ attack_shape.top_path_meta_html | safe }}</span>
+        </div>
+        <div class="pf pf-sm" style="padding: 4px 14px;">
+          {% for path in attack_shape.top_paths %}
+          <div class="path-row"><span class="p">{{ path.path }}</span><span class="r">{{ path.requests }}</span><span class="s">{{ path.share }}</span></div>
+          {% endfor %}
+        </div>
+        <div class="tiny" style="margin-top: 4px; color: var(--ink-3);">{{ attack_shape.paths_footnote }}</div>
+      </div>
+
+      <!-- Coordination signals -->
+      <div>
+        <div class="row between center" style="margin-bottom: 6px; gap: 8px;">
+          <span class="eyebrow" style="flex: 1; min-width: 0;">Coordination signals</span>
+          <span class="small" style="color: var(--ink-3); white-space: nowrap;">{{ attack_shape.signals_summary_html | safe }}</span>
+        </div>
+        <div class="pf pf-sm" style="padding: 4px 14px;">
+          {% for sig in attack_shape.coordination_signals %}
+          <div class="sig-row-compact"><span class="sname">{{ sig.name }}</span><span class="status-dot {{ sig.status }}">{{ sig.status_label }}</span></div>
+          {% endfor %}
+        </div>
+        <div class="tiny" style="margin-top: 4px; color: var(--ink-3);">{{ attack_shape.signals_footnote }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot-bar">
+    <div>{{ customer }} · {{ meta.schema | upper }}</div>
+    <div>Attack shape</div>
+    <div class="page-no">05 / 08</div>
+  </div>
+</section>
+
+<!-- =========================================================
+     PAGE 6 — WHO HIT IT
+     ========================================================= -->
+<section class="page" data-screen-label="06 Who hit it">
+  <div class="top-bar">
+    <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
+    <div class="meta" style="display:flex; gap:18px;"><span><b>{{ customer | upper }}</b></span><span>{{ window.date | upper }} · {{ window.start }} — {{ window.end }} {{ window.tz }}</span><span>RISK <b style="color:var(--{{ verdict.band }});">{{ verdict.risk_score }} / {{ verdict.band_label | upper }}</b></span></div>
+  </div>
+
+  <div class="pad">
+    <div class="row between center">
+      <span class="eyebrow">{{ actors_page.eyebrow }}</span>
+      <span class="chip ghost"><span class="num" style="color: var(--critical); margin-right:4px;">{{ actors_page.total_flagged }}</span> flagged</span>
+    </div>
+    <h2 style="margin-top: 8px;">{{ actors_page.headline }}</h2>
+    <p class="small" style="margin-top: 8px; max-width: 70ch;">{{ actors_page.lede_html | safe }}</p>
+
+    <!-- IP table -->
+    <div class="pf pf-sm" style="margin-top: 14px; padding: 0 4px;">
+      <table class="tbl actor-table">
+        <thead>
+          <tr>
+            <th style="width: 28px;">#</th>
+            <th>Client IP</th>
+            <th class="right num">Requests</th>
+            <th class="right num">Share</th>
+            <th class="right num">429%</th>
+            <th>Severity</th>
+            <th>Edge action</th>
+            <th>ATT&amp;CK</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in actors %}
+          <tr{% if loop.index is even %} class="zebra"{% endif %}>
+            <td class="num" style="color: var(--ink-3);">{{ r.rank }}</td>
+            <td>
+              <div class="num actor-ip" style="font-weight: 700;">{{ r.ip }}</div>
+              <div class="tiny">{{ r.asn_meta }}</div>
+            </td>
+            <td class="num right">{{ r.requests }}</td>
+            <td class="num right">{{ r.share }}</td>
+            <td class="num right">{{ r.rate_429 }}</td>
+            <td><span class="chip {{ r.severity }}">{{ r.severity_label }}</span></td>
+            <td><span class="num" style="font-size: 8pt;">{{ r.edge_action_html | safe }}</span></td>
+            <td class="tiny basis">{{ r.attck }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="tiny" style="margin-top: 6px; padding: 0 4px;">{{ actors_page.appendix_note }}</div>
+
+    <!-- Where they hit · Where they came from -->
+    <div class="grid-2" style="margin-top: 22px; gap: 14px;">
+      <!-- Top affected hosts -->
+      <div>
+        <div class="row between center" style="margin-bottom: 6px;">
+          <span class="eyebrow">Where they hit · Top hosts</span>
+          <span class="small" style="color: var(--ink-3);">{{ top_hosts_meta }}</span>
+        </div>
+        <div class="pf pf-sm" style="padding: 10px 14px;">
+          {% for h in top_hosts %}
+          <div class="host-row"><span class="name">{{ h.name }}</span><div class="bar {{ h.bar_class }}"><i style="width: {{ h.bar_width }};"></i></div><span class="pct">{{ h.pct }}</span></div>
+          {% endfor %}
+        </div>
+        <div class="tiny" style="margin-top: 4px; color: var(--ink-3);">{{ top_hosts_footnote }}</div>
+      </div>
+
+      <!-- Geo mix -->
+      <div>
+        <div class="row between center" style="margin-bottom: 6px;">
+          <span class="eyebrow">Where they came from · Geo mix</span>
+          <span class="small" style="color: var(--ink-3);">Δ vs baseline</span>
+        </div>
+        <div class="pf pf-sm" style="padding: 4px 14px;">
+          {% for g in geo %}
+          <div class="geo-row"><div class="flag">{{ g.cc }}</div><div class="barline"><i style="width: {{ g.bar_width }};"></i></div><span class="reqs">{{ g.requests }}</span><span class="delta">{{ g.delta }}</span></div>
+          {% endfor %}
+        </div>
+        <div class="tiny" style="margin-top: 4px; color: var(--ink-3);">{{ geo_footnote }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot-bar">
+    <div>{{ customer }} · {{ meta.schema | upper }}</div>
+    <div>Who hit it</div>
+    <div class="page-no">06 / 08</div>
+  </div>
+</section>
+
+<!-- =========================================================
+     PAGE 7 — CLASSIFICATION & EDGE RESPONSE
+     ========================================================= -->
+<section class="page" data-screen-label="07 Classification &amp; edge">
+  <div class="top-bar">
+    <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
+    <div class="meta" style="display:flex; gap:18px;"><span><b>{{ customer | upper }}</b></span><span>{{ window.date | upper }} · {{ window.start }} — {{ window.end }} {{ window.tz }}</span><span>RISK <b style="color:var(--{{ verdict.band }});">{{ verdict.risk_score }} / {{ verdict.band_label | upper }}</b></span></div>
+  </div>
+
+  <div class="pad">
+    <span class="eyebrow">{{ classification.eyebrow }}</span>
+    <h2 style="margin-top: 8px;">{{ classification.headline }}</h2>
+    <p class="small" style="margin-top: 8px; max-width: 70ch;">{{ classification.lede_html | safe }}</p>
+
+    <!-- Traffic cohorts -->
+    <div class="pf pf-sm" style="margin-top: 20px; padding: 14px 18px;">
+      <span class="label">Traffic cohorts</span>
+      <div class="row between" style="margin-top: 6px; font-family: var(--mono); font-size: 7.5pt; color: var(--ink-3); letter-spacing: 0.1em; text-transform: uppercase;">
+        <span>Cohort · Requests · Share · 429% · 5xx%</span>
+      </div>
+      <hr class="div thin" />
+      {% for c in cohorts %}
+      <div class="cohort-row{% if c.flagged %} flagged{% endif %}"{% if not loop.first %} style="margin-top: 8px;"{% endif %}>
+        <span class="cname">{{ c.name }}</span>
+        <div class="cbar"><i style="width: {{ c.bar_width }};{% if c.min_width %} min-width: {{ c.min_width }};{% endif %}"></i></div>
+        <span class="cpct">{{ c.share }}</span>
+      </div>
+      <div class="small" style="display: grid; grid-template-columns: 80px 1fr 60px; gap: 10px; margin-top: -4px; color: var(--ink-2);">
+        <span class="num" style="font-size: 8pt; color: var(--ink-3);">{{ c.requests }}</span>
+        <span class="num" style="font-size: 8pt; color: var(--ink-3);">429: {{ c.rate_429 }} · 5xx: {{ c.rate_5xx }}</span>
+        <span{% if c.flagged %} class="num" style="font-size: 8pt; color: var(--critical); text-align: right;"{% endif %}>{% if c.flagged %}FLAGGED{% endif %}</span>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- Edge action mix -->
+    <div style="margin-top: 22px;">
+      <div class="row between center" style="margin-bottom: 6px;">
+        <span class="eyebrow">Edge action mix · What the edge decided</span>
+        <span class="small" style="color: var(--ink-3);">{{ edge_action_meta_html | safe }}</span>
+      </div>
+      <div class="stack">
+        {% for seg in edge_action_stack %}
+        <div class="{{ seg.class }}" style="flex: {{ seg.flex }};{% if not seg.show_label %} font-size: 0;{% endif %}{% if seg.min_width %} min-width: {{ seg.min_width }};{% endif %}">{% if seg.show_label %}{{ seg.label }}{% endif %}</div>
+        {% endfor %}
+      </div>
+      <div class="stack-legend">
+        {% for item in edge_action_legend %}
+        <span><i class="{{ item.class }}"></i>{{ item.label }} · {{ item.value }}{% if item.delta %} <b class="num" style="color: var(--critical);">{{ item.delta }}</b>{% endif %}</span>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Top deny rules -->
+    <div style="margin-top: 22px;">
+      <div class="row between center" style="margin-bottom: 6px;">
+        <span class="eyebrow">Top deny rules · Which rules fired</span>
+      </div>
+      <div class="pf pf-sm" style="padding: 0 4px;">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>Deny rule</th>
+              <th class="right num">Requests</th>
+              <th class="right num">Share</th>
+              <th class="right num">Δ vs baseline</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in deny_rules %}
+            <tr{% if loop.index is even %} class="zebra"{% endif %}>
+              <td class="num" style="font-weight: 700;">{{ r.rule }}</td>
+              <td class="num right">{{ r.requests }}</td>
+              <td class="num right">{{ r.share }}</td>
+              <td class="num right" style="color: var(--{{ r.delta_class | default('ink-3') }});">{{ r.delta }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot-bar">
+    <div>{{ customer }} · {{ meta.schema | upper }}</div>
+    <div>Classification &amp; edge response</div>
+    <div class="page-no">07 / 08</div>
+  </div>
+</section>
+
+<!-- =========================================================
+     PAGE 8 — ATT&CK + METHODOLOGY
+     ========================================================= -->
+<section class="page" data-screen-label="08 ATT&amp;CK · Methodology">
+  <div class="top-bar">
+    <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
+    <div class="meta" style="display:flex; gap:18px;"><span><b>{{ customer | upper }}</b></span><span>{{ window.date | upper }} · {{ window.start }} — {{ window.end }} {{ window.tz }}</span><span>RISK <b style="color:var(--{{ verdict.band }});">{{ verdict.risk_score }} / {{ verdict.band_label | upper }}</b></span></div>
+  </div>
+
+  <div class="pad">
+    <span class="eyebrow">{{ attck_page.eyebrow }}</span>
+    <h2 style="margin-top: 8px;">{{ attck_page.headline }}</h2>
+    <p class="small" style="margin-top: 8px; max-width: 70ch;">{{ attck_page.lede_html | safe }}</p>
+
+	    <div class="grid-2" style="margin-top: 18px;">
+	      {% for t in attck_page.techniques %}
+	      <div class="attck"{% if t.span_full %} style="grid-column: span 2;"{% endif %}>
+        <div class="row between center">
+          <span class="tid">{{ t.tid }}</span>
+          <span class="ttac">{{ t.tactic }}</span>
+        </div>
+        <div class="tname">{{ t.name }}</div>
+        <div class="tevidence">{{ t.evidence_html | safe }}</div>
+      </div>
+	      {% endfor %}
+	    </div>
+
+	    <!-- Methodology -->
+    <hr class="div" style="margin-top: 26px;"/>
+    <div class="grid-2" style="gap: 28px;">
+      <div>
+        <span class="eyebrow muted">Methodology</span>
+        <p class="small" style="margin-top: 8px; max-width: 50ch;">
+          {{ methodology.prose_html | safe }}
+        </p>
+        <p class="small" style="margin-top: 8px; color: var(--ink-2);">
+          {{ methodology.window_summary_html | safe }}
+        </p>
+      </div>
+      <div>
+        <span class="eyebrow muted">Artifact metadata</span>
+        <dl class="method" style="margin-top: 8px;">
+          {% for m in methodology.metadata %}
+          <dt>{{ m.label }}</dt><dd>{{ m.value }}</dd>
+          {% endfor %}
+        </dl>
+      </div>
+    </div>
+
+    <div style="margin-top: auto; padding-top: 18px;">
+      <div class="row between center">
+        <div class="row gap-12 center">
+          <span class="brand" style="display: inline-flex; gap: 8px; align-items: center; color: var(--navy-darker); font-family: var(--mono); font-weight: 700; letter-spacing: 0.08em; font-size: 9pt;">
+            <span style="position: relative; width: 14px; height: 14px;">
+              <span style="position:absolute; inset:0; background: var(--teal); transform: rotate(45deg); width: 3px; left: 50%; margin-left:-1.5px; border-radius: 2px;"></span>
+              <span style="position:absolute; inset:0; background: var(--teal); transform: rotate(-45deg); width: 3px; left: 50%; margin-left:-1.5px; border-radius: 2px;"></span>
+            </span>
+            HYDROLIX · BOTINSIGHTS
+          </span>
+        </div>
+        <span class="tiny">Your trusted guide — from the edge to the core.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot-bar">
+    <div>{{ customer }} · {{ meta.schema | upper }}</div>
+    <div>ATT&amp;CK · Methodology</div>
+    <div class="page-no">08 / 08</div>
+  </div>
+</section>
+
+</div>
+</body>
+</html>

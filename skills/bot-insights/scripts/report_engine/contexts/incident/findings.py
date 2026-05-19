@@ -53,7 +53,7 @@ def _finding_crit_ip_group(crit_ips: list[dict]) -> dict:
         "body": (
             f"These IPs drove ~{share:.0f}% of window traffic and "
             "crossed the multi-signal heuristic ladder (volume + "
-            "429 share + single-path concentration):"
+            "429 rate within target traffic + single-path concentration):"
         ),
         "entities": [_finding_entity(t) for t in crit_ips[:3]],
     }
@@ -131,7 +131,7 @@ def _finding_ua_footprint(ua_targets: list[dict]) -> dict | None:
             f"({flag_labels}). The report does not infer intent:"
         )
     elif "high_rate_429_share" in flags:
-        lead = "User agents drawing high 429 share."
+        lead = "User agents drawing a high 429 rate."
         body = (
             f"These user agents account for ~{share:.0f}% of "
             f"traffic and fired {flag_labels}. The report does "

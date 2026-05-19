@@ -1481,149 +1481,195 @@ def test_incident_executive_view_full_html():
     assert 'class="brief-incident exec-view"' in actual
 
 
-def test_incident_report_print_layout_keeps_cover_and_raw_sections_separate():
+def test_incident_report_print_uses_fixed_letter_template():
     fixture = ROOT / "skills/bot-insights/examples/incident-report.json"
     actual = _normalize(_render(fixture, "--profile", "print"))
 
-    verdict_start = actual.index('<section id="verdict" class="verdict">')
-    verdict_end = actual.index('<div class="score-methodology"', verdict_start)
-    verdict_html = actual[verdict_start:verdict_end]
-
-    assert 'class="verdict-main"' in verdict_html
-    assert 'class="verdict-print-top-row"' in verdict_html
-    assert 'class="verdict-interpretation"' in verdict_html
-    assert 'class="verdict-narrative prose"' in verdict_html
-    assert "targeted credential-stuffing pattern" in verdict_html
-    assert actual.count("targeted credential-stuffing pattern") == 1
-    assert 'class="verdict-findings"' in verdict_html
-    assert "Finding 01" in verdict_html
-    assert 'class="impact-chart verdict-volume-timeline"' in verdict_html
-    assert 'class="incident-volume-chart"' in verdict_html
-    assert (
-        verdict_html.index('class="impact-chart verdict-volume-timeline"')
-        < verdict_html.index('class="verdict-findings"')
-    )
-    assert (
-        verdict_html.index('class="verdict-narrative prose"')
-        < verdict_html.index('class="verdict-findings"')
-    )
-    assert 'class="score-methodology"' in actual
-    assert "How the score was calculated" in actual
-    assert "severity-weighted suspicious target counts" in actual
-    assert "hyperbolic" in actual
-    assert "normalized with a hyperbolic curve" in actual
-    assert "Risk 75/100 · Critical · High confidence" in actual
-    assert "spike flags fired" in actual
-    assert 'class="impact-print-pack"' in actual
-    assert 'class="print-pane"' in actual
-    assert "window-timeline-compact" in actual
-    assert 'class="impact-chart verdict-volume-timeline"' in actual
-    assert 'class="impact-chart impact-volume-timeline"' in actual
-    assert 'class="window-timeline-compact impact-timeline"' in actual
-    assert "429s per minute timeline" in actual
-    assert "Current period vs baseline" in actual
-    assert "Current period" in actual
-    assert '<span class="swatch" style="background: #4E79A7;"></span>Current period' in actual
-    assert '<span class="swatch" style="background: #4E79A7;"></span>Current window' in actual
-    assert '<span class="swatch" style="background: #E15759;"></span>Current period' not in actual
-    assert '<span class="swatch" style="background: #E15759;"></span>Current window' not in actual
-    assert "Incident window (" in actual
-    assert "swatch-incident" in actual
-    assert "highlight_start_fraction" not in actual
-    assert "Evidence timeline" in actual
-    assert "Baseline:" in actual
-    assert "Current:" in actual
     assert 'class="profile-print"' in actual
-    assert ".brief-incident .verdict {" in actual
-    assert "break-after: page" in actual
-    assert "page-break-after: always" in actual
-    assert ".brief-incident .verdict-print-top-row {" in actual
-    assert "grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr)" in actual
-    assert "align-items: stretch" in actual
-    assert "margin-bottom: 15pt" in actual
-    assert ".brief-incident .verdict-main {" in actual
-    assert "grid-column: 1 / -1" in actual
-    assert "min-height: 126pt" in actual
-    assert ".brief-incident .verdict-interpretation {" in actual
-    assert "border-left: 3pt solid #9a3330" in actual
-    assert ".brief-incident .verdict-narrative.prose strong:first-child {" in actual
-    assert ".brief-incident .verdict-narrative.prose {" in actual
-    assert "flex-direction: column" in actual
-    assert "font-size: 7.6pt" in actual
-    assert "grid-template-columns: repeat(3, minmax(0, 1fr))" in actual
-    assert ".brief-incident .section-impact {" in actual
-    assert "break-before: page" in actual
-    assert ".brief-incident .verdict-score-card { display: none; }" in actual
-    assert ".brief-incident .verdict-level-pill { display: none; }" in actual
-    assert ".brief-incident .print-risk-pill { display: inline-block; }" in actual
-    assert 'class="pill pill-critical pill-lg print-risk-pill"' in actual
-    assert ".brief-incident .verdict-assessment { display: none; }" in actual
-    assert ".brief-incident .exec-readout { display: none !important; }" in actual
-    assert ".brief-incident .verdict-volume-timeline {" in actual
-    assert ".brief-incident .impact-volume-timeline," in actual
-    assert ".brief-incident .impact-timeline {" in actual
-    assert "print-raw-only" in actual
-    assert ".brief-incident .print-raw-only" in actual
-    assert ".brief-incident .full-evidence" in actual
-    assert ".brief-incident .section-urls" in actual
-    assert ".brief-incident .section-ioc" in actual
-    assert ".brief-incident .cta { display: none !important; }" in actual
-    assert "display: none !important" in actual
+    assert 'data-pdf-layout="fixed-letter"' in actual
+    assert ".page {" in actual
+    assert "width: 8.5in" in actual
+    assert "height: 11in" in actual
+    assert "@page { size: letter; margin: 0; }" in actual
+    assert actual.count('<section class="page') == 8
+
+    cover_end = actual.index('<section class="page" data-screen-label="02 Analyst Assessment">')
+    cover_html = actual[:cover_end]
+    assert "75<small" in cover_html
+    assert 'class="severity-ring"' in cover_html
+    assert "At a glance · The lede in three columns" in cover_html
+    assert "class=\"hero pf-xl\"" in cover_html
+    assert cover_html.count('class="pf pf-sm') >= 3
+    assert "START ·" in cover_html
+    assert "END ·" in cover_html
+    assert "PEAK ·" in cover_html
+
+    ordered = [
+        "Analyst Assessment",
+        "Evidence-backed findings",
+        "What to do next",
+        "Attack Shape",
+        "Raw actors and action priority",
+        "Classification / Edge Response",
+        "ATT&amp;CK / Methodology",
+        "Technique mapping and method",
+    ]
+    positions = [actual.index(label) for label in ordered]
+    assert positions == sorted(positions)
+    assert "credential-abuse as an investigation lead" in actual
+    assert "Metrics and ranks are deterministic" in actual
+    assert "Ramp begins" in actual
+    assert "Highest pressure" in actual
 
 
 def test_incident_report_verdict_falls_back_to_deterministic_summary_without_note():
     fixture = FIXTURES / "incident_report_deterministic_only.json"
     actual = _normalize(_render(fixture, "--profile", "print"))
 
-    verdict_start = actual.index('<section id="verdict" class="verdict">')
-    verdict_end = actual.index('<div class="score-methodology"', verdict_start)
-    verdict_html = actual[verdict_start:verdict_end]
-
-    assert 'class="finding-body verdict-narrative"' in verdict_html
+    assert 'data-pdf-layout="fixed-letter"' in actual
+    assert "Analyst Assessment" in actual
     assert (
         "this window is consistent with a high-severity targeted incident"
-        in verdict_html
+        in actual
     )
-    assert 'class="verdict-narrative prose"' not in verdict_html
+    assert "LLM-driven interpretation" not in actual
 
 
-def test_incident_report_renders_detected_anomaly_and_scoped_window(tmp_path):
-    fixture = ROOT / "skills/bot-insights/examples/incident-report.json"
-    data = json.loads(fixture.read_text())
-    scope_art = next(
-        artifact for artifact in data["artifacts"]
-        if artifact.get("schema_version") == "bot_incident_scope.v1"
-    )
-    scope_art["scope"]["start"] = "2026-05-13T15:00:00Z"
-    scope_art["scope"]["end"] = "2026-05-13T16:00:00Z"
-    scope_art["incident_detection"] = {
-        "detected_start": "2026-05-13T14:00:00Z",
-        "detected_end": "2026-05-13T17:00:00Z",
-        "core_start": "2026-05-13T14:00:00Z",
-        "core_end": "2026-05-13T15:00:00Z",
-        "peak_time": "2026-05-13T14:30:00Z",
-        "peak_value": 100,
-        "series_name": "req_429_per_minute",
-        "series_label": "429s per minute",
-        "method": {},
-    }
-    out = tmp_path / "incident-detected.json"
-    out.write_text(json.dumps(data))
-
-    actual = _normalize(_render(out, "--profile", "print"))
-
-    assert "Detected anomaly period" in actual
-    assert "Incident window (" in actual
-    assert "swatch-scope" in actual
-
-
-def test_incident_report_without_detection_keeps_scope_highlight_fallback():
-    fixture = ROOT / "skills/bot-insights/examples/incident-report.json"
+def test_incident_report_print_degraded_fixture_renders_missing_data_states():
+    fixture = ROOT / "skills/bot-insights/examples/incident-report-degraded.json"
     actual = _normalize(_render(fixture, "--profile", "print"))
 
-    assert "Detected anomaly period" not in actual
-    assert "Incident window (" in actual
-    assert "swatch-incident" in actual
+    assert 'data-pdf-layout="fixed-letter"' in actual
+    assert actual.count('<section class="page') == 8
+    assert "raw drilldown is degraded" in actual or "Rows are truncated" in actual
+    assert "No ATT&amp;CK mapping available" in actual or "Technique mapping" in actual
+
+
+def test_incident_print_adapter_maps_series_and_limits_rows():
+    from report_engine.contexts.incident.print_adapter import (
+        build_print_report,
+        series_to_svg_path,
+        severity_band,
+        volume_chart,
+    )
+
+    fixture = ROOT / "skills/bot-insights/examples/incident-report.json"
+    data = json.loads(fixture.read_text())
+    from report_engine.contexts.incident import module
+
+    ctx = module.prepare(module.assemble(data["artifacts"]))
+    ctx["notes_by_slot"] = {}
+    adapted = build_print_report(ctx)
+
+    assert (
+        series_to_svg_path([0, 50, 100])
+        == "M 56.0,196.0 L 284.0,118.0 L 512.0,40.0"
+    )
+    assert severity_band("critical", 75)["band"] == "critical"
+    assert adapted["verdict"]["band"] == "critical"
+    assert len(adapted["actors"]) == 10
+    assert len(adapted["actions"]) == 5
+    assert adapted["finding_ip_cluster"]["ips"][:1][0]["ip"] == "203.0.113.10"
+    phases = [stop["phase"] for stop in adapted["attack_shape"]["timeline"]]
+    assert "Ramp begins" in phases
+    assert "Highest pressure" in phases
+    cover_actions = adapted["at_a_glance"]["do_now"]["items"]
+    assert cover_actions[1]["team"] == "Intel"
+    assert "case mgmt" in cover_actions[1]["action_html"]
+    assert "203.0.113.10" not in cover_actions[1]["action_html"]
+
+    missing = volume_chart({"impact": {"volume_chart": {}}})
+    assert missing["missing"] is True
+    assert missing["spike_path"]
+
+
+def test_incident_report_temporal_progression_bucket_fallback_without_timestamps():
+    from report_engine.contexts import incident_report as ir
+
+    view = ir._temporal_progression_view(
+        {
+            "volume_timeseries": {
+                "series": {
+                    "requests_per_minute": {
+                        "current": [0, 10, 40, 30, 5],
+                    }
+                }
+            }
+        }
+    )
+
+    assert view["available"] is True
+    assert any("Peak bucket was bucket 3" in bullet for bullet in view["bullets"])
+    assert not any("UTC" in bullet for bullet in view["bullets"])
+
+
+def test_incident_action_reasons_do_not_sum_overlapping_shares():
+    from report_engine.contexts import incident_report as ir
+
+    actions = ir._recommended_actions_view(
+        [
+            {
+                "target_type": "client_ip",
+                "target_type_label": "Client IP",
+                "target_value": "203.0.113.10",
+                "severity": "critical",
+                "severity_label": "Critical",
+                "share_pct": 95.0,
+                "share_pct_display": "95%",
+                "requests_display": "950K",
+                "reason_flag_labels": ["high volume share"],
+            },
+            {
+                "target_type": "user_agent",
+                "target_type_label": "User Agent",
+                "target_value": "curl",
+                "severity": "critical",
+                "severity_label": "Critical",
+                "share_pct": 92.0,
+                "share_pct_display": "92%",
+                "requests_display": "920K",
+                "reason_flag_labels": ["automation user-agent"],
+            },
+        ],
+        "",
+    )
+    reasons = " ".join(action.get("reason") or "" for action in actions)
+
+    assert "187% of window traffic" not in reasons
+    assert "top rows account for" not in reasons
+    assert "strongest individual share was 95%" in reasons
+
+
+def test_incident_attack_aggregation_includes_supporting_evidence():
+    from report_engine.contexts import incident_report as ir
+
+    rows = ir._attack_aggregation(
+        [
+            {
+                "target_type": "client_ip",
+                "target_value": "203.0.113.10",
+                "severity": "critical",
+                "reason_flags": ["high_429_share", "single_path_concentration"],
+                "supporting": {
+                    "requests": 120000,
+                    "share_pct": 12.5,
+                    "req_429_share_pct": 42.0,
+                },
+                "attack_techniques": [
+                    {"id": "T1110", "name": "Brute Force", "tactic": "Credential Access"}
+                ],
+            }
+        ]
+    )
+
+    assert rows[0]["id"] == "T1110"
+    assert rows[0]["mapping_class"] == "possible investigation lead"
+    assert "Client IP `203.0.113.10`" in rows[0]["supporting_evidence_text"]
+    assert "auth-specific telemetry" in rows[0]["supporting_evidence_text"]
+    assert "path concentration" in rows[0]["supporting_evidence_text"]
+    assert len(rows[0]["metric_chips"]) <= 2
+    assert "120.00K requests" in rows[0]["metric_chips"]
+    assert "12.5% of incident requests" in rows[0]["metric_chips"]
 
 
 def test_incident_executive_view_no_notes_html():

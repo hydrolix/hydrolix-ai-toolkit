@@ -70,6 +70,7 @@ def _common_context(artifact: dict, *, title: str, kicker: str, dek: str) -> dic
         scope_meta,
         suspicious_targets,
         deterministic_summary,
+        scope_rows,
     )
     return {
         "title": title,

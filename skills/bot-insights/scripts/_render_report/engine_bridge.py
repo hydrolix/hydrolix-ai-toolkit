@@ -101,5 +101,8 @@ def _render_via_engine(
         palette=palette,
         theme_mode=theme_mode,
     )
-    template = env.get_template(engine_render.template_for(module, output_format))
+    template_name = engine_render.template_for(module, output_format)
+    if output_format == "html" and profile == "print":
+        template_name = getattr(module, "PRINT_TEMPLATE", template_name)
+    template = env.get_template(template_name)
     return template.render(**template_ctx)

@@ -48,10 +48,15 @@ from producers.evidence.incident import (
     _INCIDENT_FIELD_LABELS,
     _build_action_targets_artifact,
     _incident_actor_rows,
+    _incident_behavior_clusters,
+    _incident_bucketed_mix_timeseries,
     _incident_compute_timeseries,
     _incident_compute_window_confirmation,
     _incident_dimension_rows,
+    _incident_entity_clusters,
+    _incident_mitigation_effectiveness,
     _incident_status_rows,
+    _incident_target_evidence_rows,
 )
 from producers.evidence.labeling import humanize_evidence_packet
 from producers.formatting import choose_granularity
@@ -71,12 +76,15 @@ from producers.sql.incident import (
     _incident_actor_scoped_metrics_sql,
     _incident_actor_topk_baseline_sql,
     _incident_actor_topk_sql,
+    _incident_bucketed_dimension_timeseries_sql,
+    _incident_bucketed_edge_action_timeseries_sql,
     _incident_columns_query,
     _incident_deny_rule_mix_sql,
     _incident_dimension_sql,
     _incident_edge_action_mix_sql,
     _incident_siem_dimension_sql,
     _incident_status_mix_sql,
+    _incident_target_bucket_evidence_sql,
     _incident_volume_timeseries_sql,
     _incident_window_confirmation_sql,
 )
@@ -221,6 +229,9 @@ class _IncidentCtx:
     action_targets_artifact: dict = field(default_factory=dict)
     action_targets_limitations: list[str] = field(default_factory=list)
     suspicious_targets: list[dict] = field(default_factory=list)
+    target_evidence: dict[str, dict] = field(default_factory=dict)
+    behavior_clusters: list[dict] = field(default_factory=list)
+    entity_clusters: list[dict] = field(default_factory=list)
     detection_source: str = "summary"
     raw_fallback_used: bool = False
 
@@ -566,6 +577,9 @@ def _incident_introspect_columns(
             )
             sys.exit(2)
         ctx.raw_path_column = ctx.raw_column_by_field.get("request_path", "request_path")
+        for optional_field in ("trafficCohort", "action_applied"):
+            if optional_field in ctx.logs_columns:
+                ctx.raw_column_by_field.setdefault(optional_field, optional_field)
         ctx.raw_bytes_column = "bytes" if args.cluster == "expedia" else "bytesOut"
         if ctx.raw_bytes_column not in ctx.logs_columns:
             ctx.raw_bytes_column = "bytesOut" if "bytesOut" in ctx.logs_columns else "bytes"
@@ -785,6 +799,7 @@ def _incident_phase1_dimensions(
         siem_bot_type_rows = _run_siem_dimension("botType", "siem_bot_type")
     edge_action_mix_rows: list[dict] = []
     deny_rule_mix_rows: list[dict] = []
+    edge_action_timeseries_rows: list[dict] = []
     if ctx.raw_drilldown_available:
         edge_action_mix_rows = _capture_or_raise(
             args,
@@ -818,6 +833,70 @@ def _incident_phase1_dimensions(
             label="deny rule mix",
             artifact="deny_rule_mix",
         )
+        edge_action_timeseries_rows = _capture_or_raise(
+            args,
+            _incident_bucketed_edge_action_timeseries_sql(
+                ctx.granularity,
+                start,
+                end,
+                args.host,
+                args.asn,
+                args.path_pattern,
+                ctx.top_n,
+                ctx.raw_path_column,
+            ),
+            sample_dir / f"{args.report}-phase2-edge_action_timeseries.json",
+            label="edge action timeseries",
+            artifact="edge_action_timeseries",
+        )
+
+    cohort_timeseries_rows: list[dict] = []
+    cohort_dimension = _summary_dimension_column(ctx, "trafficCohort")
+    if cohort_dimension is not None:
+        cohort_timeseries_rows = _capture_or_raise(
+            args,
+            _incident_bucketed_dimension_timeseries_sql(
+                ctx.summary_table,
+                cohort_dimension,
+                ctx.granularity,
+                start,
+                end,
+                args.host,
+                args.asn,
+                args.path_pattern,
+                ctx.top_n,
+                summary_time_column=ctx.summary_time_column,
+                summary_count_column=ctx.summary_count_column,
+                summary_path_pattern_column=ctx.summary_path_pattern_column,
+            ),
+            sample_dir / f"{args.report}-phase2-cohort_timeseries.json",
+            label="cohort timeseries",
+            artifact="cohort_timeseries",
+        )
+
+    path_timeseries_rows: list[dict] = []
+    path_dimension = _summary_dimension_column(ctx, "requestPathPattern")
+    if path_dimension is not None:
+        path_timeseries_rows = _capture_or_raise(
+            args,
+            _incident_bucketed_dimension_timeseries_sql(
+                ctx.summary_table,
+                path_dimension,
+                ctx.granularity,
+                start,
+                end,
+                args.host,
+                args.asn,
+                args.path_pattern,
+                ctx.top_n,
+                summary_time_column=ctx.summary_time_column,
+                summary_count_column=ctx.summary_count_column,
+                summary_path_pattern_column=ctx.summary_path_pattern_column,
+            ),
+            sample_dir / f"{args.report}-phase2-path_timeseries.json",
+            label="path timeseries",
+            artifact="path_timeseries",
+        )
 
     total_current = float(ctx.window_confirmation.get("requests") or 0)
 
@@ -845,6 +924,23 @@ def _incident_phase1_dimensions(
         "raw_fallback_used": getattr(ctx, "raw_fallback_used", False),
         "window_confirmation": ctx.window_confirmation,
         "volume_timeseries": ctx.volume_timeseries,
+        "evidence_timeseries": {
+            "cohorts": _incident_bucketed_mix_timeseries(
+                cohort_timeseries_rows,
+                series_type="cohort",
+                value_label="Traffic cohort",
+            ),
+            "paths": _incident_bucketed_mix_timeseries(
+                path_timeseries_rows,
+                series_type="path",
+                value_label="Path pattern",
+            ),
+            "edge_actions": _incident_bucketed_mix_timeseries(
+                edge_action_timeseries_rows,
+                series_type="edge_action",
+                value_label="Edge action",
+            ),
+        },
         "top_targeted_hosts": _incident_dimension_rows(
             hosts_rows, total_current=total_current
         ),
@@ -1240,11 +1336,55 @@ def _incident_phase2_actors_and_heuristic(
             "evidence is available."
         )
 
+    if ctx.raw_drilldown_available and ctx.suspicious_targets:
+        target_rows = _capture_or_raise(
+            args,
+            _incident_target_bucket_evidence_sql(
+                ctx.suspicious_targets,
+                ctx.granularity,
+                start,
+                end,
+                args.host,
+                args.asn,
+                args.path_pattern,
+                ctx.raw_column_by_field,
+                ctx.raw_path_column,
+                ctx.top_n,
+            ),
+            sample_dir / f"{args.report}-phase2-target_evidence.json",
+            label="target evidence",
+            artifact="target_evidence",
+        )
+        ctx.target_evidence = _incident_target_evidence_rows(target_rows)
+        ctx.behavior_clusters = _incident_behavior_clusters(
+            ctx.suspicious_targets,
+            ctx.target_evidence,
+        )
+        ctx.entity_clusters = _incident_entity_clusters(
+            ctx.suspicious_targets,
+            ctx.target_evidence,
+        )
+    elif not ctx.raw_drilldown_available:
+        ctx.action_targets_limitations.append(
+            "Per-target temporal evidence and entity clusters are not "
+            "available without raw-log drilldown."
+        )
+
+    mitigation_effectiveness = _incident_mitigation_effectiveness(
+        ctx.scope_artifact,
+        ctx.suspicious_targets,
+    )
+    if mitigation_effectiveness:
+        ctx.scope_artifact["mitigation_effectiveness"] = mitigation_effectiveness
+
     ctx.action_targets_artifact = _build_action_targets_artifact(
         ctx.scope_meta,
         ctx.suspicious_targets,
         heuristic_version="v2",
         limitations=ctx.action_targets_limitations,
+        target_evidence=ctx.target_evidence,
+        behavior_clusters=ctx.behavior_clusters,
+        entity_clusters=ctx.entity_clusters,
     )
 
 
@@ -1283,6 +1423,7 @@ def _incident_emit_or_render(
         "top_targeted_path_patterns": ctx.scope_artifact["top_targeted_path_patterns"],
         "status_mix": ctx.scope_artifact["status_mix"],
         "country_mix": ctx.scope_artifact["country_mix"],
+        "evidence_timeseries": ctx.scope_artifact.get("evidence_timeseries") or {},
         "siem_action_mix": ctx.scope_artifact["siem_action_mix"],
         "siem_policy_mix": ctx.scope_artifact["siem_policy_mix"],
         "siem_bot_type_mix": ctx.scope_artifact["siem_bot_type_mix"],
@@ -1290,6 +1431,8 @@ def _incident_emit_or_render(
         "raw_drilldown_available": ctx.raw_drilldown_available,
         "siem_available": ctx.siem_available,
         "suspicious_targets": ctx.suspicious_targets,
+        "target_evidence": getattr(ctx, "target_evidence", {}),
+        "behavior_clusters": getattr(ctx, "behavior_clusters", []),
         "heuristic_version": "v2",
         "limitations": (
             ctx.limitations_scope

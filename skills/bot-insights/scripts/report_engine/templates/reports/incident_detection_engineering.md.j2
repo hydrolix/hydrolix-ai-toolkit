@@ -12,7 +12,7 @@
 
 {% for ranking in field_rankings %}
 ### {{ ranking.field_label }}
-{% for row in ranking.rows[:5] %}- `{{ row.value }}`: {{ row.requests_display }} requests, {{ row.req_429_share_display }} 429 share, {{ row.req_5xx_share_display }} 5xx share
+{% for row in ranking.rows[:5] %}- `{{ row.value }}`: {{ row.requests_display }} requests, {{ row.req_429_share_display }} 429 rate within row traffic, {{ row.req_5xx_share_display }} 5xx share
 {% endfor %}
 {% else %}Raw field rankings were unavailable; confidence review is limited to summary-level artifacts.
 {% endfor %}

@@ -1666,6 +1666,7 @@ footer {
                     Menlo, Consolas, monospace;
   --label-tracking:        0.14em;
   --label-tracking-tight:  0.1em;
+  --action-rank-width: 72px;
 
   background: var(--paper);
   color: var(--paper-ink);
@@ -1929,7 +1930,13 @@ footer {
   align-items: start;
   margin-bottom: 24px;
 }
+.brief-incident .verdict-print-top-row {
+  display: contents;
+}
 .brief-incident .verdict-main {
+  grid-column: 1 / -1;
+}
+.brief-incident .verdict-interpretation {
   grid-column: 1 / -1;
 }
 .brief-incident .verdict-narrative {
@@ -2036,6 +2043,264 @@ footer {
 }
 .brief-incident .exec-readout-body p { margin: 0 0 6px; }
 .brief-incident .exec-readout-body p:last-child { margin-bottom: 0; }
+
+.brief-incident .analyst-assessment,
+.brief-incident .primary-concern,
+.brief-incident .cluster-card,
+.brief-incident .mitigation-panel,
+.brief-incident .story-panel,
+.brief-incident .coordination-matrix {
+  border: 1px solid var(--paper-rule-soft);
+  background: var(--paper-surface);
+  box-shadow: none;
+}
+.brief-incident .analyst-assessment {
+  margin: 0 0 18px;
+  padding: 18px 20px;
+  border-left: 4px solid var(--paper-red);
+}
+.brief-incident .assessment-source {
+  margin: 4px 0 10px;
+  font-family: var(--mono-editorial);
+  font-size: 10.5px;
+  letter-spacing: var(--label-tracking-tight);
+  text-transform: uppercase;
+  color: var(--paper-mute);
+}
+.brief-incident .assessment-conclusion {
+  margin: 10px 0 0;
+  font-size: 17px;
+  line-height: 1.42;
+  font-weight: 700;
+  color: var(--paper-ink);
+}
+.brief-incident .assessment-pillars,
+.brief-incident .story-bullets,
+.brief-incident .taxonomy-grid ul,
+.brief-incident .primary-concern ul {
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+.brief-incident .assessment-pillars li,
+.brief-incident .story-bullets li,
+.brief-incident .taxonomy-grid li,
+.brief-incident .primary-concern li {
+  margin-top: 5px;
+}
+.brief-incident .assessment-boundary {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--paper-mute);
+}
+.brief-incident .assessment-prose {
+  font-size: 14px;
+  line-height: 1.55;
+}
+.brief-incident .assessment-prose p:first-child { margin-top: 0; }
+.brief-incident .assessment-prose p:last-child { margin-bottom: 0; }
+.brief-incident .primary-concern {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(220px, 0.6fr);
+  gap: 20px;
+  margin: 0 0 20px;
+  padding: 16px 18px;
+  border-left: 4px solid var(--paper-orange);
+  background: var(--paper-orange-bg);
+}
+.brief-incident .primary-concern h2,
+.brief-incident .story-panel h3,
+.brief-incident .coordination-matrix h3 {
+  margin: 4px 0 0;
+  font-size: 17px;
+  line-height: 1.25;
+  color: var(--paper-ink);
+}
+.brief-incident .primary-concern p {
+  margin: 8px 0 0;
+  color: var(--paper-body);
+}
+.brief-incident .section-analytic-story {
+  border-top: 1px solid var(--paper-ink);
+  padding-top: 28px;
+}
+.brief-incident .story-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.brief-incident .story-panel,
+.brief-incident .coordination-matrix {
+  padding: 16px 18px;
+}
+.brief-incident .story-panel h3,
+.brief-incident .coordination-matrix h3 {
+  margin-top: 0;
+}
+.brief-incident .taxonomy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.brief-incident .taxonomy-label {
+  font-family: var(--mono-editorial);
+  font-size: 10.5px;
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--paper-mute);
+}
+.brief-incident .coordination-matrix {
+  margin-top: 18px;
+}
+.brief-incident .signal-status {
+  display: inline-block;
+  min-width: 74px;
+  padding: 2px 7px;
+  border: 1px solid var(--paper-rule);
+  border-radius: 999px;
+  font-family: var(--mono-editorial);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: center;
+  white-space: nowrap;
+}
+.brief-incident .signal-yes {
+  border-color: var(--paper-red);
+  background: var(--paper-red-bg);
+  color: var(--paper-red-ink);
+}
+.brief-incident .signal-partial {
+  border-color: var(--paper-gold);
+  background: var(--paper-gold-bg);
+  color: var(--paper-gold-ink);
+}
+.brief-incident .signal-not-observed {
+  border-color: var(--paper-rule);
+  background: transparent;
+  color: var(--paper-mute);
+}
+.brief-incident .signal-not-available {
+  border-color: var(--paper-rule-soft);
+  background: var(--paper-bg);
+  color: var(--paper-mute);
+}
+.brief-incident .section-progression,
+.brief-incident .section-mitigation-coverage,
+.brief-incident .section-entity-clusters {
+  border-top: 1px solid var(--paper-rule-soft);
+  padding-top: 24px;
+}
+.brief-incident .mitigation-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.7fr);
+  gap: 16px;
+  padding: 16px 18px;
+  border-left: 4px solid var(--paper-gold);
+  background: var(--paper-gold-bg);
+}
+.brief-incident .mitigation-gap {
+  border-left-color: var(--paper-orange);
+  background: var(--paper-orange-bg);
+}
+.brief-incident .mitigation-interpretation {
+  margin: 0;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.brief-incident .mitigation-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+.brief-incident .mitigation-tiles div {
+  border: 1px solid var(--paper-rule-soft);
+  background: var(--paper-surface);
+  padding: 8px 10px;
+}
+.brief-incident .mitigation-tiles dt {
+  font-family: var(--mono-editorial);
+  font-size: 10px;
+  letter-spacing: var(--label-tracking-tight);
+  text-transform: uppercase;
+  color: var(--paper-mute);
+}
+.brief-incident .mitigation-tiles dd {
+  margin: 4px 0 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+.brief-incident .mitigation-rule {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 12.5px;
+}
+.brief-incident .cluster-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.brief-incident .cluster-card {
+  padding: 14px 16px;
+  border-left: 4px solid var(--paper-blue);
+  background: linear-gradient(90deg, rgba(78, 121, 167, 0.08), transparent 42%);
+}
+.brief-incident .cluster-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.brief-incident .cluster-card h3 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.25;
+}
+.brief-incident .cluster-count {
+  font-family: var(--mono-editorial);
+  font-size: 10.5px;
+  letter-spacing: var(--label-tracking-tight);
+  text-transform: uppercase;
+  color: var(--paper-mute);
+  white-space: nowrap;
+}
+.brief-incident .cluster-card p {
+  margin: 8px 0 0;
+}
+.brief-incident .cluster-facet code,
+.brief-incident .cluster-facets code,
+.brief-incident .cluster-members code {
+  font-family: var(--mono-editorial);
+  font-size: 11px;
+}
+.brief-incident .cluster-facets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.brief-incident .cluster-facets span {
+  border: 1px solid var(--paper-rule-soft);
+  background: var(--paper-surface);
+  padding: 2px 6px;
+  font-size: 11.5px;
+}
+.brief-incident .cluster-volume strong {
+  font-family: var(--mono-editorial);
+}
+.brief-incident .cluster-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+.brief-incident .cluster-members code {
+  border: 1px solid var(--paper-rule);
+  background: var(--paper-surface);
+  padding: 1px 5px;
+}
 .brief-incident .verdict-score-card {
   border-left: 1px solid var(--paper-faint);
   padding-left: 24px;
@@ -2604,6 +2869,11 @@ footer {
 .brief-incident .actors-table tbody tr {
   border-bottom: 1px solid var(--paper-rule-soft);
 }
+.brief-incident .actors-table tbody tr.row-strong,
+.brief-incident .mini-table tbody tr.row-strong {
+  background: #fff7f2;
+  border-left: 3px solid var(--paper-orange);
+}
 .brief-incident .actors-table td {
   padding: 10px 8px;
   vertical-align: top;
@@ -2844,6 +3114,15 @@ footer {
   border-bottom: 1px solid var(--paper-rule-soft);
   align-items: baseline;
 }
+.brief-incident .attack-row-head {
+  padding: 0 0 5px;
+  font-family: var(--mono-editorial);
+  font-size: 10.5px;
+  letter-spacing: var(--label-tracking-tight);
+  text-transform: uppercase;
+  color: var(--paper-mute);
+  border-bottom-color: var(--paper-rule);
+}
 .brief-incident .attack-row code {
   font-family: var(--mono-editorial);
   font-size: 12px;
@@ -2854,6 +3133,26 @@ footer {
   font-size: 14px;
   font-weight: 500;
   color: var(--paper-ink);
+}
+.brief-incident .attack-row .attack-evidence {
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--paper-mute);
+  line-height: 1.35;
+}
+.brief-incident .attack-metric-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+}
+.brief-incident .attack-metric-chips span {
+  border: 1px solid var(--paper-rule-soft);
+  background: var(--paper-surface);
+  padding: 1px 5px;
+  font-family: var(--mono-editorial);
+  font-size: 10.5px;
+  color: var(--paper-mute);
 }
 .brief-incident .attack-row .tactic {
   font-family: var(--mono-editorial);
@@ -2982,34 +3281,100 @@ footer {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
 }
 .brief-incident .actions-list li {
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
-  gap: 20px;
-  align-items: baseline;
-  padding: 16px 0;
-  border-bottom: 1px solid var(--paper-rule-soft);
+  grid-template-columns: var(--action-rank-width) minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
+  min-height: 118px;
+  padding: 0;
+  background: var(--paper);
+  border: 1px solid var(--paper-rule-soft);
+  border-left: 4px solid var(--paper-blue);
+  box-sizing: border-box;
+  overflow: hidden;
 }
-.brief-incident .actions-list li:last-child {
-  border-bottom: 1px solid var(--paper-ink);
+.brief-incident .actions-list li:first-child {
+  grid-column: 1 / -1;
+  grid-template-columns: var(--action-rank-width) minmax(0, 1fr);
+  min-height: 108px;
+  border-left-color: var(--paper-red);
+  background: var(--paper);
+}
+.brief-incident .action-rank {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  border-right: 1px solid var(--paper-rule-soft);
+  background: #f5f8fb;
+  box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
+  padding: 32px 6px 10px;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.brief-incident .actions-list li:first-child .action-rank {
+  background: var(--paper-red-bg);
+}
+.brief-incident .action-rank-label {
+  margin-top: 5px;
+  font-family: var(--mono-editorial);
+  font-size: 8.5px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--paper-mute);
+}
+.brief-incident .action-content {
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 14px 16px 13px 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
 }
 .brief-incident .actions-list .num {
   font-family: var(--sans-editorial);
   font-weight: 800;
-  font-size: 28px;
+  font-size: 25px;
   line-height: 1;
-  letter-spacing: -0.03em;
-  color: var(--paper-faint);
+  color: var(--paper-blue);
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  max-width: 100%;
+  text-align: center;
+}
+.brief-incident .actions-list li:first-child .num {
+  color: var(--paper-red-ink);
+}
+.brief-incident .action-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 9px;
+  align-items: center;
 }
 .brief-incident .actions-list .step {
   font-family: var(--sans-editorial);
-  font-weight: 600;
-  font-size: 15px;
-  line-height: 1.4;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.35;
   letter-spacing: -0.008em;
   color: var(--paper-ink);
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.brief-incident .actions-list li:first-child .step {
+  font-size: 16px;
+  line-height: 1.32;
 }
 
 /* Action effect — mute, mono-digit sub-line under each recommended
@@ -3018,13 +3383,39 @@ footer {
    Spans the full row below the step + pills, so the action ladder reads
    as: step on top, who-when on the right, effect underneath. */
 .brief-incident .actions-list .action-effect {
-  grid-column: 2 / -1;
-  margin-top: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--paper-rule-soft);
   font-family: var(--sans-editorial);
   font-size: 12px;
   line-height: 1.45;
   color: var(--paper-mute);
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.brief-incident .actions-list .action-reason {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--paper-body);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .brief-incident {
+    --action-rank-width: 64px;
+  }
+  .brief-incident .actions-list {
+    grid-template-columns: 1fr;
+  }
+  .brief-incident .actions-list li,
+  .brief-incident .actions-list li:first-child {
+    grid-column: auto;
+    grid-template-columns: var(--action-rank-width) minmax(0, 1fr);
+  }
+  .brief-incident .action-content {
+    padding-left: 14px;
+  }
 }
 
 /* IOC export */
@@ -3202,30 +3593,85 @@ footer {
   .brief-incident .verdict-cover {
     display: block;
   }
+  .brief-incident .verdict-print-top-row {
+    display: grid;
+    grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+    gap: 10pt;
+    align-items: stretch;
+    margin-bottom: 15pt;
+  }
+  .brief-incident .verdict-main {
+    grid-column: auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 126pt;
+    box-sizing: border-box;
+    background: #fff;
+    border: 1px solid #dfe4ea;
+    padding: 9pt 9pt 7pt;
+  }
   .brief-incident .verdict-score-card { display: none; }
   .brief-incident .verdict-level-pill { display: none; }
   .brief-incident .print-risk-pill { display: inline-block; }
-  .brief-incident .verdict-pills { margin: 8pt 0 10pt; }
-  .brief-incident .severity-ladder { margin-top: 10pt; }
+  .brief-incident .verdict-pills {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4pt;
+    margin: 8pt 0 10pt;
+  }
+  .brief-incident .verdict-main .pill-lg {
+    padding: 2.4pt 7pt;
+    font-size: 7.6pt;
+    line-height: 1.1;
+    letter-spacing: 0.11em;
+    border-radius: 999px;
+  }
+  .brief-incident .severity-ladder { margin-top: auto; }
   .brief-incident .severity-ladder-bars {
-    gap: 5pt;
+    gap: 4pt;
     margin-bottom: 6pt;
   }
-  .brief-incident .severity-ladder-bar { height: 8pt; }
+  .brief-incident .severity-ladder-bar { height: 6.5pt; }
   .brief-incident .severity-ladder-labels { gap: 4pt; }
-  .brief-incident .severity-ladder-labels span { font-size: 7.2pt; }
+  .brief-incident .severity-ladder-labels span { font-size: 6.7pt; }
+  .brief-incident .severity-ladder-bar.is-current::after {
+    top: -11pt;
+    border-left-width: 4pt;
+    border-right-width: 4pt;
+    border-top-width: 5.5pt;
+  }
   .brief-incident .verdict-caveat { display: none; }
   .brief-incident .verdict-assessment { display: none; }
   .brief-incident .verdict-narrative {
     display: block;
     max-width: none;
   }
+  .brief-incident .verdict-interpretation {
+    display: block;
+    margin: 0 0 10pt;
+    padding: 7pt 9pt 7pt 10pt;
+    background: #f8fafc;
+    border: 1px solid #dfe4ea;
+    border-left: 3pt solid #9a3330;
+    box-sizing: border-box;
+  }
   .brief-incident .verdict-narrative.prose {
-    font-size: 8.4pt;
-    line-height: 1.34;
+    font-size: 8.2pt;
+    line-height: 1.38;
+    color: #26313d;
   }
   .brief-incident .verdict-narrative.prose p {
-    margin: 0 0 5pt;
+    margin: 0;
+  }
+  .brief-incident .verdict-narrative.prose strong:first-child {
+    display: block;
+    margin-bottom: 3pt;
+    font-family: var(--mono-editorial);
+    font-size: 7.1pt;
+    line-height: 1.1;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #5b1f1e;
   }
   .brief-incident .verdict-narrative.prose ul,
   .brief-incident .verdict-narrative.prose ol {
@@ -3277,11 +3723,17 @@ footer {
     font-size: 6.8pt;
   }
   .brief-incident .verdict-volume-timeline {
-    display: block;
-    margin-top: 10pt;
-    padding: 7pt 7pt 5pt;
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    min-height: 126pt;
+    box-sizing: border-box;
+    padding: 9pt 9pt 6pt;
   }
-  .brief-incident .verdict-volume-timeline .timeline-title { margin-bottom: 5pt; }
+  .brief-incident .verdict-volume-timeline .timeline-title {
+    align-items: baseline;
+    margin-bottom: 4pt;
+  }
   .brief-incident .verdict-volume-timeline .timeline-range {
     font-size: 7.4pt;
     font-weight: 600;
@@ -3289,13 +3741,15 @@ footer {
   }
   .brief-incident .verdict-volume-timeline svg {
     max-width: 100%;
-    max-height: 72pt;
+    max-height: 62pt;
   }
   .brief-incident .timeline-series-legend {
     display: flex;
-    gap: 10pt;
+    flex-wrap: wrap;
+    gap: 4pt 8pt;
+    margin-top: auto;
     padding: 3pt 0 0;
-    font-size: 7pt;
+    font-size: 6.8pt;
     color: #333;
   }
   .brief-incident .timeline-series-legend .swatch {
@@ -3436,29 +3890,53 @@ footer {
   .brief-incident .mini-table th,
   .brief-incident .mini-table td { padding: 4pt 0; }
 
+  .brief-incident {
+    --action-rank-width: 48pt;
+  }
+  .brief-incident .actions-list {
+    grid-template-columns: 1fr;
+    gap: 7pt;
+  }
   .brief-incident .actions-list li {
-    display: block;
-    padding: 8pt 0;
+    display: grid;
+    grid-template-columns: var(--action-rank-width) minmax(0, 1fr);
+    min-height: 62pt;
+    padding: 0;
+    box-shadow: none;
+    border-color: #cfd7df;
+    background: #fff;
     break-inside: avoid;
     page-break-inside: avoid;
   }
+  .brief-incident .actions-list li:first-child {
+    grid-column: auto;
+    grid-template-columns: var(--action-rank-width) minmax(0, 1fr);
+    min-height: 64pt;
+  }
+  .brief-incident .action-rank {
+    min-height: 100%;
+    background: #f3f6f9 !important;
+    padding: 16pt 4pt 5pt;
+  }
+  .brief-incident .actions-list li:first-child .action-rank {
+    background: #f7dedf !important;
+  }
   .brief-incident .actions-list .num {
-    display: inline-block;
-    width: 2.1em;
-    font-size: 12pt;
-    vertical-align: top;
+    font-size: 13pt;
   }
+  .brief-incident .action-rank-label { font-size: 5.8pt; letter-spacing: 0.06em; }
+  .brief-incident .action-content { padding: 7pt 8pt 7pt 9pt; }
+  .brief-incident .action-meta { gap: 4pt; margin-bottom: 4pt; }
   .brief-incident .actions-list .step {
-    display: inline;
-    font-size: 10.2pt;
+    font-size: 8.6pt;
+    line-height: 1.28;
   }
-  .brief-incident .actions-list .pill {
-    display: none;
-  }
+  .brief-incident .actions-list li:first-child .step { font-size: 9.4pt; }
   .brief-incident .actions-list .action-effect {
-    display: block;
-    margin: 3pt 0 0 2.7em;
-    font-size: 8.8pt;
+    margin-top: 4pt;
+    padding-top: 4pt;
+    font-size: 7.6pt;
+    line-height: 1.35;
   }
 
   .brief-incident .ioc-export {
@@ -3572,79 +4050,128 @@ footer {
 
   <section id="verdict" class="verdict">
     <div class="verdict-cover">
-      <div class="verdict-main">
-        <div class="kicker section-eyebrow">The Verdict</div>
-        <div class="verdict-pills">
-          <span class="pill pill-critical pill-lg verdict-level-pill">
-            Critical
-          </span>
-          <span class="pill pill-critical pill-lg print-risk-pill">
-            Risk: 75/100
-          </span>
-          <span class="pill pill-medium pill-lg"
-                title="Aggregate confidence — reflects which evidence sources were available (raw access log, edge-response data). Per-indicator confidence is shown separately on each flagged-target row in the Who Hit It table.">
-            Confidence: High
-          </span>
+      <div class="verdict-print-top-row">
+        <div class="verdict-main">
+          <div class="kicker section-eyebrow">The Verdict</div>
+          <div class="verdict-pills">
+            <span class="pill pill-critical pill-lg verdict-level-pill">
+              Critical
+            </span>
+            <span class="pill pill-critical pill-lg print-risk-pill">
+              Risk: 75/100
+            </span>
+            <span class="pill pill-medium pill-lg"
+                  title="Aggregate confidence — reflects which evidence sources were available (raw access log, edge-response data). Per-indicator confidence is shown separately on each flagged-target row in the Who Hit It table.">
+              Confidence: High
+            </span>
+          </div>
+
+          <div class="severity-ladder" role="img"
+               aria-label="Severity ladder — current level Critical">
+            <div class="severity-ladder-bars">
+                <div class="severity-ladder-bar is-on"
+                     style="--bar-color: var(--sev-observe);"></div>
+                <div class="severity-ladder-bar is-on"
+                     style="--bar-color: var(--sev-monitor);"></div>
+                <div class="severity-ladder-bar is-on"
+                     style="--bar-color: var(--sev-elevated);"></div>
+                <div class="severity-ladder-bar is-on"
+                     style="--bar-color: var(--sev-high);"></div>
+                <div class="severity-ladder-bar is-on is-current"
+                     style="--bar-color: var(--sev-critical);"></div>
+            </div>
+            <div class="severity-ladder-labels">
+                <span>Observe</span>
+                <span>Monitor</span>
+                <span>Elevated</span>
+                <span>High</span>
+                <span class="is-current">Critical</span>
+            </div>
+          </div>
+
+            <p class="verdict-caveat">This report describes traffic patterns, not intent. It is built from log rules, so it does not claim any actor is malicious or attribute a root cause.</p>
+            <p class="verdict-caveat">
+              Confidence labels reflect how much evidence was available.
+              The overall confidence is based on the data sources we had
+              (raw access log and edge actions). Each indicator row carries
+              its own confidence — that may be higher or lower than the
+              overall.
+            </p>
+          <div class="story-grid" style="margin-top: 14px;">
+            <div class="story-panel">
+              <h3>Confidence Drivers</h3>
+              <ul class="story-bullets">
+                  <li>spike flags fired (Volume up, 429 rate up, Bot share up)</li>
+                  <li>3 target(s) at severity:critical — Client IP <code>203.0.113.10</code>, Client IP <code>198.51.100.42</code>, Client IP <code>192.0.2.17</code></li>
+                  <li>4 target(s) at severity:high — Client ASN <code>64500</code>, Traffic cohort <code>Browser</code>, User Agent <code>python-requests/2.31</code></li>
+                <li>Raw actor and action-target rows are separated below so rank, severity, and action class stay explicit.</li>
+              </ul>
+            </div>
+            <div class="story-panel">
+              <h3>Open Validation Items</h3>
+              <ul class="story-bullets">
+                <li>Validate edge-control candidates against protected traffic before enforcement.</li>
+                <li>Credential-access findings require auth endpoint, failure pattern, account/user identifiers, or SIEM/auth correlation. Without those, T1110/T1110.004 remain investigation leads.</li>
+                <li>Confirm whether path-pattern rows are normalized routes or aggregation artifacts before route-level controls.</li>
+              </ul>
+            </div>
+          </div>
         </div>
 
-        <div class="severity-ladder" role="img"
-             aria-label="Severity ladder — current level Critical">
-          <div class="severity-ladder-bars">
-              <div class="severity-ladder-bar is-on"
-                   style="--bar-color: var(--sev-observe);"></div>
-              <div class="severity-ladder-bar is-on"
-                   style="--bar-color: var(--sev-monitor);"></div>
-              <div class="severity-ladder-bar is-on"
-                   style="--bar-color: var(--sev-elevated);"></div>
-              <div class="severity-ladder-bar is-on"
-                   style="--bar-color: var(--sev-high);"></div>
-              <div class="severity-ladder-bar is-on is-current"
-                   style="--bar-color: var(--sev-critical);"></div>
-          </div>
-          <div class="severity-ladder-labels">
-              <span>Observe</span>
-              <span>Monitor</span>
-              <span>Elevated</span>
-              <span>High</span>
-              <span class="is-current">Critical</span>
-          </div>
-        </div>
-
-          <p class="verdict-caveat">This report describes traffic patterns, not intent. It is built from log rules, so it does not claim any actor is malicious or attribute a root cause.</p>
-          <p class="verdict-caveat">
-            Confidence labels reflect how much evidence was available.
-            The overall confidence is based on the data sources we had
-            (raw access log and edge actions). Each indicator row carries
-            its own confidence — that may be higher or lower than the
-            overall.
-          </p>
-
-        <p class="verdict-pills verdict-assessment" style="margin-top: 18px;">
-          <span class="kicker section-eyebrow">Assessed with high confidence</span>
-        </p>
-          <div class="verdict-narrative prose"><p><strong>Assessed with high confidence:</strong> this window is consistent with a targeted credential-stuffing pattern against <code>/login/*</code> on www.example.com — with a separately-corroborating signal in the Browser-cohort behavioral anomaly. This is not a broad traffic shift.</p>
-<p>Four independent signals concur:</p>
-<ul>
-<li>Spike flags <code>volume_up</code>, <code>rate_429_up</code>, and <code>bot_share_up</code> all fired against the trailing window.</li>
-<li>Three client IPs (<code>203.0.113.10</code>, <code>198.51.100.42</code>, <code>192.0.2.17</code>) reached <code>severity: critical</code> — they share ASN <code>64500</code>, concentrate on a single path, and carry both high volume share and high 429 share. ASN <code>64500</code> itself and User Agent <code>python-requests/2.31</code> sit at <code>severity: high</code> alongside them.</li>
-<li>SIEM <code>block-credential-stuff</code> policy delta is +520% vs baseline, with <code>rate-limit-login</code> at +610%.</li>
-<li>The Traffic cohort <code>Browser</code> graduated on the <code>anomaly</code> primitive: its current-window error rate of 13.7% is 26× its baseline (~0.5%). This is consistent with sophisticated automation passing bot-classification — the kind of pattern that needs an application-layer response, not just WAF rules tuned for the named IP cluster.</li>
-</ul>
-<p>The 4.25M-request / 8.2% 429-rate Impact tiles are consistent with the primary read; the reasons to escalate are the named single-ASN cluster, the automation UA matches, <em>and</em> the Browser-cohort behavioral departure — not the raw volume.</p>
-</div>
+          <figure class="impact-chart verdict-volume-timeline">
+            <div class="timeline-title">
+              <span class="kicker section-eyebrow">429s per minute timeline</span>
+              <span class="timeline-range tnum">Current period vs baseline</span>
+            </div>
+            <svg viewBox="0 0 720 140" class="incident-volume-chart" role="img" aria-label="Request volume over the incident window" preserveAspectRatio="xMidYMid meet"><line x1="80" y1="114.0" x2="704.0" y2="114.0" stroke="currentColor" stroke-opacity="0.15" stroke-width="1" /><rect x="80.0" y="24.0" width="624.0" height="90.0" fill="#E15759" fill-opacity="0.10" /><line x1="80.0" y1="24.0" x2="80.0" y2="114.0" stroke="#E15759" stroke-width="1" stroke-opacity="0.35" /><line x1="704.0" y1="24.0" x2="704.0" y2="114.0" stroke="#E15759" stroke-width="1" stroke-opacity="0.35" /><polyline fill="none" stroke="#4A5A73" stroke-width="1" stroke-dasharray="3 3" stroke-opacity="0.65" points="80.0,111.4 83.5,111.4 87.0,111.3 90.5,111.3 93.9,111.3 97.4,111.3 100.9,111.2 104.4,111.2 107.9,111.2 111.4,111.3 114.9,111.3 118.3,111.2 121.8,111.2 125.3,111.2 128.8,111.1 132.3,111.1 135.8,111.2 139.3,111.2 142.7,111.2 146.2,111.1 149.7,111.1 153.2,111.1 156.7,111.1 160.2,111.1 163.7,111.1 167.2,111.2 170.6,111.2 174.1,111.2 177.6,111.3 181.1,111.3 184.6,111.3 188.1,111.3 191.6,111.3 195.0,111.2 198.5,111.2 202.0,111.2 205.5,111.2 209.0,111.2 212.5,111.2 216.0,111.2 219.4,111.2 222.9,111.2 226.4,111.2 229.9,111.1 233.4,111.1 236.9,111.1 240.4,111.2 243.8,111.2 247.3,111.2 250.8,111.2 254.3,111.2 257.8,111.2 261.3,111.2 264.8,111.1 268.2,111.1 271.7,111.1 275.2,111.1 278.7,111.1 282.2,111.1 285.7,111.1 289.2,111.2 292.6,111.2 296.1,111.2 299.6,111.2 303.1,111.3 306.6,111.2 310.1,111.2 313.6,111.2 317.1,111.2 320.5,111.1 324.0,111.1 327.5,111.1 331.0,111.2 334.5,111.2 338.0,111.2 341.5,111.1 344.9,111.1 348.4,111.1 351.9,111.1 355.4,111.0 358.9,111.1 362.4,111.1 365.9,111.1 369.3,111.1 372.8,111.2 376.3,111.1 379.8,111.1 383.3,111.1 386.8,111.1 390.3,111.1 393.7,111.1 397.2,111.1 400.7,111.2 404.2,111.2 407.7,111.2 411.2,111.2 414.7,111.2 418.1,111.2 421.6,111.2 425.1,111.1 428.6,111.1 432.1,111.1 435.6,111.2 439.1,111.2 442.5,111.2 446.0,111.2 449.5,111.3 453.0,111.2 456.5,111.2 460.0,111.2 463.5,111.2 466.9,111.1 470.4,111.1 473.9,111.1 477.4,111.1 480.9,111.1 484.4,111.1 487.9,111.1 491.4,111.2 494.8,111.2 498.3,111.2 501.8,111.2 505.3,111.2 508.8,111.1 512.3,111.1 515.8,111.1 519.2,111.2 522.7,111.2 526.2,111.2 529.7,111.2 533.2,111.3 536.7,111.3 540.2,111.3 543.6,111.4 547.1,111.3 550.6,111.3 554.1,111.3 557.6,111.2 561.1,111.2 564.6,111.2 568.0,111.2 571.5,111.2 575.0,111.2 578.5,111.2 582.0,111.3 585.5,111.3 589.0,111.3 592.4,111.3 595.9,111.3 599.4,111.2 602.9,111.2 606.4,111.2 609.9,111.2 613.4,111.2 616.8,111.2 620.3,111.2 623.8,111.3 627.3,111.3 630.8,111.3 634.3,111.3 637.8,111.3 641.3,111.2 644.7,111.2 648.2,111.2 651.7,111.2 655.2,111.1 658.7,111.2 662.2,111.2 665.7,111.2 669.1,111.2 672.6,111.3 676.1,111.3 679.6,111.3 683.1,111.4 686.6,111.4 690.1,111.4 693.5,111.3 697.0,111.3 700.5,111.3 704.0,111.4" /><polyline fill="none" stroke="#4E79A7" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" points="80.0,108.2 83.5,108.4 87.0,108.1 90.5,107.8 93.9,107.9 97.4,107.0 100.9,106.0 104.4,104.5 107.9,103.8 111.4,101.9 114.9,100.9 118.3,97.8 121.8,94.6 125.3,90.2 128.8,85.4 132.3,79.3 135.8,73.0 139.3,64.7 142.7,55.5 146.2,46.3 149.7,40.0 153.2,34.7 156.7,31.6 160.2,28.1 163.7,31.2 167.2,35.4 170.6,38.9 174.1,40.8 177.6,44.4 181.1,47.8 184.6,51.7 188.1,55.0 191.6,59.0 195.0,62.7 198.5,66.4 202.0,70.0 205.5,67.5 209.0,63.2 212.5,58.8 216.0,54.1 219.4,49.5 222.9,44.5 226.4,38.7 229.9,33.5 233.4,29.2 236.9,26.5 240.4,24.8 243.8,24.0 247.3,25.0 250.8,27.6 254.3,31.7 257.8,35.8 261.3,40.0 264.8,44.5 268.2,48.9 271.7,53.4 275.2,57.9 278.7,62.3 282.2,66.5 285.7,70.5 289.2,74.2 292.6,77.7 296.1,80.4 299.6,82.6 303.1,84.0 306.6,84.8 310.1,85.4 313.6,85.8 317.1,86.3 320.5,86.8 324.0,87.2 327.5,87.6 331.0,88.0 334.5,88.3 338.0,88.5 341.5,88.8 344.9,89.1 348.4,89.2 351.9,89.5 355.4,89.6 358.9,89.9 362.4,90.1 365.9,90.3 369.3,90.5 372.8,90.7 376.3,90.9 379.8,91.2 383.3,91.3 386.8,91.6 390.3,91.7 393.7,91.8 397.2,92.1 400.7,92.4 404.2,92.5 407.7,92.8 411.2,92.9 414.7,92.3 418.1,91.4 421.6,90.5 425.1,89.4 428.6,88.3 432.1,87.2 435.6,86.1 439.1,85.0 442.5,84.0 446.0,83.0 449.5,82.2 453.0,81.4 456.5,80.7 460.0,80.1 463.5,79.7 466.9,79.5 470.4,79.3 473.9,79.3 477.4,79.5 480.9,79.7 484.4,80.1 487.9,80.7 491.4,81.4 494.8,82.2 498.3,83.2 501.8,84.1 505.3,85.2 508.8,86.3 512.3,87.6 515.8,88.8 519.2,90.1 522.7,91.2 526.2,92.3 529.7,93.2 533.2,94.2 536.7,95.0 540.2,95.8 543.6,96.5 547.1,97.1 550.6,97.5 554.1,97.8 557.6,97.9 561.1,98.0 564.6,98.0 568.0,98.0 571.5,97.9 575.0,97.8 578.5,97.6 582.0,97.5 585.5,97.3 589.0,97.2 592.4,97.2 595.9,97.2 599.4,97.3 602.9,97.5 606.4,97.8 609.9,98.0 613.4,98.4 616.8,98.9 620.3,99.3 623.8,99.7 627.3,100.1 630.8,100.4 634.3,100.7 637.8,100.8 641.3,100.9 644.7,101.1 648.2,101.1 651.7,101.1 655.2,100.9 658.7,100.8 662.2,100.7 665.7,100.5 669.1,100.4 672.6,100.2 676.1,100.1 679.6,100.0 683.1,100.0 686.6,99.8 690.1,99.8 693.5,99.8 697.0,99.8 700.5,99.8 704.0,99.8" /><circle cx="243.8" cy="24.0" r="3.5" fill="#E15759" /><text x="249.8" y="17.0" text-anchor="start" font-size="11" font-weight="600" fill="#E15759">Peak 6.54K</text><text x="72.0" y="28.0" text-anchor="end" font-size="10" fill="currentColor" opacity="0.55">7K</text><text x="72.0" y="114.0" text-anchor="end" font-size="10" fill="currentColor" opacity="0.55">0.0</text><text x="80.0" y="132.0" font-size="11" fill="currentColor" opacity="0.65">2026-05-13 14:00Z</text><text x="704.0" y="132.0" text-anchor="end" font-size="11" fill="currentColor" opacity="0.65">2026-05-13 17:00Z</text></svg>
+            <figcaption class="timeline-series-legend">
+              <span><span class="swatch" style="background: #4E79A7;"></span>Current period</span>
+                <span><span class="swatch swatch-baseline"></span>Baseline</span>
+                <span><span class="swatch swatch-incident"></span>Incident window (3 hours)</span>
+            </figcaption>
+          </figure>
       </div>
 
       <aside class="verdict-score-card">
         <div class="kicker section-eyebrow">Risk Score</div>
         <div class="verdict-score-num tnum">75<small>/100</small></div>
       </aside>
+
     </div>
+
+    <section class="analyst-assessment">
+      <div class="kicker section-eyebrow">Analyst Assessment</div>
+        <div class="assessment-prose prose"><p><strong>Assessed with high confidence:</strong> this window is consistent with a targeted high-volume incident against <code>/login/*</code> on www.example.com, with credential-abuse as an investigation lead rather than a confirmed finding. A separately corroborating signal appears in the Browser-cohort behavioral anomaly. This is not a broad traffic shift.</p>
+<p>Four independent signals concur:</p>
+<ul>
+<li>Spike flags <code>volume_up</code>, <code>rate_429_up</code>, and <code>bot_share_up</code> all fired against the trailing window.</li>
+<li>Three client IPs (<code>203.0.113.10</code>, <code>198.51.100.42</code>, <code>192.0.2.17</code>) reached <code>severity: critical</code> — they share ASN <code>64500</code>, concentrate on a single path, and carry both high volume share and a high 429 rate within their target traffic. ASN <code>64500</code> itself and User Agent <code>python-requests/2.31</code> sit at <code>severity: high</code> alongside them.</li>
+<li>SIEM <code>block-credential-stuff</code> policy delta is +520% vs baseline, with <code>rate-limit-login</code> at +610%; treat this as a lead that still needs auth endpoint, failure pattern, account/user identifier, or SIEM/auth correlation before calling credential stuffing confirmed.</li>
+<li>The Traffic cohort <code>Browser</code> graduated on the <code>anomaly</code> primitive: its current-window error rate of 13.7% is 26× its baseline (~0.5%). This is consistent with sophisticated automation passing bot-classification — the kind of pattern that needs application-layer validation, not just WAF rules tuned for the named IP cluster.</li>
+</ul>
+<p>The 4.25M-request / 8.2% 429-rate Impact tiles are consistent with the primary read; the reasons to escalate are the named single-ASN cluster, the automation UA matches, <em>and</em> the Browser-cohort behavioral departure — not the raw volume.</p>
+</div>
+    </section>
+
+      <aside class="primary-concern">
+        <div>
+          <div class="kicker section-eyebrow">Primary Concern</div>
+          <h2>Primary concern: anomalous Human-classified traffic</h2>
+          <p>Browser traffic was classified as human-like but flagged at high severity by behavioral evidence.</p>
+          <p class="assessment-boundary">This supports classification-evasive behavior or a Human-classified anomaly. It does not prove bot bypass or intent.</p>
+        </div>
+        <ul>
+            <li>28.6% of window requests</li>
+            <li>39.7% 429 rate within target traffic</li>
+            <li>Reason flags: behavioral anomaly</li>
+        </ul>
+      </aside>
 
     <ol class="verdict-findings">
         <li>
           <div class="finding-label">Finding 01</div>
           <div class="finding-lead">Critical-tier client IPs coordinated against this window.</div>
-          <p class="finding-body">These IPs drove ~31% of window traffic and crossed the multi-signal heuristic ladder (volume + 429 share + single-path concentration):</p>
+          <p class="finding-body">These IPs drove ~31% of window traffic and crossed the multi-signal heuristic ladder (volume + 429 rate within target traffic + single-path concentration):</p>
             <ul class="finding-entities">
                 <li>
                   <code class="finding-entity-value">203.0.113.10</code>
@@ -3663,7 +4190,7 @@ footer {
         <li>
           <div class="finding-label">Finding 02</div>
           <div class="finding-lead">Automation tooling declared in the user agent.</div>
-          <p class="finding-body">These user agents account for ~31% of traffic and match curated automation patterns (automation user agent, high 429 share, high volume share). The report does not infer intent from the identifier — the names below are what the requests presented:</p>
+          <p class="finding-body">These user agents account for ~31% of traffic and match curated automation patterns (automation user agent, high 429 rate, high volume share). The report does not infer intent from the identifier — the names below are what the requests presented:</p>
             <ul class="finding-entities">
                 <li>
                   <code class="finding-entity-value">python-requests/2.31</code>
@@ -3678,22 +4205,9 @@ footer {
         <li>
           <div class="finding-label">Finding 03</div>
           <div class="finding-lead">Behavioral cohort anomaly is the worry.</div>
-          <p class="finding-body"><code>Browser</code> shows a behavioral departure from the trailing baseline — consistent with sophisticated automation passing bot-classification.</p>
+          <p class="finding-body"><code>Browser</code> shows a behavioral departure from the baseline — consistent with sophisticated automation passing bot-classification.</p>
         </li>
     </ol>
-
-      <figure class="impact-chart verdict-volume-timeline">
-        <div class="timeline-title">
-          <span class="kicker section-eyebrow">429s per minute timeline</span>
-          <span class="timeline-range tnum">Current period vs baseline</span>
-        </div>
-        <svg viewBox="0 0 720 140" class="incident-volume-chart" role="img" aria-label="Request volume over the incident window" preserveAspectRatio="xMidYMid meet"><line x1="80" y1="114.0" x2="704.0" y2="114.0" stroke="currentColor" stroke-opacity="0.15" stroke-width="1" /><rect x="80.0" y="24.0" width="624.0" height="90.0" fill="#E15759" fill-opacity="0.10" /><line x1="80.0" y1="24.0" x2="80.0" y2="114.0" stroke="#E15759" stroke-width="1" stroke-opacity="0.35" /><line x1="704.0" y1="24.0" x2="704.0" y2="114.0" stroke="#E15759" stroke-width="1" stroke-opacity="0.35" /><path d="M 80.0,114.0 L 80.0,108.2 L 83.5,108.4 L 87.0,108.1 L 90.5,107.8 L 93.9,107.9 L 97.4,107.0 L 100.9,106.0 L 104.4,104.5 L 107.9,103.8 L 111.4,101.9 L 114.9,100.9 L 118.3,97.8 L 121.8,94.6 L 125.3,90.2 L 128.8,85.4 L 132.3,79.3 L 135.8,73.0 L 139.3,64.7 L 142.7,55.5 L 146.2,46.3 L 149.7,40.0 L 153.2,34.7 L 156.7,31.6 L 160.2,28.1 L 163.7,31.2 L 167.2,35.4 L 170.6,38.9 L 174.1,40.8 L 177.6,44.4 L 181.1,47.8 L 184.6,51.7 L 188.1,55.0 L 191.6,59.0 L 195.0,62.7 L 198.5,66.4 L 202.0,70.0 L 205.5,67.5 L 209.0,63.2 L 212.5,58.8 L 216.0,54.1 L 219.4,49.5 L 222.9,44.5 L 226.4,38.7 L 229.9,33.5 L 233.4,29.2 L 236.9,26.5 L 240.4,24.8 L 243.8,24.0 L 247.3,25.0 L 250.8,27.6 L 254.3,31.7 L 257.8,35.8 L 261.3,40.0 L 264.8,44.5 L 268.2,48.9 L 271.7,53.4 L 275.2,57.9 L 278.7,62.3 L 282.2,66.5 L 285.7,70.5 L 289.2,74.2 L 292.6,77.7 L 296.1,80.4 L 299.6,82.6 L 303.1,84.0 L 306.6,84.8 L 310.1,85.4 L 313.6,85.8 L 317.1,86.3 L 320.5,86.8 L 324.0,87.2 L 327.5,87.6 L 331.0,88.0 L 334.5,88.3 L 338.0,88.5 L 341.5,88.8 L 344.9,89.1 L 348.4,89.2 L 351.9,89.5 L 355.4,89.6 L 358.9,89.9 L 362.4,90.1 L 365.9,90.3 L 369.3,90.5 L 372.8,90.7 L 376.3,90.9 L 379.8,91.2 L 383.3,91.3 L 386.8,91.6 L 390.3,91.7 L 393.7,91.8 L 397.2,92.1 L 400.7,92.4 L 404.2,92.5 L 407.7,92.8 L 411.2,92.9 L 414.7,92.3 L 418.1,91.4 L 421.6,90.5 L 425.1,89.4 L 428.6,88.3 L 432.1,87.2 L 435.6,86.1 L 439.1,85.0 L 442.5,84.0 L 446.0,83.0 L 449.5,82.2 L 453.0,81.4 L 456.5,80.7 L 460.0,80.1 L 463.5,79.7 L 466.9,79.5 L 470.4,79.3 L 473.9,79.3 L 477.4,79.5 L 480.9,79.7 L 484.4,80.1 L 487.9,80.7 L 491.4,81.4 L 494.8,82.2 L 498.3,83.2 L 501.8,84.1 L 505.3,85.2 L 508.8,86.3 L 512.3,87.6 L 515.8,88.8 L 519.2,90.1 L 522.7,91.2 L 526.2,92.3 L 529.7,93.2 L 533.2,94.2 L 536.7,95.0 L 540.2,95.8 L 543.6,96.5 L 547.1,97.1 L 550.6,97.5 L 554.1,97.8 L 557.6,97.9 L 561.1,98.0 L 564.6,98.0 L 568.0,98.0 L 571.5,97.9 L 575.0,97.8 L 578.5,97.6 L 582.0,97.5 L 585.5,97.3 L 589.0,97.2 L 592.4,97.2 L 595.9,97.2 L 599.4,97.3 L 602.9,97.5 L 606.4,97.8 L 609.9,98.0 L 613.4,98.4 L 616.8,98.9 L 620.3,99.3 L 623.8,99.7 L 627.3,100.1 L 630.8,100.4 L 634.3,100.7 L 637.8,100.8 L 641.3,100.9 L 644.7,101.1 L 648.2,101.1 L 651.7,101.1 L 655.2,100.9 L 658.7,100.8 L 662.2,100.7 L 665.7,100.5 L 669.1,100.4 L 672.6,100.2 L 676.1,100.1 L 679.6,100.0 L 683.1,100.0 L 686.6,99.8 L 690.1,99.8 L 693.5,99.8 L 697.0,99.8 L 700.5,99.8 L 704.0,99.8 L 704.0,114.0 Z" fill="#FBE5E6" fill-opacity="0.55" /><polyline fill="none" stroke="#4A5A73" stroke-width="1" stroke-dasharray="3 3" stroke-opacity="0.65" points="80.0,111.4 83.5,111.4 87.0,111.3 90.5,111.3 93.9,111.3 97.4,111.3 100.9,111.2 104.4,111.2 107.9,111.2 111.4,111.3 114.9,111.3 118.3,111.2 121.8,111.2 125.3,111.2 128.8,111.1 132.3,111.1 135.8,111.2 139.3,111.2 142.7,111.2 146.2,111.1 149.7,111.1 153.2,111.1 156.7,111.1 160.2,111.1 163.7,111.1 167.2,111.2 170.6,111.2 174.1,111.2 177.6,111.3 181.1,111.3 184.6,111.3 188.1,111.3 191.6,111.3 195.0,111.2 198.5,111.2 202.0,111.2 205.5,111.2 209.0,111.2 212.5,111.2 216.0,111.2 219.4,111.2 222.9,111.2 226.4,111.2 229.9,111.1 233.4,111.1 236.9,111.1 240.4,111.2 243.8,111.2 247.3,111.2 250.8,111.2 254.3,111.2 257.8,111.2 261.3,111.2 264.8,111.1 268.2,111.1 271.7,111.1 275.2,111.1 278.7,111.1 282.2,111.1 285.7,111.1 289.2,111.2 292.6,111.2 296.1,111.2 299.6,111.2 303.1,111.3 306.6,111.2 310.1,111.2 313.6,111.2 317.1,111.2 320.5,111.1 324.0,111.1 327.5,111.1 331.0,111.2 334.5,111.2 338.0,111.2 341.5,111.1 344.9,111.1 348.4,111.1 351.9,111.1 355.4,111.0 358.9,111.1 362.4,111.1 365.9,111.1 369.3,111.1 372.8,111.2 376.3,111.1 379.8,111.1 383.3,111.1 386.8,111.1 390.3,111.1 393.7,111.1 397.2,111.1 400.7,111.2 404.2,111.2 407.7,111.2 411.2,111.2 414.7,111.2 418.1,111.2 421.6,111.2 425.1,111.1 428.6,111.1 432.1,111.1 435.6,111.2 439.1,111.2 442.5,111.2 446.0,111.2 449.5,111.3 453.0,111.2 456.5,111.2 460.0,111.2 463.5,111.2 466.9,111.1 470.4,111.1 473.9,111.1 477.4,111.1 480.9,111.1 484.4,111.1 487.9,111.1 491.4,111.2 494.8,111.2 498.3,111.2 501.8,111.2 505.3,111.2 508.8,111.1 512.3,111.1 515.8,111.1 519.2,111.2 522.7,111.2 526.2,111.2 529.7,111.2 533.2,111.3 536.7,111.3 540.2,111.3 543.6,111.4 547.1,111.3 550.6,111.3 554.1,111.3 557.6,111.2 561.1,111.2 564.6,111.2 568.0,111.2 571.5,111.2 575.0,111.2 578.5,111.2 582.0,111.3 585.5,111.3 589.0,111.3 592.4,111.3 595.9,111.3 599.4,111.2 602.9,111.2 606.4,111.2 609.9,111.2 613.4,111.2 616.8,111.2 620.3,111.2 623.8,111.3 627.3,111.3 630.8,111.3 634.3,111.3 637.8,111.3 641.3,111.2 644.7,111.2 648.2,111.2 651.7,111.2 655.2,111.1 658.7,111.2 662.2,111.2 665.7,111.2 669.1,111.2 672.6,111.3 676.1,111.3 679.6,111.3 683.1,111.4 686.6,111.4 690.1,111.4 693.5,111.3 697.0,111.3 700.5,111.3 704.0,111.4" /><polyline fill="none" stroke="#E15759" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" points="80.0,108.2 83.5,108.4 87.0,108.1 90.5,107.8 93.9,107.9 97.4,107.0 100.9,106.0 104.4,104.5 107.9,103.8 111.4,101.9 114.9,100.9 118.3,97.8 121.8,94.6 125.3,90.2 128.8,85.4 132.3,79.3 135.8,73.0 139.3,64.7 142.7,55.5 146.2,46.3 149.7,40.0 153.2,34.7 156.7,31.6 160.2,28.1 163.7,31.2 167.2,35.4 170.6,38.9 174.1,40.8 177.6,44.4 181.1,47.8 184.6,51.7 188.1,55.0 191.6,59.0 195.0,62.7 198.5,66.4 202.0,70.0 205.5,67.5 209.0,63.2 212.5,58.8 216.0,54.1 219.4,49.5 222.9,44.5 226.4,38.7 229.9,33.5 233.4,29.2 236.9,26.5 240.4,24.8 243.8,24.0 247.3,25.0 250.8,27.6 254.3,31.7 257.8,35.8 261.3,40.0 264.8,44.5 268.2,48.9 271.7,53.4 275.2,57.9 278.7,62.3 282.2,66.5 285.7,70.5 289.2,74.2 292.6,77.7 296.1,80.4 299.6,82.6 303.1,84.0 306.6,84.8 310.1,85.4 313.6,85.8 317.1,86.3 320.5,86.8 324.0,87.2 327.5,87.6 331.0,88.0 334.5,88.3 338.0,88.5 341.5,88.8 344.9,89.1 348.4,89.2 351.9,89.5 355.4,89.6 358.9,89.9 362.4,90.1 365.9,90.3 369.3,90.5 372.8,90.7 376.3,90.9 379.8,91.2 383.3,91.3 386.8,91.6 390.3,91.7 393.7,91.8 397.2,92.1 400.7,92.4 404.2,92.5 407.7,92.8 411.2,92.9 414.7,92.3 418.1,91.4 421.6,90.5 425.1,89.4 428.6,88.3 432.1,87.2 435.6,86.1 439.1,85.0 442.5,84.0 446.0,83.0 449.5,82.2 453.0,81.4 456.5,80.7 460.0,80.1 463.5,79.7 466.9,79.5 470.4,79.3 473.9,79.3 477.4,79.5 480.9,79.7 484.4,80.1 487.9,80.7 491.4,81.4 494.8,82.2 498.3,83.2 501.8,84.1 505.3,85.2 508.8,86.3 512.3,87.6 515.8,88.8 519.2,90.1 522.7,91.2 526.2,92.3 529.7,93.2 533.2,94.2 536.7,95.0 540.2,95.8 543.6,96.5 547.1,97.1 550.6,97.5 554.1,97.8 557.6,97.9 561.1,98.0 564.6,98.0 568.0,98.0 571.5,97.9 575.0,97.8 578.5,97.6 582.0,97.5 585.5,97.3 589.0,97.2 592.4,97.2 595.9,97.2 599.4,97.3 602.9,97.5 606.4,97.8 609.9,98.0 613.4,98.4 616.8,98.9 620.3,99.3 623.8,99.7 627.3,100.1 630.8,100.4 634.3,100.7 637.8,100.8 641.3,100.9 644.7,101.1 648.2,101.1 651.7,101.1 655.2,100.9 658.7,100.8 662.2,100.7 665.7,100.5 669.1,100.4 672.6,100.2 676.1,100.1 679.6,100.0 683.1,100.0 686.6,99.8 690.1,99.8 693.5,99.8 697.0,99.8 700.5,99.8 704.0,99.8" /><circle cx="243.8" cy="24.0" r="3.5" fill="#E15759" /><text x="249.8" y="17.0" text-anchor="start" font-size="11" font-weight="600" fill="#E15759">Peak 6.54K</text><text x="72.0" y="28.0" text-anchor="end" font-size="10" fill="currentColor" opacity="0.55">7K</text><text x="72.0" y="114.0" text-anchor="end" font-size="10" fill="currentColor" opacity="0.55">0.0</text><text x="80.0" y="132.0" font-size="11" fill="currentColor" opacity="0.65">2026-05-13 14:00Z</text><text x="704.0" y="132.0" text-anchor="end" font-size="11" fill="currentColor" opacity="0.65">2026-05-13 17:00Z</text></svg>
-        <figcaption class="timeline-series-legend">
-          <span><span class="swatch" style="background: #E15759;"></span>Current period</span>
-            <span><span class="swatch swatch-baseline"></span>Baseline</span>
-            <span><span class="swatch swatch-incident"></span>Incident window (3 hours)</span>
-        </figcaption>
-      </figure>
 
     <div class="score-methodology" aria-label="How the score was calculated">
       <div class="score-methodology-head">
@@ -3717,6 +4231,174 @@ footer {
   </section>
 
 
+  <section id="actions" class="section section-actions">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">Recommended</span>
+        <span class="hr"></span>
+      </div>
+      <h2 class="display">What to do next</h2>
+    </div>
+      <ol class="actions-list">
+          <li>
+            <div class="action-rank">
+              <span class="num tnum">01</span>
+              <span class="action-rank-label">Priority</span>
+            </div>
+            <div class="action-content">
+              <div class="action-meta">
+                <span class="pill pill-mono pill-sm">SOC</span>
+                <span class="pill pill-critical pill-sm">now</span>
+              </div>
+              <div class="step">Time-boxed edge control candidate: Client IP <code>203.0.113.10</code></div>
+                <div class="action-effect tnum">Observed volume: 540.00K (12.7% of window).</div>
+              <div class="action-effect tnum">Target: Client IP <code>203.0.113.10</code> · Duration: 24h</div>
+              <div class="action-reason">Risk: Medium; high heuristic confidence, but validate protected traffic first.</div>
+              <div class="action-reason">Validation: Expect request share and scoped 429 rate to fall within one bucket.</div>
+              <div class="action-reason">Rollback: Rollback if protected traffic errors rise, owner validation fails, or pressure shifts to adjacent legitimate traffic.</div>
+                <div class="action-reason">Why this recommendation exists: Critical severity; 12.7% request share; 26.4% 429 rate within target traffic; rate-limit pressure.</div>
+            </div>
+          </li>
+          <li>
+            <div class="action-rank">
+              <span class="num tnum">02</span>
+              <span class="action-rank-label">Priority</span>
+            </div>
+            <div class="action-content">
+              <div class="action-meta">
+                <span class="pill pill-mono pill-sm">Threat Intel</span>
+                <span class="pill pill-critical pill-sm">today</span>
+              </div>
+              <div class="step">Enrich the 3 critical target(s) in case management — <code>203.0.113.10</code>, <code>198.51.100.42</code>, <code>192.0.2.17</code></div>
+              <div class="action-effect tnum">Target: Critical action targets · Duration: Same shift</div>
+              <div class="action-reason">Risk: Low operational risk; enrichment only.</div>
+              <div class="action-reason">Validation: Case records include artifact references, scope, and confidence basis.</div>
+              <div class="action-reason">Rollback: None; update case status if later evidence downgrades the target.</div>
+                <div class="action-reason">Why this recommendation exists: 3 target(s); 3 Critical; combined 31% request share; rate-limit pressure.</div>
+            </div>
+          </li>
+          <li>
+            <div class="action-rank">
+              <span class="num tnum">03</span>
+              <span class="action-rank-label">Priority</span>
+            </div>
+            <div class="action-content">
+              <div class="action-meta">
+                <span class="pill pill-mono pill-sm">AppSec</span>
+                <span class="pill pill-neutral pill-sm">this week</span>
+              </div>
+              <div class="step">Investigate behavioral-anomaly cohort — Traffic cohort <code>Browser</code></div>
+              <div class="action-effect tnum">Target: Behavioral-anomaly targets · Duration: Investigation window</div>
+              <div class="action-reason">Risk: Low operational risk; investigation only.</div>
+              <div class="action-reason">Validation: Confirm whether behavior is explained by release, partner, or test traffic.</div>
+              <div class="action-reason">Rollback: Close as benign if owner/source validation explains the pattern.</div>
+                <div class="action-reason">Why this recommendation exists: 1 target(s); 1 High; combined 29% request share; behavioral anomaly.</div>
+            </div>
+          </li>
+          <li>
+            <div class="action-rank">
+              <span class="num tnum">04</span>
+              <span class="action-rank-label">Priority</span>
+            </div>
+            <div class="action-content">
+              <div class="action-meta">
+                <span class="pill pill-mono pill-sm">IR Lead</span>
+                <span class="pill pill-critical pill-sm">now</span>
+              </div>
+              <div class="step">Continue investigating in the linked Grafana dashboard (pre-scoped to the incident window)</div>
+              <div class="action-effect tnum">Target: Incident dashboard · Duration: During active triage</div>
+              <div class="action-reason">Risk: Low; read-only validation.</div>
+              <div class="action-reason">Validation: Dashboard scope matches report window and filters.</div>
+              <div class="action-reason">Rollback: Do not use dashboard-only observations to override artifact metrics without recapture.</div>
+                <div class="action-reason">Why this recommendation exists: dashboard handoff preserves the report scope filters and incident window.</div>
+            </div>
+          </li>
+          <li>
+            <div class="action-rank">
+              <span class="num tnum">05</span>
+              <span class="action-rank-label">Priority</span>
+            </div>
+            <div class="action-content">
+              <div class="action-meta">
+                <span class="pill pill-mono pill-sm">IR Lead</span>
+                <span class="pill pill-neutral pill-sm">this week</span>
+              </div>
+              <div class="step">Schedule retrospective — review SIEM coverage on affected endpoints</div>
+              <div class="action-effect tnum">Target: Detection and response coverage · Duration: Post-incident</div>
+              <div class="action-reason">Risk: Low; process review.</div>
+              <div class="action-reason">Validation: Retrospective identifies whether SIEM and edge evidence agree.</div>
+              <div class="action-reason">Rollback: N/A.</div>
+                <div class="action-reason">Why this recommendation exists: observed edge action and flagged-target evidence can diverge after an incident.</div>
+            </div>
+          </li>
+      </ol>
+      <details class="full-evidence" style="margin-top: 24px;">
+        <summary>Analyst note — next steps narrative</summary>
+        <div class="full-evidence-body prose">
+          <ul>
+<li>Pivot in the linked dashboard to <code>/login/*</code> and confirm the 429 trajectory against the trailing window.</li>
+<li>Enrich Client IP <code>203.0.113.10</code>, <code>198.51.100.42</code>, and <code>192.0.2.17</code> in the SOC queue; all three cluster on ASN <code>64500</code>.</li>
+<li>Treat User Agent <code>python-requests/2.31</code> and <code>curl/7.88.1</code> as candidate automation patterns when triaging the broader event.</li>
+</ul>
+
+        </div>
+      </details>
+      <table class="mini-table" style="margin-top: 18px;">
+        <thead>
+          <tr>
+            <th>Action</th>
+            <th>Target</th>
+            <th>Duration</th>
+            <th>Risk</th>
+            <th>Validation</th>
+            <th>Rollback</th>
+          </tr>
+        </thead>
+        <tbody>
+            <tr>
+              <td>Time-boxed edge control candidate: Client IP <code>203.0.113.10</code></td>
+              <td>Client IP <code>203.0.113.10</code></td>
+              <td>24h</td>
+              <td>Medium; high heuristic confidence, but validate protected traffic first.</td>
+              <td>Expect request share and scoped 429 rate to fall within one bucket.</td>
+              <td>Rollback if protected traffic errors rise, owner validation fails, or pressure shifts to adjacent legitimate traffic.</td>
+            </tr>
+            <tr>
+              <td>Enrich the 3 critical target(s) in case management — <code>203.0.113.10</code>, <code>198.51.100.42</code>, <code>192.0.2.17</code></td>
+              <td>Critical action targets</td>
+              <td>Same shift</td>
+              <td>Low operational risk; enrichment only.</td>
+              <td>Case records include artifact references, scope, and confidence basis.</td>
+              <td>None; update case status if later evidence downgrades the target.</td>
+            </tr>
+            <tr>
+              <td>Investigate behavioral-anomaly cohort — Traffic cohort <code>Browser</code></td>
+              <td>Behavioral-anomaly targets</td>
+              <td>Investigation window</td>
+              <td>Low operational risk; investigation only.</td>
+              <td>Confirm whether behavior is explained by release, partner, or test traffic.</td>
+              <td>Close as benign if owner/source validation explains the pattern.</td>
+            </tr>
+            <tr>
+              <td>Continue investigating in the linked Grafana dashboard (pre-scoped to the incident window)</td>
+              <td>Incident dashboard</td>
+              <td>During active triage</td>
+              <td>Low; read-only validation.</td>
+              <td>Dashboard scope matches report window and filters.</td>
+              <td>Do not use dashboard-only observations to override artifact metrics without recapture.</td>
+            </tr>
+            <tr>
+              <td>Schedule retrospective — review SIEM coverage on affected endpoints</td>
+              <td>Detection and response coverage</td>
+              <td>Post-incident</td>
+              <td>Low; process review.</td>
+              <td>Retrospective identifies whether SIEM and edge evidence agree.</td>
+              <td>N/A.</td>
+            </tr>
+        </tbody>
+      </table>
+  </section>
+
   <section id="impact" class="section section-impact">
     <div class="impact-print-pack">
       <div class="section-head">
@@ -3733,9 +4415,9 @@ footer {
           (rate_429_up was the most specific spike flag — the rate-limit pressure curve is the lede).
         </p>
         <figure class="impact-chart impact-volume-timeline">
-          <svg viewBox="0 0 720 140" class="incident-volume-chart" role="img" aria-label="Request volume over the incident window" preserveAspectRatio="xMidYMid meet"><line x1="80" y1="114.0" x2="704.0" y2="114.0" stroke="currentColor" stroke-opacity="0.15" stroke-width="1" /><rect x="80.0" y="24.0" width="624.0" height="90.0" fill="#E15759" fill-opacity="0.10" /><line x1="80.0" y1="24.0" x2="80.0" y2="114.0" stroke="#E15759" stroke-width="1" stroke-opacity="0.35" /><line x1="704.0" y1="24.0" x2="704.0" y2="114.0" stroke="#E15759" stroke-width="1" stroke-opacity="0.35" /><path d="M 80.0,114.0 L 80.0,108.2 L 83.5,108.4 L 87.0,108.1 L 90.5,107.8 L 93.9,107.9 L 97.4,107.0 L 100.9,106.0 L 104.4,104.5 L 107.9,103.8 L 111.4,101.9 L 114.9,100.9 L 118.3,97.8 L 121.8,94.6 L 125.3,90.2 L 128.8,85.4 L 132.3,79.3 L 135.8,73.0 L 139.3,64.7 L 142.7,55.5 L 146.2,46.3 L 149.7,40.0 L 153.2,34.7 L 156.7,31.6 L 160.2,28.1 L 163.7,31.2 L 167.2,35.4 L 170.6,38.9 L 174.1,40.8 L 177.6,44.4 L 181.1,47.8 L 184.6,51.7 L 188.1,55.0 L 191.6,59.0 L 195.0,62.7 L 198.5,66.4 L 202.0,70.0 L 205.5,67.5 L 209.0,63.2 L 212.5,58.8 L 216.0,54.1 L 219.4,49.5 L 222.9,44.5 L 226.4,38.7 L 229.9,33.5 L 233.4,29.2 L 236.9,26.5 L 240.4,24.8 L 243.8,24.0 L 247.3,25.0 L 250.8,27.6 L 254.3,31.7 L 257.8,35.8 L 261.3,40.0 L 264.8,44.5 L 268.2,48.9 L 271.7,53.4 L 275.2,57.9 L 278.7,62.3 L 282.2,66.5 L 285.7,70.5 L 289.2,74.2 L 292.6,77.7 L 296.1,80.4 L 299.6,82.6 L 303.1,84.0 L 306.6,84.8 L 310.1,85.4 L 313.6,85.8 L 317.1,86.3 L 320.5,86.8 L 324.0,87.2 L 327.5,87.6 L 331.0,88.0 L 334.5,88.3 L 338.0,88.5 L 341.5,88.8 L 344.9,89.1 L 348.4,89.2 L 351.9,89.5 L 355.4,89.6 L 358.9,89.9 L 362.4,90.1 L 365.9,90.3 L 369.3,90.5 L 372.8,90.7 L 376.3,90.9 L 379.8,91.2 L 383.3,91.3 L 386.8,91.6 L 390.3,91.7 L 393.7,91.8 L 397.2,92.1 L 400.7,92.4 L 404.2,92.5 L 407.7,92.8 L 411.2,92.9 L 414.7,92.3 L 418.1,91.4 L 421.6,90.5 L 425.1,89.4 L 428.6,88.3 L 432.1,87.2 L 435.6,86.1 L 439.1,85.0 L 442.5,84.0 L 446.0,83.0 L 449.5,82.2 L 453.0,81.4 L 456.5,80.7 L 460.0,80.1 L 463.5,79.7 L 466.9,79.5 L 470.4,79.3 L 473.9,79.3 L 477.4,79.5 L 480.9,79.7 L 484.4,80.1 L 487.9,80.7 L 491.4,81.4 L 494.8,82.2 L 498.3,83.2 L 501.8,84.1 L 505.3,85.2 L 508.8,86.3 L 512.3,87.6 L 515.8,88.8 L 519.2,90.1 L 522.7,91.2 L 526.2,92.3 L 529.7,93.2 L 533.2,94.2 L 536.7,95.0 L 540.2,95.8 L 543.6,96.5 L 547.1,97.1 L 550.6,97.5 L 554.1,97.8 L 557.6,97.9 L 561.1,98.0 L 564.6,98.0 L 568.0,98.0 L 571.5,97.9 L 575.0,97.8 L 578.5,97.6 L 582.0,97.5 L 585.5,97.3 L 589.0,97.2 L 592.4,97.2 L 595.9,97.2 L 599.4,97.3 L 602.9,97.5 L 606.4,97.8 L 609.9,98.0 L 613.4,98.4 L 616.8,98.9 L 620.3,99.3 L 623.8,99.7 L 627.3,100.1 L 630.8,100.4 L 634.3,100.7 L 637.8,100.8 L 641.3,100.9 L 644.7,101.1 L 648.2,101.1 L 651.7,101.1 L 655.2,100.9 L 658.7,100.8 L 662.2,100.7 L 665.7,100.5 L 669.1,100.4 L 672.6,100.2 L 676.1,100.1 L 679.6,100.0 L 683.1,100.0 L 686.6,99.8 L 690.1,99.8 L 693.5,99.8 L 697.0,99.8 L 700.5,99.8 L 704.0,99.8 L 704.0,114.0 Z" fill="#FBE5E6" fill-opacity="0.55" /><polyline fill="none" stroke="#4A5A73" stroke-width="1" stroke-dasharray="3 3" stroke-opacity="0.65" points="80.0,111.4 83.5,111.4 87.0,111.3 90.5,111.3 93.9,111.3 97.4,111.3 100.9,111.2 104.4,111.2 107.9,111.2 111.4,111.3 114.9,111.3 118.3,111.2 121.8,111.2 125.3,111.2 128.8,111.1 132.3,111.1 135.8,111.2 139.3,111.2 142.7,111.2 146.2,111.1 149.7,111.1 153.2,111.1 156.7,111.1 160.2,111.1 163.7,111.1 167.2,111.2 170.6,111.2 174.1,111.2 177.6,111.3 181.1,111.3 184.6,111.3 188.1,111.3 191.6,111.3 195.0,111.2 198.5,111.2 202.0,111.2 205.5,111.2 209.0,111.2 212.5,111.2 216.0,111.2 219.4,111.2 222.9,111.2 226.4,111.2 229.9,111.1 233.4,111.1 236.9,111.1 240.4,111.2 243.8,111.2 247.3,111.2 250.8,111.2 254.3,111.2 257.8,111.2 261.3,111.2 264.8,111.1 268.2,111.1 271.7,111.1 275.2,111.1 278.7,111.1 282.2,111.1 285.7,111.1 289.2,111.2 292.6,111.2 296.1,111.2 299.6,111.2 303.1,111.3 306.6,111.2 310.1,111.2 313.6,111.2 317.1,111.2 320.5,111.1 324.0,111.1 327.5,111.1 331.0,111.2 334.5,111.2 338.0,111.2 341.5,111.1 344.9,111.1 348.4,111.1 351.9,111.1 355.4,111.0 358.9,111.1 362.4,111.1 365.9,111.1 369.3,111.1 372.8,111.2 376.3,111.1 379.8,111.1 383.3,111.1 386.8,111.1 390.3,111.1 393.7,111.1 397.2,111.1 400.7,111.2 404.2,111.2 407.7,111.2 411.2,111.2 414.7,111.2 418.1,111.2 421.6,111.2 425.1,111.1 428.6,111.1 432.1,111.1 435.6,111.2 439.1,111.2 442.5,111.2 446.0,111.2 449.5,111.3 453.0,111.2 456.5,111.2 460.0,111.2 463.5,111.2 466.9,111.1 470.4,111.1 473.9,111.1 477.4,111.1 480.9,111.1 484.4,111.1 487.9,111.1 491.4,111.2 494.8,111.2 498.3,111.2 501.8,111.2 505.3,111.2 508.8,111.1 512.3,111.1 515.8,111.1 519.2,111.2 522.7,111.2 526.2,111.2 529.7,111.2 533.2,111.3 536.7,111.3 540.2,111.3 543.6,111.4 547.1,111.3 550.6,111.3 554.1,111.3 557.6,111.2 561.1,111.2 564.6,111.2 568.0,111.2 571.5,111.2 575.0,111.2 578.5,111.2 582.0,111.3 585.5,111.3 589.0,111.3 592.4,111.3 595.9,111.3 599.4,111.2 602.9,111.2 606.4,111.2 609.9,111.2 613.4,111.2 616.8,111.2 620.3,111.2 623.8,111.3 627.3,111.3 630.8,111.3 634.3,111.3 637.8,111.3 641.3,111.2 644.7,111.2 648.2,111.2 651.7,111.2 655.2,111.1 658.7,111.2 662.2,111.2 665.7,111.2 669.1,111.2 672.6,111.3 676.1,111.3 679.6,111.3 683.1,111.4 686.6,111.4 690.1,111.4 693.5,111.3 697.0,111.3 700.5,111.3 704.0,111.4" /><polyline fill="none" stroke="#E15759" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" points="80.0,108.2 83.5,108.4 87.0,108.1 90.5,107.8 93.9,107.9 97.4,107.0 100.9,106.0 104.4,104.5 107.9,103.8 111.4,101.9 114.9,100.9 118.3,97.8 121.8,94.6 125.3,90.2 128.8,85.4 132.3,79.3 135.8,73.0 139.3,64.7 142.7,55.5 146.2,46.3 149.7,40.0 153.2,34.7 156.7,31.6 160.2,28.1 163.7,31.2 167.2,35.4 170.6,38.9 174.1,40.8 177.6,44.4 181.1,47.8 184.6,51.7 188.1,55.0 191.6,59.0 195.0,62.7 198.5,66.4 202.0,70.0 205.5,67.5 209.0,63.2 212.5,58.8 216.0,54.1 219.4,49.5 222.9,44.5 226.4,38.7 229.9,33.5 233.4,29.2 236.9,26.5 240.4,24.8 243.8,24.0 247.3,25.0 250.8,27.6 254.3,31.7 257.8,35.8 261.3,40.0 264.8,44.5 268.2,48.9 271.7,53.4 275.2,57.9 278.7,62.3 282.2,66.5 285.7,70.5 289.2,74.2 292.6,77.7 296.1,80.4 299.6,82.6 303.1,84.0 306.6,84.8 310.1,85.4 313.6,85.8 317.1,86.3 320.5,86.8 324.0,87.2 327.5,87.6 331.0,88.0 334.5,88.3 338.0,88.5 341.5,88.8 344.9,89.1 348.4,89.2 351.9,89.5 355.4,89.6 358.9,89.9 362.4,90.1 365.9,90.3 369.3,90.5 372.8,90.7 376.3,90.9 379.8,91.2 383.3,91.3 386.8,91.6 390.3,91.7 393.7,91.8 397.2,92.1 400.7,92.4 404.2,92.5 407.7,92.8 411.2,92.9 414.7,92.3 418.1,91.4 421.6,90.5 425.1,89.4 428.6,88.3 432.1,87.2 435.6,86.1 439.1,85.0 442.5,84.0 446.0,83.0 449.5,82.2 453.0,81.4 456.5,80.7 460.0,80.1 463.5,79.7 466.9,79.5 470.4,79.3 473.9,79.3 477.4,79.5 480.9,79.7 484.4,80.1 487.9,80.7 491.4,81.4 494.8,82.2 498.3,83.2 501.8,84.1 505.3,85.2 508.8,86.3 512.3,87.6 515.8,88.8 519.2,90.1 522.7,91.2 526.2,92.3 529.7,93.2 533.2,94.2 536.7,95.0 540.2,95.8 543.6,96.5 547.1,97.1 550.6,97.5 554.1,97.8 557.6,97.9 561.1,98.0 564.6,98.0 568.0,98.0 571.5,97.9 575.0,97.8 578.5,97.6 582.0,97.5 585.5,97.3 589.0,97.2 592.4,97.2 595.9,97.2 599.4,97.3 602.9,97.5 606.4,97.8 609.9,98.0 613.4,98.4 616.8,98.9 620.3,99.3 623.8,99.7 627.3,100.1 630.8,100.4 634.3,100.7 637.8,100.8 641.3,100.9 644.7,101.1 648.2,101.1 651.7,101.1 655.2,100.9 658.7,100.8 662.2,100.7 665.7,100.5 669.1,100.4 672.6,100.2 676.1,100.1 679.6,100.0 683.1,100.0 686.6,99.8 690.1,99.8 693.5,99.8 697.0,99.8 700.5,99.8 704.0,99.8" /><circle cx="243.8" cy="24.0" r="3.5" fill="#E15759" /><text x="249.8" y="17.0" text-anchor="start" font-size="11" font-weight="600" fill="#E15759">Peak 6.54K</text><text x="72.0" y="28.0" text-anchor="end" font-size="10" fill="currentColor" opacity="0.55">7K</text><text x="72.0" y="114.0" text-anchor="end" font-size="10" fill="currentColor" opacity="0.55">0.0</text><text x="80.0" y="132.0" font-size="11" fill="currentColor" opacity="0.65">2026-05-13 14:00Z</text><text x="704.0" y="132.0" text-anchor="end" font-size="11" fill="currentColor" opacity="0.65">2026-05-13 17:00Z</text></svg>
+          <svg viewBox="0 0 720 140" class="incident-volume-chart" role="img" aria-label="Request volume over the incident window" preserveAspectRatio="xMidYMid meet"><line x1="80" y1="114.0" x2="704.0" y2="114.0" stroke="currentColor" stroke-opacity="0.15" stroke-width="1" /><rect x="80.0" y="24.0" width="624.0" height="90.0" fill="#E15759" fill-opacity="0.10" /><line x1="80.0" y1="24.0" x2="80.0" y2="114.0" stroke="#E15759" stroke-width="1" stroke-opacity="0.35" /><line x1="704.0" y1="24.0" x2="704.0" y2="114.0" stroke="#E15759" stroke-width="1" stroke-opacity="0.35" /><polyline fill="none" stroke="#4A5A73" stroke-width="1" stroke-dasharray="3 3" stroke-opacity="0.65" points="80.0,111.4 83.5,111.4 87.0,111.3 90.5,111.3 93.9,111.3 97.4,111.3 100.9,111.2 104.4,111.2 107.9,111.2 111.4,111.3 114.9,111.3 118.3,111.2 121.8,111.2 125.3,111.2 128.8,111.1 132.3,111.1 135.8,111.2 139.3,111.2 142.7,111.2 146.2,111.1 149.7,111.1 153.2,111.1 156.7,111.1 160.2,111.1 163.7,111.1 167.2,111.2 170.6,111.2 174.1,111.2 177.6,111.3 181.1,111.3 184.6,111.3 188.1,111.3 191.6,111.3 195.0,111.2 198.5,111.2 202.0,111.2 205.5,111.2 209.0,111.2 212.5,111.2 216.0,111.2 219.4,111.2 222.9,111.2 226.4,111.2 229.9,111.1 233.4,111.1 236.9,111.1 240.4,111.2 243.8,111.2 247.3,111.2 250.8,111.2 254.3,111.2 257.8,111.2 261.3,111.2 264.8,111.1 268.2,111.1 271.7,111.1 275.2,111.1 278.7,111.1 282.2,111.1 285.7,111.1 289.2,111.2 292.6,111.2 296.1,111.2 299.6,111.2 303.1,111.3 306.6,111.2 310.1,111.2 313.6,111.2 317.1,111.2 320.5,111.1 324.0,111.1 327.5,111.1 331.0,111.2 334.5,111.2 338.0,111.2 341.5,111.1 344.9,111.1 348.4,111.1 351.9,111.1 355.4,111.0 358.9,111.1 362.4,111.1 365.9,111.1 369.3,111.1 372.8,111.2 376.3,111.1 379.8,111.1 383.3,111.1 386.8,111.1 390.3,111.1 393.7,111.1 397.2,111.1 400.7,111.2 404.2,111.2 407.7,111.2 411.2,111.2 414.7,111.2 418.1,111.2 421.6,111.2 425.1,111.1 428.6,111.1 432.1,111.1 435.6,111.2 439.1,111.2 442.5,111.2 446.0,111.2 449.5,111.3 453.0,111.2 456.5,111.2 460.0,111.2 463.5,111.2 466.9,111.1 470.4,111.1 473.9,111.1 477.4,111.1 480.9,111.1 484.4,111.1 487.9,111.1 491.4,111.2 494.8,111.2 498.3,111.2 501.8,111.2 505.3,111.2 508.8,111.1 512.3,111.1 515.8,111.1 519.2,111.2 522.7,111.2 526.2,111.2 529.7,111.2 533.2,111.3 536.7,111.3 540.2,111.3 543.6,111.4 547.1,111.3 550.6,111.3 554.1,111.3 557.6,111.2 561.1,111.2 564.6,111.2 568.0,111.2 571.5,111.2 575.0,111.2 578.5,111.2 582.0,111.3 585.5,111.3 589.0,111.3 592.4,111.3 595.9,111.3 599.4,111.2 602.9,111.2 606.4,111.2 609.9,111.2 613.4,111.2 616.8,111.2 620.3,111.2 623.8,111.3 627.3,111.3 630.8,111.3 634.3,111.3 637.8,111.3 641.3,111.2 644.7,111.2 648.2,111.2 651.7,111.2 655.2,111.1 658.7,111.2 662.2,111.2 665.7,111.2 669.1,111.2 672.6,111.3 676.1,111.3 679.6,111.3 683.1,111.4 686.6,111.4 690.1,111.4 693.5,111.3 697.0,111.3 700.5,111.3 704.0,111.4" /><polyline fill="none" stroke="#4E79A7" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" points="80.0,108.2 83.5,108.4 87.0,108.1 90.5,107.8 93.9,107.9 97.4,107.0 100.9,106.0 104.4,104.5 107.9,103.8 111.4,101.9 114.9,100.9 118.3,97.8 121.8,94.6 125.3,90.2 128.8,85.4 132.3,79.3 135.8,73.0 139.3,64.7 142.7,55.5 146.2,46.3 149.7,40.0 153.2,34.7 156.7,31.6 160.2,28.1 163.7,31.2 167.2,35.4 170.6,38.9 174.1,40.8 177.6,44.4 181.1,47.8 184.6,51.7 188.1,55.0 191.6,59.0 195.0,62.7 198.5,66.4 202.0,70.0 205.5,67.5 209.0,63.2 212.5,58.8 216.0,54.1 219.4,49.5 222.9,44.5 226.4,38.7 229.9,33.5 233.4,29.2 236.9,26.5 240.4,24.8 243.8,24.0 247.3,25.0 250.8,27.6 254.3,31.7 257.8,35.8 261.3,40.0 264.8,44.5 268.2,48.9 271.7,53.4 275.2,57.9 278.7,62.3 282.2,66.5 285.7,70.5 289.2,74.2 292.6,77.7 296.1,80.4 299.6,82.6 303.1,84.0 306.6,84.8 310.1,85.4 313.6,85.8 317.1,86.3 320.5,86.8 324.0,87.2 327.5,87.6 331.0,88.0 334.5,88.3 338.0,88.5 341.5,88.8 344.9,89.1 348.4,89.2 351.9,89.5 355.4,89.6 358.9,89.9 362.4,90.1 365.9,90.3 369.3,90.5 372.8,90.7 376.3,90.9 379.8,91.2 383.3,91.3 386.8,91.6 390.3,91.7 393.7,91.8 397.2,92.1 400.7,92.4 404.2,92.5 407.7,92.8 411.2,92.9 414.7,92.3 418.1,91.4 421.6,90.5 425.1,89.4 428.6,88.3 432.1,87.2 435.6,86.1 439.1,85.0 442.5,84.0 446.0,83.0 449.5,82.2 453.0,81.4 456.5,80.7 460.0,80.1 463.5,79.7 466.9,79.5 470.4,79.3 473.9,79.3 477.4,79.5 480.9,79.7 484.4,80.1 487.9,80.7 491.4,81.4 494.8,82.2 498.3,83.2 501.8,84.1 505.3,85.2 508.8,86.3 512.3,87.6 515.8,88.8 519.2,90.1 522.7,91.2 526.2,92.3 529.7,93.2 533.2,94.2 536.7,95.0 540.2,95.8 543.6,96.5 547.1,97.1 550.6,97.5 554.1,97.8 557.6,97.9 561.1,98.0 564.6,98.0 568.0,98.0 571.5,97.9 575.0,97.8 578.5,97.6 582.0,97.5 585.5,97.3 589.0,97.2 592.4,97.2 595.9,97.2 599.4,97.3 602.9,97.5 606.4,97.8 609.9,98.0 613.4,98.4 616.8,98.9 620.3,99.3 623.8,99.7 627.3,100.1 630.8,100.4 634.3,100.7 637.8,100.8 641.3,100.9 644.7,101.1 648.2,101.1 651.7,101.1 655.2,100.9 658.7,100.8 662.2,100.7 665.7,100.5 669.1,100.4 672.6,100.2 676.1,100.1 679.6,100.0 683.1,100.0 686.6,99.8 690.1,99.8 693.5,99.8 697.0,99.8 700.5,99.8 704.0,99.8" /><circle cx="243.8" cy="24.0" r="3.5" fill="#E15759" /><text x="249.8" y="17.0" text-anchor="start" font-size="11" font-weight="600" fill="#E15759">Peak 6.54K</text><text x="72.0" y="28.0" text-anchor="end" font-size="10" fill="currentColor" opacity="0.55">7K</text><text x="72.0" y="114.0" text-anchor="end" font-size="10" fill="currentColor" opacity="0.55">0.0</text><text x="80.0" y="132.0" font-size="11" fill="currentColor" opacity="0.65">2026-05-13 14:00Z</text><text x="704.0" y="132.0" text-anchor="end" font-size="11" fill="currentColor" opacity="0.65">2026-05-13 17:00Z</text></svg>
           <figcaption class="impact-chart-legend">
-            <span><span class="swatch" style="background: #E15759;"></span>Current window</span>
+            <span><span class="swatch" style="background: #4E79A7;"></span>Current window</span>
               <span><span class="swatch swatch-baseline"></span>Baseline (avg ~203)</span>
           </figcaption>
           <div class="volume-chart-labels tnum">
@@ -3806,20 +4488,137 @@ footer {
       <p class="impact-lead">
         Top path pattern: <code class="mono">/login/*</code> —
         2.90M requests
-        (68.2% of window,
+        (68.2% of target traffic,
         +530% vs baseline).
       </p>
   </section>
 
+  <section class="section section-analytic-story">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">Why This Stood Out</span>
+        <span class="hr"></span>
+      </div>
+      <h2 class="display">Evidence chain before the tables</h2>
+    </div>
+
+    <div class="story-grid">
+      <div class="story-panel">
+        <h3>Why this stood out</h3>
+          <ul class="story-bullets">
+              <li>Observed Human-classified anomaly evidence was strong enough to lead the concern before IP-heavy details.</li>
+              <li>Observed path concentration: <code>/login/*</code> carried 68.2% of scoped requests.</li>
+              <li>5xx and 429 behavior diverged from baseline: 429 rate up fired against the comparison window.</li>
+              <li>New or high-volume actor evidence appeared on Client IP <code>203.0.113.10</code>.</li>
+          </ul>
+      </div>
+
+      <div class="story-panel">
+        <h3>Observed vs inferred</h3>
+        <div class="taxonomy-grid">
+          <div>
+            <div class="taxonomy-label">Observed</div>
+            <ul>
+                <li>request concentration</li>
+                <li>path concentration</li>
+                <li>cohort distribution</li>
+                <li>5xx/429 rates</li>
+                <li>edge action mix</li>
+            </ul>
+          </div>
+          <div>
+            <div class="taxonomy-label">Inferred</div>
+            <ul>
+                <li>coordinated infrastructure</li>
+                <li>evasive automation</li>
+                <li>application-layer flooding</li>
+            </ul>
+          </div>
+        </div>
+        <p class="assessment-boundary">Inferred labels are analytic interpretations of observed log patterns; they are not attribution, root cause, or intent claims.</p>
+      </div>
+    </div>
+
+    <div class="coordination-matrix">
+      <h3>Coordination Signals</h3>
+      <table class="mini-table">
+        <thead>
+          <tr>
+            <th scope="col">Signal</th>
+            <th scope="col">Status</th>
+            <th scope="col">Evidence boundary</th>
+          </tr>
+        </thead>
+        <tbody>
+            <tr>
+              <td>ASN concentration</td>
+              <td><span class="signal-status signal-yes">yes</span></td>
+              <td>3 flagged row(s) carried single-ASN evidence.</td>
+            </tr>
+            <tr>
+              <td>Shared path targeting</td>
+              <td><span class="signal-status signal-yes">yes</span></td>
+              <td>3 row(s) showed shared or concentrated path evidence.</td>
+            </tr>
+            <tr>
+              <td>Overlapping active window</td>
+              <td><span class="signal-status signal-not-available">not available</span></td>
+              <td>Per-target bucket evidence was not present in this artifact.</td>
+            </tr>
+            <tr>
+              <td>Shared UA/cohort</td>
+              <td><span class="signal-status signal-not-available">not available</span></td>
+              <td>Per-target dominant UA/cohort evidence was not present.</td>
+            </tr>
+            <tr>
+              <td>Shared edge action profile</td>
+              <td><span class="signal-status signal-not-available">not available</span></td>
+              <td>No edge-action evidence was available.</td>
+            </tr>
+            <tr>
+              <td>IP/UA co-occurrence</td>
+              <td><span class="signal-status signal-not-available">not available</span></td>
+              <td>No IP/UA co-occurrence artifact was available.</td>
+            </tr>
+            <tr>
+              <td>Disjoint cohort overlap</td>
+              <td><span class="signal-status signal-partial">partial</span></td>
+              <td>Overlap could not be computed from available fields.</td>
+            </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section section-progression">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">Temporal Progression</span>
+        <span class="hr"></span>
+      </div>
+      <h2 class="display">How the pressure evolved</h2>
+    </div>
+      <p class="finding-body">Temporal progression is derived from bucketed producer evidence.</p>
+      <ul class="story-bullets">
+          <li>Ramp built for 23 minutes, from 2026-05-13 14:00 UTC to the peak at 2026-05-13 14:23 UTC.</li>
+          <li>Peak arrived at 2026-05-13 14:23 UTC with 66.20K requests in the minute bucket.</li>
+          <li>Sustained pressure continued for 2.6 hours after peak, through 2026-05-13 16:59 UTC.</li>
+          <li>Taper or recovery was visible by the window close at 2026-05-13 17:00 UTC.</li>
+      </ul>
+  </section>
+
+
+
   <section id="flagged" class="section section-actors">
     <div class="section-head">
       <div class="section-head-rule">
-        <span class="kicker section-eyebrow">Who Hit It</span>
+        <span class="kicker section-eyebrow">Drilldown</span>
         <span class="hr"></span>
         <span class="section-head-count">9 flagged</span>
       </div>
-      <h2 class="display">Flagged signals, ranked by strength</h2>
-    </div>
+        <h2 class="display">Drilldown: Flagged Signals</h2>
+        <p class="attack-note">Source: action-target heuristic (`bot_incident_action_targets.v1`). These rows are the authoritative priority list; raw volume rankings are shown separately in Full Evidence.</p>
+      </div>
 
       <table class="actors-table" data-state="populated">
         <thead>
@@ -3828,15 +4627,16 @@ footer {
             <th scope="col">Kind</th>
             <th scope="col">Identifier</th>
             <th scope="col" class="is-num">Requests</th>
-            <th scope="col" class="is-num">Share</th>
-            <th scope="col" class="is-num">429%</th>
+            <th scope="col" class="is-num">% of incident requests</th>
+            <th scope="col" class="is-num">429 rate</th>
             <th scope="col">Severity</th>
             <th scope="col">Action</th>
             <th scope="col">ATT&amp;CK</th>
+            <th scope="col">Why ranked here</th>
           </tr>
         </thead>
         <tbody>
-            <tr data-kind="actor">
+            <tr data-kind="actor" class="row-strong">
               <td class="rank">01</td>
               <td class="kind-cell">
                 <span class="kind-bucket kind-actor">Actor</span>
@@ -3845,10 +4645,9 @@ footer {
               <td>
                 <code class="ident">203.0.113.10</code>
                   <div class="reasons">
+                      <span>high 429 rate</span>
                       <span>high volume share</span>
-                      <span>high 429 share</span>
                       <span>single-path concentration</span>
-                      <span>single-ASN cluster</span>
                   </div>
               </td>
               <td class="is-num"><span class="num-large tnum">540.00K</span></td>
@@ -3891,8 +4690,9 @@ footer {
                          title="Acquire Infrastructure: Virtual Private Server — Tactic: Resource Development · opens MITRE ATT&amp;CK in a new tab"><code>T1583.003</code></a>
                   </div>
               </td>
+              <td>Critical severity; Watch action class; High confidence.</td>
             </tr>
-            <tr data-kind="actor">
+            <tr data-kind="actor" class="row-strong">
               <td class="rank">02</td>
               <td class="kind-cell">
                 <span class="kind-bucket kind-actor">Actor</span>
@@ -3901,10 +4701,9 @@ footer {
               <td>
                 <code class="ident">198.51.100.42</code>
                   <div class="reasons">
+                      <span>high 429 rate</span>
                       <span>high volume share</span>
-                      <span>high 429 share</span>
                       <span>single-path concentration</span>
-                      <span>single-ASN cluster</span>
                   </div>
               </td>
               <td class="is-num"><span class="num-large tnum">420.00K</span></td>
@@ -3947,8 +4746,9 @@ footer {
                          title="Acquire Infrastructure: Virtual Private Server — Tactic: Resource Development · opens MITRE ATT&amp;CK in a new tab"><code>T1583.003</code></a>
                   </div>
               </td>
+              <td>Critical severity; Watch action class; High confidence.</td>
             </tr>
-            <tr data-kind="actor">
+            <tr data-kind="actor" class="row-strong">
               <td class="rank">03</td>
               <td class="kind-cell">
                 <span class="kind-bucket kind-actor">Actor</span>
@@ -3957,10 +4757,9 @@ footer {
               <td>
                 <code class="ident">192.0.2.17</code>
                   <div class="reasons">
+                      <span>high 429 rate</span>
                       <span>high volume share</span>
-                      <span>high 429 share</span>
                       <span>single-path concentration</span>
-                      <span>single-ASN cluster</span>
                   </div>
               </td>
               <td class="is-num"><span class="num-large tnum">360.00K</span></td>
@@ -4003,8 +4802,9 @@ footer {
                          title="Acquire Infrastructure: Virtual Private Server — Tactic: Resource Development · opens MITRE ATT&amp;CK in a new tab"><code>T1583.003</code></a>
                   </div>
               </td>
+              <td>Critical severity; Watch action class; High confidence.</td>
             </tr>
-            <tr data-kind="actor">
+            <tr data-kind="actor" class="row-strong">
               <td class="rank">04</td>
               <td class="kind-cell">
                 <span class="kind-bucket kind-actor">Actor</span>
@@ -4013,8 +4813,8 @@ footer {
               <td>
                 <code class="ident">64500</code>
                   <div class="reasons">
+                      <span>high 429 rate</span>
                       <span>high volume share</span>
-                      <span>high 429 share</span>
                   </div>
               </td>
               <td class="is-num"><span class="num-large tnum">1.85M</span></td>
@@ -4047,8 +4847,9 @@ footer {
                          title="Brute Force — Tactic: Credential Access · opens MITRE ATT&amp;CK in a new tab"><code>T1110</code></a>
                   </div>
               </td>
+              <td>High severity; Watch action class; Medium confidence.</td>
             </tr>
-            <tr data-kind="actor">
+            <tr data-kind="actor" class="row-strong">
               <td class="rank">05</td>
               <td class="kind-cell">
                 <span class="kind-bucket kind-actor">Actor</span>
@@ -4085,8 +4886,9 @@ footer {
                          title="Masquerading — Tactic: Defense Evasion · opens MITRE ATT&amp;CK in a new tab"><code>T1036</code></a>
                   </div>
               </td>
+              <td>High severity; Watch action class; Medium confidence.</td>
             </tr>
-            <tr data-kind="actor">
+            <tr data-kind="actor" class="row-strong">
               <td class="rank">06</td>
               <td class="kind-cell">
                 <span class="kind-bucket kind-actor">Actor</span>
@@ -4095,8 +4897,8 @@ footer {
               <td>
                 <code class="ident">python-requests/2.31</code>
                   <div class="reasons">
+                      <span>high 429 rate</span>
                       <span>high volume share</span>
-                      <span>high 429 share</span>
                       <span>automation user agent</span>
                   </div>
               </td>
@@ -4135,8 +4937,9 @@ footer {
                          title="Application Layer Protocol: Web Protocols — Tactic: Command and Control · opens MITRE ATT&amp;CK in a new tab"><code>T1071.001</code></a>
                   </div>
               </td>
+              <td>High severity; Watch action class; High confidence.</td>
             </tr>
-            <tr data-kind="actor">
+            <tr data-kind="actor" class="row-strong">
               <td class="rank">07</td>
               <td class="kind-cell">
                 <span class="kind-bucket kind-actor">Actor</span>
@@ -4179,6 +4982,7 @@ footer {
                          title="Application Layer Protocol: Web Protocols — Tactic: Command and Control · opens MITRE ATT&amp;CK in a new tab"><code>T1071.001</code></a>
                   </div>
               </td>
+              <td>High severity; Watch action class; Medium confidence.</td>
             </tr>
             <tr data-kind="actor">
               <td class="rank">08</td>
@@ -4211,6 +5015,7 @@ footer {
               <td>
                   —
               </td>
+              <td>Low severity; Watch action class; Low confidence.</td>
             </tr>
             <tr data-kind="actor">
               <td class="rank">09</td>
@@ -4249,92 +5054,14 @@ footer {
                          title="Application Layer Protocol: Web Protocols — Tactic: Command and Control · opens MITRE ATT&amp;CK in a new tab"><code>T1071.001</code></a>
                   </div>
               </td>
+              <td>Low severity; Watch action class; Low confidence.</td>
             </tr>
         </tbody>
       </table>
   </section>
 
-  <section class="section section-attack split-2col">
-    <div class="print-pane">
-      <div class="section-head">
-        <div class="section-head-rule">
-          <span class="kicker section-eyebrow">ATT&amp;CK Mapping</span>
-          <span class="hr"></span>
-        </div>
-        <h2 class="display-lg">Consistent with</h2>
-      </div>
-      <p class="attack-note">Techniques the observed signal is consistent with — not an attribution.</p>
-      <div class="attack-list" data-state="populated">
-            <div class="attack-row">
-              <a class="attack-row-link"
-                 href="https://attack.mitre.org/techniques/T1498/"
-                 target="_blank"
-                 rel="noopener external"
-                 title="Open T1498 on MITRE ATT&amp;CK"><code>T1498</code></a>
-              <div>
-                <div class="technique">Network Denial of Service</div>
-              </div>
-              <div class="tactic">Impact</div>
-            </div>
-            <div class="attack-row">
-              <a class="attack-row-link"
-                 href="https://attack.mitre.org/techniques/T1110/"
-                 target="_blank"
-                 rel="noopener external"
-                 title="Open T1110 on MITRE ATT&amp;CK"><code>T1110</code></a>
-              <div>
-                <div class="technique">Brute Force</div>
-              </div>
-              <div class="tactic">Credential Access</div>
-            </div>
-            <div class="attack-row">
-              <a class="attack-row-link"
-                 href="https://attack.mitre.org/techniques/T1071/001/"
-                 target="_blank"
-                 rel="noopener external"
-                 title="Open T1071.001 on MITRE ATT&amp;CK"><code>T1071.001</code></a>
-              <div>
-                <div class="technique">Application Layer Protocol: Web Protocols</div>
-              </div>
-              <div class="tactic">Command and Control</div>
-            </div>
-            <div class="attack-row">
-              <a class="attack-row-link"
-                 href="https://attack.mitre.org/techniques/T1110/004/"
-                 target="_blank"
-                 rel="noopener external"
-                 title="Open T1110.004 on MITRE ATT&amp;CK"><code>T1110.004</code></a>
-              <div>
-                <div class="technique">Credential Stuffing</div>
-              </div>
-              <div class="tactic">Credential Access</div>
-            </div>
-            <div class="attack-row">
-              <a class="attack-row-link"
-                 href="https://attack.mitre.org/techniques/T1583/003/"
-                 target="_blank"
-                 rel="noopener external"
-                 title="Open T1583.003 on MITRE ATT&amp;CK"><code>T1583.003</code></a>
-              <div>
-                <div class="technique">Acquire Infrastructure: Virtual Private Server</div>
-              </div>
-              <div class="tactic">Resource Development</div>
-            </div>
-            <div class="attack-row">
-              <a class="attack-row-link"
-                 href="https://attack.mitre.org/techniques/T1036/"
-                 target="_blank"
-                 rel="noopener external"
-                 title="Open T1036 on MITRE ATT&amp;CK"><code>T1036</code></a>
-              <div>
-                <div class="technique">Masquerading</div>
-              </div>
-              <div class="tactic">Defense Evasion</div>
-            </div>
-      </div>
-    </div>
-
-    <div class="print-pane">
+  <section class="section section-paths">
+    <div>
       <div class="section-head">
         <div class="section-head-rule">
           <span class="kicker section-eyebrow">Top Paths</span>
@@ -4347,7 +5074,7 @@ footer {
             <tr>
               <th scope="col">Path</th>
               <th scope="col" class="is-num">Reqs</th>
-              <th scope="col" class="is-num">Share</th>
+              <th scope="col" class="is-num">% of incident requests</th>
               <th scope="col" class="is-num">Share bar</th>
             </tr>
           </thead>
@@ -4423,40 +5150,44 @@ footer {
     <div class="print-pane">
       <div class="section-head">
         <div class="section-head-rule">
-          <span class="kicker section-eyebrow">Top Countries</span>
+          <span class="kicker section-eyebrow">Geo Mix</span>
           <span class="hr"></span>
         </div>
-        <h2 class="display-lg">Where it came from</h2>
+        <h2 class="display-lg">Geo mix shifted</h2>
+        <p class="attack-note">
+          Country mix is baseline-divergence context. It is not actor-origin
+          attribution and does not identify where a request operator is located.
+        </p>
       </div>
         <table class="mini-table">
           <thead>
             <tr>
               <th scope="col">Country</th>
               <th scope="col" class="is-num">Reqs</th>
-              <th scope="col" class="is-num">Share</th>
+              <th scope="col" class="is-num">% of incident requests</th>
               <th scope="col" class="is-num">Δ vs baseline</th>
             </tr>
           </thead>
           <tbody>
-              <tr>
+              <tr class="row-strong">
                 <td><code class="mono">US</code></td>
                 <td class="is-num">2.10M</td>
                 <td class="is-num"><strong>49.4%</strong></td>
                 <td class="is-num">+280%</td>
               </tr>
-              <tr>
+              <tr class="row-strong">
                 <td><code class="mono">DE</code></td>
                 <td class="is-num">820.00K</td>
                 <td class="is-num"><strong>19.3%</strong></td>
                 <td class="is-num">+410%</td>
               </tr>
-              <tr>
+              <tr class="row-strong">
                 <td><code class="mono">BR</code></td>
                 <td class="is-num">540.00K</td>
                 <td class="is-num"><strong>12.7%</strong></td>
                 <td class="is-num">+360%</td>
               </tr>
-              <tr>
+              <tr class="row-strong">
                 <td><code class="mono">GB</code></td>
                 <td class="is-num">320.00K</td>
                 <td class="is-num"><strong>7.50%</strong></td>
@@ -4491,8 +5222,8 @@ footer {
             <tr>
               <th scope="col">Cohort</th>
               <th scope="col" class="is-num">Reqs</th>
-              <th scope="col" class="is-num">Share</th>
-              <th scope="col" class="is-num">429%</th>
+              <th scope="col" class="is-num">% of cohort traffic</th>
+              <th scope="col" class="is-num">429 rate within cohort traffic</th>
               <th scope="col" class="is-num">5xx%</th>
             </tr>
           </thead>
@@ -4504,7 +5235,7 @@ footer {
                 <td class="is-num">8.90%</td>
                 <td class="is-num">0.04%</td>
               </tr>
-              <tr>
+              <tr class="row-strong">
                 <td><code class="mono">Browser</code></td>
                 <td class="is-num">1.22M</td>
                 <td class="is-num"><strong>28.6%</strong></td>
@@ -4538,58 +5269,124 @@ footer {
   </section>
 
 
-  <section id="actions" class="section section-actions">
+  <section class="section section-attack">
     <div class="section-head">
       <div class="section-head-rule">
-        <span class="kicker section-eyebrow">Recommended</span>
+        <span class="kicker section-eyebrow">ATT&amp;CK Mapping</span>
         <span class="hr"></span>
       </div>
-      <h2 class="display">What to do next</h2>
+      <h2 class="display">Consistent with</h2>
     </div>
-      <ol class="actions-list">
-          <li>
-            <span class="num tnum">01</span>
-            <span class="step">Block Client IP <code>203.0.113.10</code> at edge for 24h, monitor 429 trajectory</span>
-            <span class="pill pill-mono pill-sm">SOC</span>
-            <span class="pill pill-critical pill-sm">now</span>
-              <span class="action-effect tnum">Observed volume: 540.00K (12.7% of window).</span>
-          </li>
-          <li>
-            <span class="num tnum">02</span>
-            <span class="step">Enrich the 3 critical target(s) in case management — <code>203.0.113.10</code>, <code>198.51.100.42</code>, <code>192.0.2.17</code></span>
-            <span class="pill pill-mono pill-sm">Threat Intel</span>
-            <span class="pill pill-critical pill-sm">today</span>
-          </li>
-          <li>
-            <span class="num tnum">03</span>
-            <span class="step">Investigate behavioral-anomaly cohort — Traffic cohort <code>Browser</code></span>
-            <span class="pill pill-mono pill-sm">AppSec</span>
-            <span class="pill pill-neutral pill-sm">this week</span>
-          </li>
-          <li>
-            <span class="num tnum">04</span>
-            <span class="step">Continue investigating in the linked Grafana dashboard (pre-scoped to the incident window)</span>
-            <span class="pill pill-mono pill-sm">IR Lead</span>
-            <span class="pill pill-critical pill-sm">now</span>
-          </li>
-          <li>
-            <span class="num tnum">05</span>
-            <span class="step">Schedule retrospective — review SIEM coverage on affected endpoints</span>
-            <span class="pill pill-mono pill-sm">IR Lead</span>
-            <span class="pill pill-neutral pill-sm">this week</span>
-          </li>
-      </ol>
-      <details class="full-evidence" style="margin-top: 24px;">
-        <summary>Analyst note — next steps narrative</summary>
-        <div class="full-evidence-body prose">
-          <ul>
-<li>Pivot in the linked dashboard to <code>/login/*</code> and confirm the 429 trajectory against the trailing window.</li>
-<li>Enrich Client IP <code>203.0.113.10</code>, <code>198.51.100.42</code>, and <code>192.0.2.17</code> in the SOC queue; all three cluster on ASN <code>64500</code>.</li>
-<li>Treat User Agent <code>python-requests/2.31</code> and <code>curl/7.88.1</code> as candidate automation patterns when triaging the broader event.</li>
-</ul>
-
+    <p class="attack-note">Techniques the observed signal is consistent with — not an attribution. Credential-access techniques are investigation leads unless auth-specific telemetry is present.</p>
+    <div class="attack-list" data-state="populated">
+        <div class="attack-row attack-row-head">
+          <div>Technique</div>
+          <div>Supporting evidence</div>
+          <div>Tactic</div>
         </div>
-      </details>
+          <div class="attack-row">
+            <a class="attack-row-link"
+               href="https://attack.mitre.org/techniques/T1498/"
+               target="_blank"
+               rel="noopener external"
+               title="Open T1498 on MITRE ATT&amp;CK"><code>T1498</code></a>
+            <div>
+              <div class="technique">Network Denial of Service</div>
+              <div class="attack-evidence"><strong>observed-consistent</strong></div>
+              <div class="attack-evidence">Critical Client IP <code>203.0.113.10</code> matched shared ASN, path concentration, high volume evidence.</div>
+                <div class="attack-metric-chips">
+                    <span>540.00K requests</span>
+                    <span>12.7% of incident requests</span>
+                </div>
+            </div>
+            <div class="tactic">Impact</div>
+          </div>
+          <div class="attack-row">
+            <a class="attack-row-link"
+               href="https://attack.mitre.org/techniques/T1110/"
+               target="_blank"
+               rel="noopener external"
+               title="Open T1110 on MITRE ATT&amp;CK"><code>T1110</code></a>
+            <div>
+              <div class="technique">Brute Force</div>
+              <div class="attack-evidence"><strong>possible investigation lead</strong></div>
+              <div class="attack-evidence">Possible investigation lead only. Observed signal: Critical Client IP <code>203.0.113.10</code> matched shared ASN, path concentration, high volume evidence. Requires auth-specific telemetry: auth endpoint, failure pattern, account/user identifiers, or SIEM/auth correlation.</div>
+                <div class="attack-metric-chips">
+                    <span>540.00K requests</span>
+                    <span>12.7% of incident requests</span>
+                </div>
+            </div>
+            <div class="tactic">Credential Access</div>
+          </div>
+          <div class="attack-row">
+            <a class="attack-row-link"
+               href="https://attack.mitre.org/techniques/T1071/001/"
+               target="_blank"
+               rel="noopener external"
+               title="Open T1071.001 on MITRE ATT&amp;CK"><code>T1071.001</code></a>
+            <div>
+              <div class="technique">Application Layer Protocol: Web Protocols</div>
+              <div class="attack-evidence"><strong>observed-consistent</strong></div>
+              <div class="attack-evidence">High User Agent <code>python-requests/2.31</code> matched high volume, automation UA evidence.</div>
+                <div class="attack-metric-chips">
+                    <span>920.00K requests</span>
+                    <span>21.6% of incident requests</span>
+                </div>
+            </div>
+            <div class="tactic">Command and Control</div>
+          </div>
+          <div class="attack-row">
+            <a class="attack-row-link"
+               href="https://attack.mitre.org/techniques/T1110/004/"
+               target="_blank"
+               rel="noopener external"
+               title="Open T1110.004 on MITRE ATT&amp;CK"><code>T1110.004</code></a>
+            <div>
+              <div class="technique">Credential Stuffing</div>
+              <div class="attack-evidence"><strong>possible investigation lead</strong></div>
+              <div class="attack-evidence">Possible investigation lead only. Observed signal: Critical Client IP <code>203.0.113.10</code> matched shared ASN, path concentration, high volume evidence. Requires auth-specific telemetry: auth endpoint, failure pattern, account/user identifiers, or SIEM/auth correlation.</div>
+                <div class="attack-metric-chips">
+                    <span>540.00K requests</span>
+                    <span>12.7% of incident requests</span>
+                </div>
+            </div>
+            <div class="tactic">Credential Access</div>
+          </div>
+          <div class="attack-row">
+            <a class="attack-row-link"
+               href="https://attack.mitre.org/techniques/T1583/003/"
+               target="_blank"
+               rel="noopener external"
+               title="Open T1583.003 on MITRE ATT&amp;CK"><code>T1583.003</code></a>
+            <div>
+              <div class="technique">Acquire Infrastructure: Virtual Private Server</div>
+              <div class="attack-evidence"><strong>observed-consistent</strong></div>
+              <div class="attack-evidence">Critical Client IP <code>203.0.113.10</code> matched shared ASN, path concentration, high volume evidence.</div>
+                <div class="attack-metric-chips">
+                    <span>540.00K requests</span>
+                    <span>12.7% of incident requests</span>
+                </div>
+            </div>
+            <div class="tactic">Resource Development</div>
+          </div>
+          <div class="attack-row">
+            <a class="attack-row-link"
+               href="https://attack.mitre.org/techniques/T1036/"
+               target="_blank"
+               rel="noopener external"
+               title="Open T1036 on MITRE ATT&amp;CK"><code>T1036</code></a>
+            <div>
+              <div class="technique">Masquerading</div>
+              <div class="attack-evidence"><strong>observed-consistent</strong></div>
+              <div class="attack-evidence">High Traffic cohort <code>Browser</code> matched behavioral anomaly evidence.</div>
+                <div class="attack-metric-chips">
+                    <span>1.22M requests</span>
+                    <span>28.6% of incident requests</span>
+                </div>
+            </div>
+            <div class="tactic">Defense Evasion</div>
+          </div>
+    </div>
   </section>
 
     <section id="iocs" class="section section-ioc print-raw-only">
@@ -4975,7 +5772,7 @@ footer {
     </div>
     <div class="right">
       <span class="label">Generated</span>
-      <span class="tnum">2026-05-18 18:43 UTC</span>
+      <span class="tnum">2026-05-19 02:50 UTC</span>
     </div>
   </footer>
 
@@ -5009,6 +5806,40 @@ footer {
                 <div class="kpi-value tnum">4.60%</div>
               </div>
           </div>
+          <h4 style="margin-top: 20px;">Baseline defensibility</h4>
+          <p class="finding-body">
+            Current 2026-05-13T14:00:00Z → 2026-05-13T17:00:00Z;
+            baseline 2026-05-13T11:00:00Z → 2026-05-13T14:00:00Z.
+            Trailing equal-length prior window.
+          </p>
+          <table class="mini-table">
+            <thead>
+              <tr><th>Metric</th><th class="is-num">Current absolute</th><th class="is-num">Baseline absolute</th><th class="is-num">Δ</th><th>Source</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                  <td>Requests per minute</td>
+                  <td class="is-num">5.35M</td>
+                  <td class="is-num">2.24M</td>
+                  <td class="is-num">+138%</td>
+                  <td>bot_incident_scope.v1 / volume_timeseries</td>
+                </tr>
+                <tr>
+                  <td>429s per minute</td>
+                  <td class="is-num">425.12K</td>
+                  <td class="is-num">36.61K</td>
+                  <td class="is-num">+1061%</td>
+                  <td>bot_incident_scope.v1 / volume_timeseries</td>
+                </tr>
+                <tr>
+                  <td>Bot-classified requests per minute</td>
+                  <td class="is-num">2.03M</td>
+                  <td class="is-num">673.29K</td>
+                  <td class="is-num">+202%</td>
+                  <td>bot_incident_scope.v1 / volume_timeseries</td>
+                </tr>
+            </tbody>
+          </table>
           <p class="finding-body" style="margin-top: 14px;">
             Spike flags:
               <span class="pill pill-escalate pill-sm">Volume up</span>
@@ -5030,7 +5861,7 @@ footer {
             <thead>
               <tr>
                 <th scope="col">Target</th>
-                <th scope="col" class="is-num">Share</th>
+                <th scope="col" class="is-num">% of incident requests</th>
                 <th scope="col" class="is-num">Bar</th>
               </tr>
             </thead>
@@ -5114,7 +5945,7 @@ footer {
               <tr>
                 <th>Host</th>
                 <th class="is-num">Requests</th>
-                <th class="is-num">Share</th>
+                <th class="is-num">% of incident requests</th>
                 <th class="is-num">Δ vs baseline</th>
               </tr>
             </thead>
@@ -5158,7 +5989,7 @@ footer {
               <tr>
                 <th>Status</th>
                 <th class="is-num">Requests</th>
-                <th class="is-num">Share</th>
+                <th class="is-num">% of target traffic</th>
               </tr>
             </thead>
             <tbody>
@@ -5193,7 +6024,7 @@ footer {
             <h4 style="margin-top: 20px;">SIEM action mix</h4>
             <table class="mini-table">
               <thead>
-                <tr><th>Action</th><th class="is-num">Requests</th><th class="is-num">Share</th><th class="is-num">Δ vs baseline</th></tr>
+                <tr><th>Action</th><th class="is-num">Requests</th><th class="is-num">% of incident requests</th><th class="is-num">Δ vs baseline</th></tr>
               </thead>
               <tbody>
                   <tr>
@@ -5226,7 +6057,7 @@ footer {
             <h4 style="margin-top: 20px;">SIEM policy mix</h4>
             <table class="mini-table">
               <thead>
-                <tr><th>Policy</th><th class="is-num">Requests</th><th class="is-num">Share</th><th class="is-num">Δ vs baseline</th></tr>
+                <tr><th>Policy</th><th class="is-num">Requests</th><th class="is-num">% of incident requests</th><th class="is-num">Δ vs baseline</th></tr>
               </thead>
               <tbody>
                   <tr>
@@ -5259,7 +6090,7 @@ footer {
             <h4 style="margin-top: 20px;">SIEM bot-type mix</h4>
             <table class="mini-table">
               <thead>
-                <tr><th>Bot type</th><th class="is-num">Requests</th><th class="is-num">Share</th><th class="is-num">Δ vs baseline</th></tr>
+                <tr><th>Bot type</th><th class="is-num">Requests</th><th class="is-num">% of incident requests</th><th class="is-num">Δ vs baseline</th></tr>
               </thead>
               <tbody>
                   <tr>
@@ -5298,8 +6129,266 @@ footer {
 
       <section>
         <div class="section-head" style="margin-top: 28px;">
-          <h3 class="display-lg">Section B — Per-field actor rankings</h3>
+          <h3 class="display-lg">Section B — Highest volume raw actors</h3>
         </div>
+            <p class="finding-body">Source: raw actor ranking (`bot_incident_actors.v1`). Severity shown here is either matched from the action-target heuristic or explicitly marked raw-volume only.</p>
+            <table class="mini-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Client IP</th>
+                  <th class="is-num">Requests</th>
+                  <th class="is-num">Share</th>
+                  <th class="is-num">429s</th>
+                  <th class="is-num">5xx</th>
+                  <th class="is-num">Paths</th>
+                  <th>ASN</th>
+                  <th>Baseline</th>
+                  <th>Edge action</th>
+                  <th>Why ranked here</th>
+                </tr>
+              </thead>
+              <tbody>
+                  <tr>
+                    <td>1</td>
+                    <td><code class="mono">203.0.113.10</code></td>
+                    <td class="is-num">540.00K</td>
+                    <td class="is-num">24.2%</td>
+                    <td class="is-num">92.00K / 17.0%</td>
+                    <td class="is-num">200 / 0.04%</td>
+                    <td class="is-num">1</td>
+                    <td>—</td>
+                    <td>not flagged as new</td>
+                    <td>not available</td>
+                    <td>Raw volume rank 1; Critical; Watch; High confidence.</td>
+                  </tr>
+                  <tr>
+                    <td>2</td>
+                    <td><code class="mono">198.51.100.42</code></td>
+                    <td class="is-num">420.00K</td>
+                    <td class="is-num">18.9%</td>
+                    <td class="is-num">65.00K / 15.5%</td>
+                    <td class="is-num">80 / 0.02%</td>
+                    <td class="is-num">1</td>
+                    <td>—</td>
+                    <td>not flagged as new</td>
+                    <td>not available</td>
+                    <td>Raw volume rank 2; Critical; Watch; High confidence.</td>
+                  </tr>
+                  <tr>
+                    <td>3</td>
+                    <td><code class="mono">192.0.2.17</code></td>
+                    <td class="is-num">360.00K</td>
+                    <td class="is-num">16.2%</td>
+                    <td class="is-num">41.00K / 11.4%</td>
+                    <td class="is-num">60 / 0.02%</td>
+                    <td class="is-num">1</td>
+                    <td>—</td>
+                    <td>not flagged as new</td>
+                    <td>not available</td>
+                    <td>Raw volume rank 3; Critical; Watch; High confidence.</td>
+                  </tr>
+                  <tr>
+                    <td>4</td>
+                    <td><code class="mono">203.0.113.55</code></td>
+                    <td class="is-num">220.00K</td>
+                    <td class="is-num">9.88%</td>
+                    <td class="is-num">36.00K / 16.4%</td>
+                    <td class="is-num">30 / 0.01%</td>
+                    <td class="is-num">2</td>
+                    <td>—</td>
+                    <td>absent from baseline</td>
+                    <td>not available</td>
+                    <td>Raw volume rank 4; Low; Watch; Low confidence.</td>
+                  </tr>
+                  <tr>
+                    <td>5</td>
+                    <td><code class="mono">198.51.100.7</code></td>
+                    <td class="is-num">180.00K</td>
+                    <td class="is-num">8.08%</td>
+                    <td class="is-num">18.00K / 10.0%</td>
+                    <td class="is-num">25 / 0.01%</td>
+                    <td class="is-num">3</td>
+                    <td>—</td>
+                    <td>not flagged as new</td>
+                    <td>not available</td>
+                    <td>Raw volume rank 5; no heuristic severity; not promoted to action target; no confidence.</td>
+                  </tr>
+                  <tr>
+                    <td>6</td>
+                    <td><code class="mono">203.0.113.99</code></td>
+                    <td class="is-num">150.00K</td>
+                    <td class="is-num">6.74%</td>
+                    <td class="is-num">12.00K / 8.00%</td>
+                    <td class="is-num">30 / 0.02%</td>
+                    <td class="is-num">6</td>
+                    <td>—</td>
+                    <td>not flagged as new</td>
+                    <td>not available</td>
+                    <td>Raw volume rank 6; no heuristic severity; not promoted to action target; no confidence.</td>
+                  </tr>
+                  <tr>
+                    <td>7</td>
+                    <td><code class="mono">192.0.2.201</code></td>
+                    <td class="is-num">120.00K</td>
+                    <td class="is-num">5.39%</td>
+                    <td class="is-num">8.00K / 6.70%</td>
+                    <td class="is-num">18 / 0.02%</td>
+                    <td class="is-num">4</td>
+                    <td>—</td>
+                    <td>not flagged as new</td>
+                    <td>not available</td>
+                    <td>Raw volume rank 7; no heuristic severity; not promoted to action target; no confidence.</td>
+                  </tr>
+                  <tr>
+                    <td>8</td>
+                    <td><code class="mono">203.0.113.4</code></td>
+                    <td class="is-num">95.00K</td>
+                    <td class="is-num">4.27%</td>
+                    <td class="is-num">7.80K / 8.20%</td>
+                    <td class="is-num">22 / 0.02%</td>
+                    <td class="is-num">7</td>
+                    <td>—</td>
+                    <td>not flagged as new</td>
+                    <td>not available</td>
+                    <td>Raw volume rank 8; no heuristic severity; not promoted to action target; no confidence.</td>
+                  </tr>
+                  <tr>
+                    <td>9</td>
+                    <td><code class="mono">198.51.100.23</code></td>
+                    <td class="is-num">78.00K</td>
+                    <td class="is-num">3.50%</td>
+                    <td class="is-num">6.50K / 8.30%</td>
+                    <td class="is-num">10 / 0.01%</td>
+                    <td class="is-num">3</td>
+                    <td>—</td>
+                    <td>not flagged as new</td>
+                    <td>not available</td>
+                    <td>Raw volume rank 9; no heuristic severity; not promoted to action target; no confidence.</td>
+                  </tr>
+                  <tr>
+                    <td>10</td>
+                    <td><code class="mono">192.0.2.66</code></td>
+                    <td class="is-num">64.00K</td>
+                    <td class="is-num">2.87%</td>
+                    <td class="is-num">4.40K / 6.90%</td>
+                    <td class="is-num">14 / 0.02%</td>
+                    <td class="is-num">5</td>
+                    <td>—</td>
+                    <td>not flagged as new</td>
+                    <td>not available</td>
+                    <td>Raw volume rank 10; no heuristic severity; not promoted to action target; no confidence.</td>
+                  </tr>
+              </tbody>
+            </table>
+            <h4 style="margin-top: 20px;">Highest priority action targets</h4>
+            <p class="finding-body">Source: action-target heuristic (`bot_incident_action_targets.v1`). This is the authoritative target priority list for SOC handoff.</p>
+            <table class="mini-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Type</th>
+                  <th>Target</th>
+                  <th>Severity</th>
+                  <th>Action class</th>
+                  <th>Confidence</th>
+                  <th>Evidence refs</th>
+                  <th>Why ranked here</th>
+                </tr>
+              </thead>
+              <tbody>
+                  <tr>
+                    <td>1</td>
+                    <td>Client IP</td>
+                    <td><code class="mono">203.0.113.10</code></td>
+                    <td>Critical</td>
+                    <td>Watch</td>
+                    <td>High</td>
+                    <td>bot_incident_actors.v1 /actor_rankings/0/rows/0</td>
+                    <td>Priority rank 1; volume rank 1; Critical severity; Watch action class; High confidence.</td>
+                  </tr>
+                  <tr>
+                    <td>2</td>
+                    <td>Client IP</td>
+                    <td><code class="mono">198.51.100.42</code></td>
+                    <td>Critical</td>
+                    <td>Watch</td>
+                    <td>High</td>
+                    <td>bot_incident_actors.v1 /actor_rankings/0/rows/1</td>
+                    <td>Priority rank 2; volume rank 2; Critical severity; Watch action class; High confidence.</td>
+                  </tr>
+                  <tr>
+                    <td>3</td>
+                    <td>Client IP</td>
+                    <td><code class="mono">192.0.2.17</code></td>
+                    <td>Critical</td>
+                    <td>Watch</td>
+                    <td>High</td>
+                    <td>bot_incident_actors.v1 /actor_rankings/0/rows/2</td>
+                    <td>Priority rank 3; volume rank 3; Critical severity; Watch action class; High confidence.</td>
+                  </tr>
+                  <tr>
+                    <td>4</td>
+                    <td>Client ASN</td>
+                    <td><code class="mono">64500</code></td>
+                    <td>High</td>
+                    <td>Watch</td>
+                    <td>Medium</td>
+                    <td>bot_incident_actors.v1 /actor_rankings/1/rows/0</td>
+                    <td>Priority rank 4; volume rank n/a; High severity; Watch action class; Medium confidence.</td>
+                  </tr>
+                  <tr>
+                    <td>5</td>
+                    <td>Traffic cohort</td>
+                    <td><code class="mono">Browser</code></td>
+                    <td>High</td>
+                    <td>Watch</td>
+                    <td>Medium</td>
+                    <td>bot_incident_actors.v1 /actor_rankings/5/rows/1</td>
+                    <td>Priority rank 5; volume rank n/a; High severity; Watch action class; Medium confidence.</td>
+                  </tr>
+                  <tr>
+                    <td>6</td>
+                    <td>User Agent</td>
+                    <td><code class="mono">python-requests/2.31</code></td>
+                    <td>High</td>
+                    <td>Watch</td>
+                    <td>High</td>
+                    <td>bot_incident_actors.v1 /actor_rankings/3/rows/1</td>
+                    <td>Priority rank 6; volume rank n/a; High severity; Watch action class; High confidence.</td>
+                  </tr>
+                  <tr>
+                    <td>7</td>
+                    <td>User Agent</td>
+                    <td><code class="mono">curl/7.88.1</code></td>
+                    <td>High</td>
+                    <td>Watch</td>
+                    <td>Medium</td>
+                    <td>bot_incident_actors.v1 /actor_rankings/3/rows/2</td>
+                    <td>Priority rank 7; volume rank n/a; High severity; Watch action class; Medium confidence.</td>
+                  </tr>
+                  <tr>
+                    <td>8</td>
+                    <td>Client IP</td>
+                    <td><code class="mono">203.0.113.55</code></td>
+                    <td>Low</td>
+                    <td>Watch</td>
+                    <td>Low</td>
+                    <td>bot_incident_actors.v1 /actor_rankings/0/rows/3</td>
+                    <td>Priority rank 8; volume rank 4; Low severity; Watch action class; Low confidence.</td>
+                  </tr>
+                  <tr>
+                    <td>9</td>
+                    <td>User Agent</td>
+                    <td><code class="mono">Go-http-client/1.1</code></td>
+                    <td>Low</td>
+                    <td>Watch</td>
+                    <td>Low</td>
+                    <td>bot_incident_actors.v1 /actor_rankings/3/rows/4</td>
+                    <td>Priority rank 9; volume rank n/a; Low severity; Watch action class; Low confidence.</td>
+                  </tr>
+              </tbody>
+            </table>
             <h4 style="margin-top: 20px;">Client IP — top 10</h4>
             <table class="mini-table">
               <thead>
@@ -5308,7 +6397,7 @@ footer {
                   <th class="is-num">Requests</th>
                   <th class="is-num">Distinct paths</th>
                   <th class="is-num">429s</th>
-                  <th class="is-num">429 share</th>
+                  <th class="is-num">429 rate within row traffic</th>
                   <th class="is-num">5xx</th>
                   <th class="is-num">5xx share</th>
                 </tr>
@@ -5414,7 +6503,7 @@ footer {
                   <th class="is-num">Requests</th>
                   <th class="is-num">Distinct paths</th>
                   <th class="is-num">429s</th>
-                  <th class="is-num">429 share</th>
+                  <th class="is-num">429 rate within row traffic</th>
                   <th class="is-num">5xx</th>
                   <th class="is-num">5xx share</th>
                 </tr>
@@ -5475,7 +6564,7 @@ footer {
                   <th class="is-num">Requests</th>
                   <th class="is-num">Distinct paths</th>
                   <th class="is-num">429s</th>
-                  <th class="is-num">429 share</th>
+                  <th class="is-num">429 rate within row traffic</th>
                   <th class="is-num">5xx</th>
                   <th class="is-num">5xx share</th>
                 </tr>
@@ -5536,7 +6625,7 @@ footer {
                   <th class="is-num">Requests</th>
                   <th class="is-num">Distinct paths</th>
                   <th class="is-num">429s</th>
-                  <th class="is-num">429 share</th>
+                  <th class="is-num">429 rate within row traffic</th>
                   <th class="is-num">5xx</th>
                   <th class="is-num">5xx share</th>
                 </tr>
@@ -5597,7 +6686,7 @@ footer {
                   <th class="is-num">Requests</th>
                   <th class="is-num">Distinct paths</th>
                   <th class="is-num">429s</th>
-                  <th class="is-num">429 share</th>
+                  <th class="is-num">429 rate within row traffic</th>
                   <th class="is-num">5xx</th>
                   <th class="is-num">5xx share</th>
                 </tr>
@@ -5658,7 +6747,7 @@ footer {
                   <th class="is-num">Requests</th>
                   <th class="is-num">Distinct paths</th>
                   <th class="is-num">429s</th>
-                  <th class="is-num">429 share</th>
+                  <th class="is-num">429 rate within row traffic</th>
                   <th class="is-num">5xx</th>
                   <th class="is-num">5xx share</th>
                 </tr>
@@ -5722,6 +6811,22 @@ footer {
 </div>
         </section>
 
+
+      <section>
+        <div class="section-head" style="margin-top: 28px;">
+          <h3 class="display-lg">SOC Evidence Appendix</h3>
+        </div>
+        <h4>Artifact source map</h4>
+        <table class="mini-table">
+          <thead><tr><th>Claim</th><th>Artifact</th><th>Source fields</th></tr></thead>
+          <tbody>
+              <tr><td>Scope metrics and baseline deltas</td><td><code>bot_incident_scope.v1</code></td><td>window_confirmation, volume_timeseries, and scope dimension rows</td></tr>
+              <tr><td>Highest-volume raw actors</td><td><code>bot_incident_actors.v1</code></td><td>actor_rankings/client_ip</td></tr>
+              <tr><td>Highest-priority action targets</td><td><code>bot_incident_action_targets.v1</code></td><td>targets plus evidence_refs</td></tr>
+          </tbody>
+        </table>
+        <p class="finding-body">Credential-access findings require auth endpoint, failure pattern, account/user identifiers, or SIEM/auth correlation. Without those, T1110/T1110.004 remain investigation leads.</p>
+      </section>
 
       <section>
         <div class="section-head" style="margin-top: 28px;">
@@ -5798,7 +6903,7 @@ footer {
 </article>
 
   <footer>
-    Generated 2026-05-18 18:43 UTC · artifact bot_incident_scope.v1  </footer>
+    Generated 2026-05-19 02:50 UTC · artifact bot_incident_scope.v1  </footer>
 </main>
 </body>
 </html>

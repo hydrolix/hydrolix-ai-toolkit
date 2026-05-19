@@ -34,7 +34,7 @@
       {% for ranking in field_rankings %}
         <h3>{{ ranking.field_label }}</h3>
         {% if ranking.rows %}
-          <table class="mini-table"><thead><tr><th>Value</th><th class="is-num">Requests</th><th class="is-num">429 share</th><th class="is-num">5xx share</th></tr></thead><tbody>
+          <table class="mini-table"><thead><tr><th>Value</th><th class="is-num">Requests</th><th class="is-num">429 rate within row traffic</th><th class="is-num">5xx share</th></tr></thead><tbody>
           {% for row in ranking.rows[:5] %}<tr><td><code>{{ row.value }}</code></td><td class="is-num">{{ row.requests_display }}</td><td class="is-num">{{ row.req_429_share_display }}</td><td class="is-num">{{ row.req_5xx_share_display }}</td></tr>{% endfor %}
           </tbody></table>
         {% endif %}

@@ -11,18 +11,31 @@ Window: 2026\-05\-13T14:00:00Z → 2026\-05\-13T17:00:00Z vs 2026\-05\-13T11:00:
 
 **Criticality: Critical** · **Confidence: High**
 
-\*\*Assessed with high confidence:\*\* this window is consistent with a targeted credential\-stuffing pattern against \`/login/\*\` on www\.example\.com — with a separately\-corroborating signal in the Browser\-cohort behavioral anomaly\. This is not a broad traffic shift\.
+\*\*Assessed with high confidence:\*\* this window is consistent with a targeted high\-volume incident against \`/login/\*\` on www\.example\.com, with credential\-abuse as an investigation lead rather than a confirmed finding\. A separately corroborating signal appears in the Browser\-cohort behavioral anomaly\. This is not a broad traffic shift\.
 
 Four independent signals concur:
 
 \- Spike flags \`volume\_up\`, \`rate\_429\_up\`, and \`bot\_share\_up\` all fired against the trailing window\.
-\- Three client IPs \(\`203\.0\.113\.10\`, \`198\.51\.100\.42\`, \`192\.0\.2\.17\`\) reached \`severity: critical\` — they share ASN \`64500\`, concentrate on a single path, and carry both high volume share and high 429 share\. ASN \`64500\` itself and User Agent \`python\-requests/2\.31\` sit at \`severity: high\` alongside them\.
-\- SIEM \`block\-credential\-stuff\` policy delta is \+520% vs baseline, with \`rate\-limit\-login\` at \+610%\.
-\- The Traffic cohort \`Browser\` graduated on the \`anomaly\` primitive: its current\-window error rate of 13\.7% is 26× its baseline \(~0\.5%\)\. This is consistent with sophisticated automation passing bot\-classification — the kind of pattern that needs an application\-layer response, not just WAF rules tuned for the named IP cluster\.
+\- Three client IPs \(\`203\.0\.113\.10\`, \`198\.51\.100\.42\`, \`192\.0\.2\.17\`\) reached \`severity: critical\` — they share ASN \`64500\`, concentrate on a single path, and carry both high volume share and a high 429 rate within their target traffic\. ASN \`64500\` itself and User Agent \`python\-requests/2\.31\` sit at \`severity: high\` alongside them\.
+\- SIEM \`block\-credential\-stuff\` policy delta is \+520% vs baseline, with \`rate\-limit\-login\` at \+610%; treat this as a lead that still needs auth endpoint, failure pattern, account/user identifier, or SIEM/auth correlation before calling credential stuffing confirmed\.
+\- The Traffic cohort \`Browser\` graduated on the \`anomaly\` primitive: its current\-window error rate of 13\.7% is 26× its baseline \(~0\.5%\)\. This is consistent with sophisticated automation passing bot\-classification — the kind of pattern that needs application\-layer validation, not just WAF rules tuned for the named IP cluster\.
 
 The 4\.25M\-request / 8\.2% 429\-rate Impact tiles are consistent with the primary read; the reasons to escalate are the named single\-ASN cluster, the automation UA matches, \*and\* the Browser\-cohort behavioral departure — not the raw volume\.
 
 _From AI assistant._
+
+### Confidence Drivers
+
+- spike flags fired \(Volume up, 429 rate up, Bot share up\)
+- 3 target\(s\) at severity:critical — Client IP \`203\.0\.113\.10\`, Client IP \`198\.51\.100\.42\`, Client IP \`192\.0\.2\.17\`
+- 4 target\(s\) at severity:high — Client ASN \`64500\`, Traffic cohort \`Browser\`, User Agent \`python\-requests/2\.31\`
+- Raw actor rankings and action-target priority are shown separately so volume, severity, action class, and confidence remain distinct.
+
+### Open Validation Items
+
+- Validate edge-control candidates against protected traffic before enforcement.
+- Credential\-access findings require auth endpoint, failure pattern, account/user identifiers, or SIEM/auth correlation\. Without those, T1110/T1110\.004 remain investigation leads\.
+- Confirm whether path-pattern rows are normalized routes, real path patterns, or aggregation artifacts before route-level controls.
 
 ## Impact
 
@@ -37,11 +50,15 @@ _From AI assistant._
 | Hosts affected | 5 | in window |
 | Top path share | 68\.2% | /login/\* · \+530% |
 
-Top affected: **www\.example\.com** `/login/\*` — 2\.90M requests (68\.2% of window, \+530% vs baseline).
+Top affected host: **www\.example\.com** (96\.5% of incident requests, \+312% vs baseline).
 
-## Suspicious Targets
+Top path pattern: `/login/\*` — 2\.90M requests (68\.2% of target traffic, \+530% vs baseline).
 
-**Top 5 of 9 flagged targets, by share of window traffic:**
+## Drilldown: Flagged Signals
+
+Source: `bot_incident_action_targets.v1` action-target heuristic. This is the authoritative priority list; raw actor volume appears separately below.
+
+**Top 5 of 9 flagged targets, by % of incident requests:**
 
 - **Client ASN** `64500` — 43\.5% (High)
 - **Traffic cohort** `Browser` — 28\.6% (High)
@@ -49,17 +66,30 @@ Top affected: **www\.example\.com** `/login/\*` — 2\.90M requests (68\.2% of w
 - **Client IP** `203\.0\.113\.10` — 12\.7% (Critical)
 - **Client IP** `198\.51\.100\.42` — 9\.90% (Critical)
 
-| Type | Target | Reasons | ATT&CK (consistent with) | Requests | Share | 429s | Severity | Confidence |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Client IP | `203\.0\.113\.10` | high volume share; high 429 share; single\-path concentration; single\-ASN cluster | T1498, T1110, T1110\.004, T1583\.003 | 540\.00K | 12\.7% | 92\.00K | Critical | High |
-| Client IP | `198\.51\.100\.42` | high volume share; high 429 share; single\-path concentration; single\-ASN cluster | T1498, T1110, T1110\.004, T1583\.003 | 420\.00K | 9\.90% | 65\.00K | Critical | High |
-| Client IP | `192\.0\.2\.17` | high volume share; high 429 share; single\-path concentration; single\-ASN cluster | T1498, T1110, T1110\.004, T1583\.003 | 360\.00K | 8\.50% | 41\.00K | Critical | High |
-| Client ASN | `64500` | high volume share; high 429 share | T1498, T1110 | 1\.85M | 43\.5% | 195\.00K | High | Medium |
-| Traffic cohort | `Browser` | behavioral anomaly | T1036 | 1\.22M | 28\.6% | 138\.50K | High | Medium |
-| User Agent | `python\-requests/2\.31` | high volume share; high 429 share; automation user agent | T1498, T1110, T1071\.001 | 920\.00K | 21\.6% | 142\.00K | High | High |
-| User Agent | `curl/7\.88\.1` | high volume share; automation user agent | T1498, T1071\.001 | 410\.00K | 9\.60% | 51\.00K | High | Medium |
-| Client IP | `203\.0\.113\.55` | new in window | — | 220\.00K | 5\.20% | 36\.00K | Low | Low |
-| User Agent | `Go\-http\-client/1\.1` | automation user agent | T1071\.001 | 210\.00K | 4\.90% | 19\.00K | Low | Low |
+| Type | Target | Reasons | ATT&CK (consistent with) | Requests | % of incident requests | Scoped 429s | Severity | Confidence | Why ranked here |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Client IP | `203\.0\.113\.10` | high volume share; high 429 rate; single\-path concentration; single\-ASN cluster | T1498, T1110 \(lead\), T1110\.004 \(lead\), T1583\.003 | 540\.00K | 12\.7% | 92\.00K | Critical | High | Critical severity; Watch action class; High confidence\. |
+| Client IP | `198\.51\.100\.42` | high volume share; high 429 rate; single\-path concentration; single\-ASN cluster | T1498, T1110 \(lead\), T1110\.004 \(lead\), T1583\.003 | 420\.00K | 9\.90% | 65\.00K | Critical | High | Critical severity; Watch action class; High confidence\. |
+| Client IP | `192\.0\.2\.17` | high volume share; high 429 rate; single\-path concentration; single\-ASN cluster | T1498, T1110 \(lead\), T1110\.004 \(lead\), T1583\.003 | 360\.00K | 8\.50% | 41\.00K | Critical | High | Critical severity; Watch action class; High confidence\. |
+| Client ASN | `64500` | high volume share; high 429 rate | T1498, T1110 \(lead\) | 1\.85M | 43\.5% | 195\.00K | High | Medium | High severity; Watch action class; Medium confidence\. |
+| Traffic cohort | `Browser` | behavioral anomaly | T1036 | 1\.22M | 28\.6% | 138\.50K | High | Medium | High severity; Watch action class; Medium confidence\. |
+| User Agent | `python\-requests/2\.31` | high volume share; high 429 rate; automation user agent | T1498, T1110 \(lead\), T1071\.001 | 920\.00K | 21\.6% | 142\.00K | High | High | High severity; Watch action class; High confidence\. |
+| User Agent | `curl/7\.88\.1` | high volume share; automation user agent | T1498, T1071\.001 | 410\.00K | 9\.60% | 51\.00K | High | Medium | High severity; Watch action class; Medium confidence\. |
+| Client IP | `203\.0\.113\.55` | new in window | — | 220\.00K | 5\.20% | 36\.00K | Low | Low | Low severity; Watch action class; Low confidence\. |
+| User Agent | `Go\-http\-client/1\.1` | automation user agent | T1071\.001 | 210\.00K | 4\.90% | 19\.00K | Low | Low | Low severity; Watch action class; Low confidence\. |
+
+## ATT&CK Mapping
+
+Techniques the observed signal is consistent with, not attribution. Credential-access techniques are investigation leads unless auth-specific telemetry is present.
+
+| Technique | Class | Supporting evidence | Metric chips | Tactic |
+| --- | --- | --- | --- | --- |
+| T1498 Network Denial of Service | observed\-consistent | Critical Client IP \`203\.0\.113\.10\` matched shared ASN, path concentration, high volume evidence\. | 540\.00K requests; 12\.7% of incident requests | Impact |
+| T1110 Brute Force | possible investigation lead | Possible investigation lead only\. Observed signal: Critical Client IP \`203\.0\.113\.10\` matched shared ASN, path concentration, high volume evidence\. Requires auth\-specific telemetry: auth endpoint, failure pattern, account/user identifiers, or SIEM/auth correlation\. | 540\.00K requests; 12\.7% of incident requests | Credential Access |
+| T1071\.001 Application Layer Protocol: Web Protocols | observed\-consistent | High User Agent \`python\-requests/2\.31\` matched high volume, automation UA evidence\. | 920\.00K requests; 21\.6% of incident requests | Command and Control |
+| T1110\.004 Credential Stuffing | possible investigation lead | Possible investigation lead only\. Observed signal: Critical Client IP \`203\.0\.113\.10\` matched shared ASN, path concentration, high volume evidence\. Requires auth\-specific telemetry: auth endpoint, failure pattern, account/user identifiers, or SIEM/auth correlation\. | 540\.00K requests; 12\.7% of incident requests | Credential Access |
+| T1583\.003 Acquire Infrastructure: Virtual Private Server | observed\-consistent | Critical Client IP \`203\.0\.113\.10\` matched shared ASN, path concentration, high volume evidence\. | 540\.00K requests; 12\.7% of incident requests | Resource Development |
+| T1036 Masquerading | observed\-consistent | High Traffic cohort \`Browser\` matched behavioral anomaly evidence\. | 1\.22M requests; 28\.6% of incident requests | Defense Evasion |
 
 ## Section A — Scope Confirmation
 
@@ -72,9 +102,19 @@ Top affected: **www\.example\.com** `/login/\*` — 2\.90M requests (68\.2% of w
 | Edge blocked share | 4\.60% |
 
 Spike flags: Volume up; 429 rate up; Bot share up
+### Baseline defensibility
+
+Current: 2026\-05\-13T14:00:00Z → 2026\-05\-13T17:00:00Z. Baseline: 2026\-05\-13T11:00:00Z → 2026\-05\-13T14:00:00Z. Trailing equal\-length prior window\.
+
+| Metric | Current absolute | Baseline absolute | Δ | Source |
+| --- | --- | --- | --- | --- |
+| Requests per minute | 5\.35M | 2\.24M | \+138% | bot\_incident\_scope\.v1 / volume\_timeseries |
+| 429s per minute | 425\.12K | 36\.61K | \+1061% | bot\_incident\_scope\.v1 / volume\_timeseries |
+| Bot\-classified requests per minute | 2\.03M | 673\.29K | \+202% | bot\_incident\_scope\.v1 / volume\_timeseries |
+
 ### Top targeted hosts
 
-| Host | Requests | Share | Δ vs baseline |
+| Host | Requests | % of incident requests | Δ vs baseline |
 | --- | --- | --- | --- |
 | www\.example\.com | 4\.10M | 96\.5% | \+312% |
 | api\.example\.com | 110\.00K | 2\.60% | \+14\.0% |
@@ -84,7 +124,7 @@ Spike flags: Volume up; 429 rate up; Bot share up
 
 ### Top targeted path patterns
 
-| Path pattern | Requests | Share | Δ vs baseline |
+| Path pattern | Requests | % of target traffic | Δ vs baseline |
 | --- | --- | --- | --- |
 | /login/\* | 2\.90M | 68\.2% | \+530% |
 | /api/v1/auth/\* | 720\.00K | 16\.9% | \+410% |
@@ -94,7 +134,7 @@ Spike flags: Volume up; 429 rate up; Bot share up
 
 ### Status mix
 
-| Status | Requests | Share |
+| Status | Requests | % of incident requests |
 | --- | --- | --- |
 | 200 | 3\.50M | 82\.4% |
 | 429 | 348\.50K | 8\.20% |
@@ -104,7 +144,7 @@ Spike flags: Volume up; 429 rate up; Bot share up
 
 ### Country mix
 
-| Country | Requests | Share | Δ vs baseline |
+| Country | Requests | % of incident requests | Δ vs baseline |
 | --- | --- | --- | --- |
 | US | 2\.10M | 49\.4% | \+280% |
 | DE | 820\.00K | 19\.3% | \+410% |
@@ -114,7 +154,7 @@ Spike flags: Volume up; 429 rate up; Bot share up
 
 ### SIEM action mix
 
-| Action | Requests | Share | Δ vs baseline |
+| Action | Requests | % of incident requests | Δ vs baseline |
 | --- | --- | --- | --- |
 | allow | 3\.65M | 85\.9% | \+290% |
 | rate\_limit | 348\.00K | 8\.20% | \+540% |
@@ -123,7 +163,7 @@ Spike flags: Volume up; 429 rate up; Bot share up
 
 ### SIEM policy mix
 
-| Policy | Requests | Share | Δ vs baseline |
+| Policy | Requests | % of incident requests | Δ vs baseline |
 | --- | --- | --- | --- |
 | rate\-limit\-login | 320\.00K | 7\.50% | \+610% |
 | block\-credential\-stuff | 175\.00K | 4\.10% | \+520% |
@@ -132,7 +172,7 @@ Spike flags: Volume up; 429 rate up; Bot share up
 
 ### SIEM bot-type mix
 
-| Bot type | Requests | Share | Δ vs baseline |
+| Bot type | Requests | % of incident requests | Δ vs baseline |
 | --- | --- | --- | --- |
 | unknown\_bot | 2\.20M | 51\.8% | \+740% |
 | browser | 1\.20M | 28\.2% | \+70\.0% |
@@ -148,9 +188,42 @@ _From AI assistant._
 
 ## Section B — Actors
 
+### Highest volume raw actors
+
+Source: `bot_incident_actors.v1` / `actor_rankings.client_ip`.
+
+| # | Client IP | Requests | Share | 429s | 5xx | Paths | ASN | Baseline | Edge action | Why ranked here |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `203\.0\.113\.10` | 540\.00K | 24\.2% | 92\.00K / 17\.0% | 200 / 0\.04% | 1 | — | not flagged as new | not available | Raw volume rank 1; Critical; Watch; High confidence\. |
+| 2 | `198\.51\.100\.42` | 420\.00K | 18\.9% | 65\.00K / 15\.5% | 80 / 0\.02% | 1 | — | not flagged as new | not available | Raw volume rank 2; Critical; Watch; High confidence\. |
+| 3 | `192\.0\.2\.17` | 360\.00K | 16\.2% | 41\.00K / 11\.4% | 60 / 0\.02% | 1 | — | not flagged as new | not available | Raw volume rank 3; Critical; Watch; High confidence\. |
+| 4 | `203\.0\.113\.55` | 220\.00K | 9\.88% | 36\.00K / 16\.4% | 30 / 0\.01% | 2 | — | absent from baseline | not available | Raw volume rank 4; Low; Watch; Low confidence\. |
+| 5 | `198\.51\.100\.7` | 180\.00K | 8\.08% | 18\.00K / 10\.0% | 25 / 0\.01% | 3 | — | not flagged as new | not available | Raw volume rank 5; no heuristic severity; not promoted to action target; no confidence\. |
+| 6 | `203\.0\.113\.99` | 150\.00K | 6\.74% | 12\.00K / 8\.00% | 30 / 0\.02% | 6 | — | not flagged as new | not available | Raw volume rank 6; no heuristic severity; not promoted to action target; no confidence\. |
+| 7 | `192\.0\.2\.201` | 120\.00K | 5\.39% | 8\.00K / 6\.70% | 18 / 0\.02% | 4 | — | not flagged as new | not available | Raw volume rank 7; no heuristic severity; not promoted to action target; no confidence\. |
+| 8 | `203\.0\.113\.4` | 95\.00K | 4\.27% | 7\.80K / 8\.20% | 22 / 0\.02% | 7 | — | not flagged as new | not available | Raw volume rank 8; no heuristic severity; not promoted to action target; no confidence\. |
+| 9 | `198\.51\.100\.23` | 78\.00K | 3\.50% | 6\.50K / 8\.30% | 10 / 0\.01% | 3 | — | not flagged as new | not available | Raw volume rank 9; no heuristic severity; not promoted to action target; no confidence\. |
+| 10 | `192\.0\.2\.66` | 64\.00K | 2\.87% | 4\.40K / 6\.90% | 14 / 0\.02% | 5 | — | not flagged as new | not available | Raw volume rank 10; no heuristic severity; not promoted to action target; no confidence\. |
+
+### Highest priority action targets
+
+Source: `bot_incident_action_targets.v1` / `targets`.
+
+| # | Type | Target | Severity | Action class | Confidence | Evidence refs | Why ranked here |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | Client IP | `203\.0\.113\.10` | Critical | Watch | High | bot\_incident\_actors\.v1 /actor\_rankings/0/rows/0 | Priority rank 1; volume rank 1; Critical severity; Watch action class; High confidence\. |
+| 2 | Client IP | `198\.51\.100\.42` | Critical | Watch | High | bot\_incident\_actors\.v1 /actor\_rankings/0/rows/1 | Priority rank 2; volume rank 2; Critical severity; Watch action class; High confidence\. |
+| 3 | Client IP | `192\.0\.2\.17` | Critical | Watch | High | bot\_incident\_actors\.v1 /actor\_rankings/0/rows/2 | Priority rank 3; volume rank 3; Critical severity; Watch action class; High confidence\. |
+| 4 | Client ASN | `64500` | High | Watch | Medium | bot\_incident\_actors\.v1 /actor\_rankings/1/rows/0 | Priority rank 4; volume rank n/a; High severity; Watch action class; Medium confidence\. |
+| 5 | Traffic cohort | `Browser` | High | Watch | Medium | bot\_incident\_actors\.v1 /actor\_rankings/5/rows/1 | Priority rank 5; volume rank n/a; High severity; Watch action class; Medium confidence\. |
+| 6 | User Agent | `python\-requests/2\.31` | High | Watch | High | bot\_incident\_actors\.v1 /actor\_rankings/3/rows/1 | Priority rank 6; volume rank n/a; High severity; Watch action class; High confidence\. |
+| 7 | User Agent | `curl/7\.88\.1` | High | Watch | Medium | bot\_incident\_actors\.v1 /actor\_rankings/3/rows/2 | Priority rank 7; volume rank n/a; High severity; Watch action class; Medium confidence\. |
+| 8 | Client IP | `203\.0\.113\.55` | Low | Watch | Low | bot\_incident\_actors\.v1 /actor\_rankings/0/rows/3 | Priority rank 8; volume rank 4; Low severity; Watch action class; Low confidence\. |
+| 9 | User Agent | `Go\-http\-client/1\.1` | Low | Watch | Low | bot\_incident\_actors\.v1 /actor\_rankings/3/rows/4 | Priority rank 9; volume rank n/a; Low severity; Watch action class; Low confidence\. |
+
 ### Client IP — top 10
 
-| Client IP | Requests | Bytes | Distinct paths | 429s | 429 share | 5xx | 5xx share |
+| Client IP | Requests | Bytes | Distinct paths | 429s | 429 rate within row traffic | 5xx | 5xx share |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 203\.0\.113\.10 | 540\.00K | 1\.45B | 1 | 92\.00K | 17\.0% | 200 | 0\.04% |
 | 198\.51\.100\.42 | 420\.00K | 1\.12B | 1 | 65\.00K | 15\.5% | 80 | 0\.02% |
@@ -165,7 +238,7 @@ _From AI assistant._
 
 ### Client ASN — top 5
 
-| Client ASN | Requests | Bytes | Distinct paths | 429s | 429 share | 5xx | 5xx share |
+| Client ASN | Requests | Bytes | Distinct paths | 429s | 429 rate within row traffic | 5xx | 5xx share |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 64500 | 1\.85M | 4\.90B | 22 | 195\.00K | 10\.5% | 950 | 0\.05% |
 | 64600 | 920\.00K | 2\.45B | 18 | 78\.00K | 8\.50% | 410 | 0\.04% |
@@ -175,7 +248,7 @@ _From AI assistant._
 
 ### Request Path — top 5
 
-| Request Path | Requests | Bytes | Distinct paths | 429s | 429 share | 5xx | 5xx share |
+| Request Path | Requests | Bytes | Distinct paths | 429s | 429 rate within row traffic | 5xx | 5xx share |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | /login/submit | 1\.45M | 3\.70B | 1 | 220\.00K | 15\.2% | 600 | 0\.04% |
 | /api/v1/auth/login | 690\.00K | 1\.75B | 1 | 92\.00K | 13\.3% | 240 | 0\.03% |
@@ -185,7 +258,7 @@ _From AI assistant._
 
 ### User Agent — top 5
 
-| User Agent | Requests | Bytes | Distinct paths | 429s | 429 share | 5xx | 5xx share |
+| User Agent | Requests | Bytes | Distinct paths | 429s | 429 rate within row traffic | 5xx | 5xx share |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Mozilla/5\.0 \(Linux; Android 13\) AppleWebKit/537\.36 | 1\.28M | 3\.30B | 14 | 168\.00K | 13\.1% | 450 | 0\.04% |
 | python\-requests/2\.31 | 920\.00K | 2\.45B | 8 | 142\.00K | 15\.4% | 380 | 0\.04% |
@@ -195,7 +268,7 @@ _From AI assistant._
 
 ### Country — top 5
 
-| Country | Requests | Bytes | Distinct paths | 429s | 429 share | 5xx | 5xx share |
+| Country | Requests | Bytes | Distinct paths | 429s | 429 rate within row traffic | 5xx | 5xx share |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | US | 2\.10M | 5\.40B | 28 | 178\.00K | 8\.50% | 480 | 0\.02% |
 | DE | 820\.00K | 2\.15B | 21 | 78\.00K | 9\.50% | 220 | 0\.03% |
@@ -205,13 +278,23 @@ _From AI assistant._
 
 ### Traffic cohort — top 5
 
-| Traffic cohort | Requests | Bytes | Distinct paths | 429s | 429 share | 5xx | 5xx share |
+| Traffic cohort | Requests | Bytes | Distinct paths | 429s | 429 rate within row traffic | 5xx | 5xx share |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Bot | 2\.20M | 5\.70B | 32 | 195\.00K | 8\.90% | 950 | 0\.04% |
 | Browser | 1\.22M | 3\.15B | 41 | 138\.50K | 11\.4% | 28\.00K | 2\.30% |
 | Unknown | 364\.00K | 940\.00M | 28 | 7\.30K | 2\.00% | 1\.00K | 0\.27% |
 | Tool | 360\.00K | 930\.00M | 18 | 5\.60K | 1\.60% | 250 | 0\.07% |
 | AI | 110\.00K | 280\.00M | 14 | 2\.10K | 1\.90% | 90 | 0\.08% |
+
+## Recommended Actions
+
+| Action | Target | Duration | Risk | Validation | Rollback |
+| --- | --- | --- | --- | --- | --- |
+| Time\-boxed edge control candidate: Client IP \`203\.0\.113\.10\` | Client IP \`203\.0\.113\.10\` | 24h | Medium; high heuristic confidence, but validate protected traffic first\. | Expect request share and scoped 429 rate to fall within one bucket\. | Rollback if protected traffic errors rise, owner validation fails, or pressure shifts to adjacent legitimate traffic\. |
+| Enrich the 3 critical target\(s\) in case management — \`203\.0\.113\.10\`, \`198\.51\.100\.42\`, \`192\.0\.2\.17\` | Critical action targets | Same shift | Low operational risk; enrichment only\. | Case records include artifact references, scope, and confidence basis\. | None; update case status if later evidence downgrades the target\. |
+| Investigate behavioral\-anomaly cohort — Traffic cohort \`Browser\` | Behavioral\-anomaly targets | Investigation window | Low operational risk; investigation only\. | Confirm whether behavior is explained by release, partner, or test traffic\. | Close as benign if owner/source validation explains the pattern\. |
+| Continue investigating in the linked Grafana dashboard \(pre\-scoped to the incident window\) | Incident dashboard | During active triage | Low; read\-only validation\. | Dashboard scope matches report window and filters\. | Do not use dashboard\-only observations to override artifact metrics without recapture\. |
+| Schedule retrospective — review SIEM coverage on affected endpoints | Detection and response coverage | Post\-incident | Low; process review\. | Retrospective identifies whether SIEM and edge evidence agree\. | N/A\. |
 
 ## Next Steps
 
@@ -574,12 +657,26 @@ The same flagged targets, restructured as a portable indicator feed (schema `bot
 }
 ```
 
+## SOC Evidence Appendix
+
+### Artifact source map
+
+| Claim | Artifact | Source fields |
+| --- | --- | --- |
+| Scope metrics and baseline deltas | `bot\_incident\_scope\.v1` | window\_confirmation, volume\_timeseries, and scope dimension rows |
+| Highest\-volume raw actors | `bot\_incident\_actors\.v1` | actor\_rankings/client\_ip |
+| Highest\-priority action targets | `bot\_incident\_action\_targets\.v1` | targets plus evidence\_refs |
+
+Credential\-access findings require auth endpoint, failure pattern, account/user identifiers, or SIEM/auth correlation\. Without those, T1110/T1110\.004 remain investigation leads\.
+
 ## Method
 
-Incident report for Demo · Akamai, scope-confirmed against a trailing equal-length baseline.
+Incident report for Demo · Akamai, scope-confirmed against trailing equal\-length prior window\.
 
 - Schema: `bot_incident_scope.v1`
+- Comparison: 2026\-05\-13T14:00:00Z → 2026\-05\-13T17:00:00Z vs 2026\-05\-13T11:00:00Z → 2026\-05\-13T14:00:00Z
 - Top-N per actor field: 10
+- Scoring thresholds: Action targets are sorted by heuristic severity, then observed request volume\.; Raw actor rows are sorted by raw request volume within the actor ranking artifact\.; ATT\&CK credential\-access mappings are investigation leads unless auth\-specific evidence is present\.
 - Constraints: Mechanical features only; No causal claim; No malicious intent claim
 
-Generated 2026-05-18 02:03 UTC
+Generated 2026-05-19 02:50 UTC
