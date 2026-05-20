@@ -658,6 +658,10 @@ class BotInsightsScriptTests(unittest.TestCase):
             "bot_insights_report",
             ROOT / "skills/bot-insights/scripts/bot_insights_report.py",
         )
+        cls.as_reputation_snapshot = load_module(
+            "as_reputation_snapshot",
+            ROOT / "skills/bot-insights/scripts/as_reputation_snapshot.py",
+        )
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -694,6 +698,10 @@ class BotInsightsScriptTests(unittest.TestCase):
                 # ``curl`` UA token for the same reason as
                 # heuristics.py — UA-string vocabulary, not a shell-out.
                 "config.py",
+                # Opt-in AS reputation source generator. This is the only
+                # Bot Insights script allowed to fetch a generic public
+                # reputation source; the renderer consumes its saved JSON.
+                "as_reputation_snapshot.py",
             }
         ]
         blocked_import_roots = {
@@ -736,6 +744,128 @@ class BotInsightsScriptTests(unittest.TestCase):
                 violations.append(f"{path.name}: contains {match.group(0)!r}")
 
         self.assertEqual([], violations)
+
+    def test_as_reputation_snapshot_offline_input_normalizes_spamhaus_records(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "asndrop-source.json"
+            output = Path(tmpdir) / "asndrop-snapshot.json"
+            source.write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {
+                                "asn": "AS64510",
+                                "name": "Example Dropped Network",
+                                "last_updated": "2026-05-20",
+                            }
+                        ]
+                    }
+                )
+            )
+
+            rc = self.as_reputation_snapshot.main(
+                [
+                    "--source",
+                    "spamhaus-asndrop",
+                    "--input",
+                    str(source),
+                    "--output",
+                    str(output),
+                    "--pretty",
+                ]
+            )
+
+            self.assertEqual(rc, 0)
+            snapshot = json.loads(output.read_text())
+            self.assertEqual(snapshot["snapshot_name"], "spamhaus-asndrop")
+            self.assertEqual(snapshot["source"], "spamhaus-asndrop")
+            self.assertEqual(
+                snapshot["source_url"],
+                self.as_reputation_snapshot.DEFAULT_SPAMHAUS_ASNDROP_URL,
+            )
+            entry = snapshot["entries"][0]
+            self.assertEqual(entry["asns"], ["64510"])
+            self.assertEqual(entry["name"], "Example Dropped Network")
+            self.assertEqual(entry["provider"], "spamhaus_asndrop")
+            self.assertEqual(entry["minimum_source_bar"], "provider_snapshot")
+            self.assertEqual(entry["sources"][0]["title"], "Spamhaus ASN-DROP")
+
+    def test_as_reputation_snapshot_accepts_keyed_list_and_records_shapes(
+        self,
+    ) -> None:
+        cases = [
+            [{"asn": 64511, "name": "List Shape"}],
+            {"records": [{"asn_id": "AS64512", "org": "Records Shape"}]},
+            {"AS64513": {"description": "Keyed Shape"}},
+        ]
+
+        for idx, payload in enumerate(cases):
+            with self.subTest(idx=idx):
+                entries = self.as_reputation_snapshot.normalize_spamhaus_asndrop(
+                    payload,
+                    source_url="https://example.test/asndrop.json",
+                )
+                self.assertEqual(len(entries), 1)
+                self.assertEqual(entries[0]["asns"], [str(64511 + idx)])
+                self.assertEqual(entries[0]["provider"], "spamhaus_asndrop")
+                self.assertEqual(
+                    entries[0]["sources"][0]["url"],
+                    "https://example.test/asndrop.json",
+                )
+
+    def test_as_reputation_snapshot_accepts_json_lines_input(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "asndrop.json"
+            output = Path(tmpdir) / "snapshot.json"
+            source.write_text(
+                "\n".join(
+                    [
+                        json.dumps({"asn": 64520, "asname": "JSONLINES-A"}),
+                        json.dumps({"asn": "AS64521", "asname": "JSONLINES-B"}),
+                    ]
+                )
+            )
+
+            rc = self.as_reputation_snapshot.main(
+                [
+                    "--source",
+                    "spamhaus-asndrop",
+                    "--input",
+                    str(source),
+                    "--output",
+                    str(output),
+                ]
+            )
+
+            self.assertEqual(rc, 0)
+            entries = json.loads(output.read_text())["entries"]
+            self.assertEqual([entry["asns"] for entry in entries], [["64520"], ["64521"]])
+            self.assertEqual(entries[0]["name"], "JSONLINES-A")
+
+    def test_as_reputation_snapshot_invalid_payload_exits_nonzero(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = Path(tmpdir) / "bad.json"
+            output = Path(tmpdir) / "out.json"
+            source.write_text(json.dumps({"records": [{"name": "Missing ASN"}]}))
+            stderr = io.StringIO()
+
+            with mock.patch("sys.stderr", stderr):
+                rc = self.as_reputation_snapshot.main(
+                    [
+                        "--source",
+                        "spamhaus-asndrop",
+                        "--input",
+                        str(source),
+                        "--output",
+                        str(output),
+                    ]
+                )
+
+            self.assertNotEqual(rc, 0)
+            self.assertIn("did not contain any ASN-DROP records", stderr.getvalue())
+            self.assertFalse(output.exists())
 
     def test_humanize_evidence_packet_pairs_labels_with_identifiers(self) -> None:
         """The skill's interpretation-step LLM should never have to read raw
@@ -1399,6 +1529,91 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertIn("countIf(trafficCohort IN ('Bot', 'AI')) AS bot_like_requests", sql)
         self.assertIn("countIf(statusCode = 429) AS req_429", sql)
         self.assertIn("countIf(statusCode BETWEEN 500 AND 599) AS req_5xx", sql)
+
+    def test_incident_provenance_sql_uses_only_available_optional_columns(self) -> None:
+        from producers.sql.incident import (
+            _incident_bot_source_mix_sql,
+            _incident_client_ip_proxy_classification_cooccurrence_sql,
+        )
+
+        bot_sql = _incident_bot_source_mix_sql(
+            datetime(2026, 4, 19, 13, tzinfo=timezone.utc),
+            datetime(2026, 4, 19, 14, tzinfo=timezone.utc),
+            datetime(2026, 4, 19, 12, tzinfo=timezone.utc),
+            datetime(2026, 4, 19, 13, tzinfo=timezone.utc),
+            None,
+            None,
+            None,
+            10,
+            "reqPath",
+            {"bot_category"},
+        )
+        self.assertIn("toString(bot_category)", bot_sql)
+        self.assertNotIn("toString(bot_type)", bot_sql)
+        self.assertNotIn("toString(botnet_id)", bot_sql)
+        self.assertIn("arrayStringConcat", bot_sql)
+
+        proxy_sql = _incident_client_ip_proxy_classification_cooccurrence_sql(
+            ["203.0.113.10"],
+            datetime(2026, 4, 19, 13, tzinfo=timezone.utc),
+            datetime(2026, 4, 19, 14, tzinfo=timezone.utc),
+            datetime(2026, 4, 19, 12, tzinfo=timezone.utc),
+            datetime(2026, 4, 19, 13, tzinfo=timezone.utc),
+            None,
+            None,
+            None,
+            "cliIP",
+            "reqPath",
+            {"epd_Category"},
+        )
+        self.assertIn("toString(epd_Category) AS epd_Category", proxy_sql)
+        self.assertNotIn("toString(epd_ActionName)", proxy_sql)
+        self.assertNotIn("toString(epd_Match)", proxy_sql)
+        self.assertIn("cliIP IN ('203.0.113.10')", proxy_sql)
+        self.assertIn("baseline_requests", proxy_sql)
+
+    def test_incident_flagged_ip_timeseries_sql_is_bounded_and_optional(self) -> None:
+        from producers.sql.incident import _incident_flagged_client_ip_timeseries_sql
+
+        sql = _incident_flagged_client_ip_timeseries_sql(
+            ["203.0.113.10", "198.51.100.42"],
+            "minute",
+            datetime(2026, 4, 19, 13, tzinfo=timezone.utc),
+            datetime(2026, 4, 19, 14, tzinfo=timezone.utc),
+            "www.example.com",
+            None,
+            None,
+            "cliIP",
+            "reqPath",
+            {"action_applied", "bot_category", "epd_Category"},
+        )
+
+        self.assertIn("cliIP IN ('203.0.113.10', '198.51.100.42')", sql)
+        self.assertIn("reqTimeSec >= toDateTime('2026-04-19 13:00:00', 'UTC')", sql)
+        self.assertIn("reqTimeSec < toDateTime('2026-04-19 14:00:00', 'UTC')", sql)
+        self.assertNotIn("baseline", sql.lower())
+        self.assertIn("countIf(action_applied = 'Deny') AS edge_deny", sql)
+        self.assertIn("countIf(nullIf(toString(bot_category), '') IS NOT NULL)", sql)
+        self.assertIn("countIf(nullIf(toString(epd_Category), '') IS NOT NULL)", sql)
+        self.assertIn("countIf(lower(toString(reqPath)) LIKE '%/graphql%')", sql)
+        self.assertIn("countIf(lower(toString(reqPath)) LIKE '%/auth%'", sql)
+
+        minimal_sql = _incident_flagged_client_ip_timeseries_sql(
+            ["203.0.113.10"],
+            "hour",
+            datetime(2026, 4, 19, 13, tzinfo=timezone.utc),
+            datetime(2026, 4, 19, 14, tzinfo=timezone.utc),
+            None,
+            None,
+            None,
+            "client_ip",
+            "request_path",
+            set(),
+        )
+
+        self.assertIn("toUInt64(0) AS edge_deny", minimal_sql)
+        self.assertIn("toUInt64(0) AS bot_provenance", minimal_sql)
+        self.assertIn("toUInt64(0) AS proxy_classification", minimal_sql)
 
     def test_incident_expedia_raw_column_mapping_keeps_canonical_artifact_fields(self) -> None:
         import producers.orchestrators.incident_report as incident_orch

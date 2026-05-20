@@ -44,6 +44,9 @@
       {% if _exec_readout_anchor %}{% set _ = _mast_anchors.append(("#exec-readout", "Readout")) %}{% endif %}
       {% set _ = _mast_anchors.append(("#impact", "Impact")) %}
       {% set _ = _mast_anchors.append(("#flagged", "Flagged")) %}
+      {% if as_reputation_context and as_reputation_context.available %}{% set _ = _mast_anchors.append(("#as-context", "AS Context")) %}{% endif %}
+      {% if browser_version_context and browser_version_context.available %}{% set _ = _mast_anchors.append(("#browser-age", "UA Age")) %}{% endif %}
+      {% if assessment_explainers and assessment_explainers.available %}{% set _ = _mast_anchors.append(("#explainers", "Signals")) %}{% endif %}
       {% set _ = _mast_anchors.append(("#actions", "Actions")) %}
       {% if iocs.indicators %}{% set _ = _mast_anchors.append(("#iocs", "IOCs")) %}{% endif %}
       {% set _ = _mast_anchors.append(("#evidence", "Evidence")) %}
@@ -239,6 +242,34 @@
         Those counts are normalized with a hyperbolic curve, which rises
         quickly and then tapers, and the displayed score is clamped to
         the current verdict band so the number and verdict stay aligned.
+      </p>
+      {% if risk_score.severity_rows %}
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th scope="col">Severity</th>
+              <th scope="col" class="is-num">Targets</th>
+              <th scope="col" class="is-num">Weight</th>
+              <th scope="col" class="is-num">Weighted count</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in risk_score.severity_rows %}
+              <tr>
+                <td>{{ row.severity_label }}</td>
+                <td class="is-num">{{ row.count }}</td>
+                <td class="is-num">{{ row.weight }}</td>
+                <td class="is-num">{{ row.weighted_count }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+      <p>
+        Raw score {{ risk_score.raw_score_display }}; verdict band
+        {{ risk_score.band_display }}{% if risk_score.clamped %}, so the
+        displayed value was clamped into that band{% endif %}. {{
+        risk_score.confidence_basis }}
       </p>
       {% if deterministic_summary.reasons %}
         <ul class="score-methodology-reasons">
@@ -548,6 +579,197 @@
     </div>
   </section>
 
+  {% if browser_version_context and browser_version_context.available %}
+    <section id="browser-age" class="section section-browser-age">
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Browser UA Age</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display">Browser-token age context for flagged UAs</h2>
+        <p class="attack-note">{{ browser_version_context.boundary }}</p>
+      </div>
+      <table class="mini-table">
+        <thead>
+          <tr>
+            <th scope="col">Flagged UA</th>
+            <th scope="col">Browser token</th>
+            <th scope="col">Age</th>
+            <th scope="col" class="is-num">Requests</th>
+            <th scope="col" class="is-num">Share</th>
+            <th scope="col" class="is-num">Baseline delta</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in browser_version_context.rows %}
+            <tr>
+              <td><code>{{ row.user_agent }}</code></td>
+              <td>
+                {{ row.browser_label }} {{ row.version_display }}
+                {% if row.token_caveat %}<div class="action-edge">{{ row.token_caveat }}</div>{% endif %}
+              </td>
+              <td>
+                <span class="pill pill-sm {% if row.stale %}pill-critical{% else %}pill-medium{% endif %}">{{ row.status_label }}</span>
+                <span>{{ row.age_display }}</span>
+                {% if row.release_date %}
+                  <div class="action-edge">Released {{ row.release_date }}{% if row.source_url %} · <a href="{{ row.source_url }}" target="_blank" rel="noopener external">{{ row.source_name or "source" }}</a>{% endif %}</div>
+                {% endif %}
+              </td>
+              <td class="is-num">{{ row.requests_display }}</td>
+              <td class="is-num">{{ row.share_pct_display }}</td>
+              <td class="is-num">{{ row.baseline_delta_display }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if browser_version_context.comparison_rows %}
+        <h3>Comparison rows</h3>
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th scope="col">UA</th>
+              <th scope="col">Browser token</th>
+              <th scope="col">Age</th>
+              <th scope="col" class="is-num">Requests</th>
+              <th scope="col" class="is-num">Share</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in browser_version_context.comparison_rows %}
+              <tr>
+                <td><code>{{ row.user_agent }}</code></td>
+                <td>{{ row.browser_label }} {{ row.version_display }}</td>
+                <td>{{ row.age_display }}</td>
+                <td class="is-num">{{ row.requests_display }}</td>
+                <td class="is-num">{{ row.share_pct_display }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+      <p class="assessment-boundary">
+        Snapshot configured: {{ "yes" if browser_version_context.snapshot_configured else "no" }};
+        {{ browser_version_context.snapshot_row_count }} local release rows read.
+        Stale threshold: {{ browser_version_context.stale_threshold_months }} months as of {{ browser_version_context.as_of }}.
+      </p>
+    </section>
+  {% endif %}
+
+  {% if assessment_explainers and assessment_explainers.available %}
+    <section id="explainers" class="section section-assessment-explainers">
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Assessment Explanation Signals</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display">Corroborating signals behind the assessment</h2>
+      </div>
+      <p class="assessment-boundary">{{ assessment_explainers.boundary }}</p>
+      <div class="story-grid">
+        {% if assessment_explainers.path_ip_convergence.available %}
+          <div class="story-panel">
+            <h3>Path-by-IP convergence</h3>
+            <p class="finding-body">{{ assessment_explainers.path_ip_convergence.summary | inline_code }}</p>
+            <table class="mini-table">
+              <thead>
+                <tr>
+                  <th scope="col">Path</th>
+                  <th scope="col" class="is-num">Requests</th>
+                  <th scope="col" class="is-num">Share</th>
+                  <th scope="col" class="is-num">Flagged IPs</th>
+                  <th scope="col">Labels</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in assessment_explainers.path_ip_convergence.top_paths[:3] %}
+                  <tr>
+                    <td><code>{{ row.path }}</code></td>
+                    <td class="is-num">{{ row.requests_display }}</td>
+                    <td class="is-num">{{ row.share_display }}</td>
+                    <td class="is-num">{{ row.flagged_ip_count }}</td>
+                    <td>{% if row.auth_related %}auth{% endif %}{% if row.auth_related and row.api_related %}, {% endif %}{% if row.api_related %}API{% endif %}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% endif %}
+        {% if assessment_explainers.flagged_ip_timeseries_alignment.available %}
+          <div class="story-panel">
+            <h3>Flagged-IP time-series alignment</h3>
+            <p class="finding-body">{{ assessment_explainers.flagged_ip_timeseries_alignment.summary | inline_code }}</p>
+            {% if assessment_explainers.flagged_ip_timeseries_alignment.correlations %}
+              <table class="mini-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Signal</th>
+                    <th scope="col" class="is-num">Correlation</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in assessment_explainers.flagged_ip_timeseries_alignment.correlations[:5] %}
+                    <tr>
+                      <td>{{ row.signal }}</td>
+                      <td class="is-num tnum">{{ "%.3f" | format(row.correlation) }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% endif %}
+          </div>
+        {% endif %}
+        {% if assessment_explainers.user_agent_rotation.available %}
+          <div class="story-panel">
+            <h3>User-agent rotation</h3>
+            <p class="finding-body">{{ assessment_explainers.user_agent_rotation.summary | inline_code }}</p>
+            <table class="mini-table">
+              <thead>
+                <tr>
+                  <th scope="col">Client IP</th>
+                  <th scope="col" class="is-num">UAs</th>
+                  <th scope="col" class="is-num">Top UA share</th>
+                  <th scope="col">Rotation</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in assessment_explainers.user_agent_rotation.rows[:4] %}
+                  <tr>
+                    <td><code>{{ row.client_ip }}</code></td>
+                    <td class="is-num">{{ row.distinct_user_agents }}</td>
+                    <td class="is-num">{{ row.top_user_agent_share_display }}</td>
+                    <td>{{ row.rotation_label }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            <p class="assessment-boundary">{{ assessment_explainers.user_agent_rotation.boundary }}</p>
+          </div>
+        {% endif %}
+        {% if assessment_explainers.bot_proxy_provenance_overlap.available %}
+          <div class="story-panel">
+            <h3>Bot/proxy provenance overlap</h3>
+            <p class="finding-body">{{ assessment_explainers.bot_proxy_provenance_overlap.summary | inline_code }}</p>
+            <dl class="mitigation-tiles">
+              <div>
+                <dt>Flagged client-IP requests</dt>
+                <dd class="tnum">{{ assessment_explainers.bot_proxy_provenance_overlap.flagged_client_ip_requests | int }}</dd>
+              </div>
+              <div>
+                <dt>Overlap share</dt>
+                <dd class="tnum">{{ assessment_explainers.bot_proxy_provenance_overlap.overlap_share_display }}</dd>
+              </div>
+              <div>
+                <dt>Overlapping IP targets</dt>
+                <dd class="tnum">{{ assessment_explainers.bot_proxy_provenance_overlap.overlapping_target_count }}</dd>
+              </div>
+            </dl>
+            <p class="assessment-boundary">{{ assessment_explainers.bot_proxy_provenance_overlap.boundary }}</p>
+          </div>
+        {% endif %}
+      </div>
+    </section>
+  {% endif %}
+
   {# ══════ TEMPORAL PROGRESSION + ENTITY CLUSTERS ══════════ #}
   <section class="section section-progression">
     <div class="section-head">
@@ -595,6 +817,37 @@
           <p class="mitigation-rule">Top deny rule: <code>{{ mitigation_coverage.top_deny_rule.value }}</code> ({{ mitigation_coverage.top_deny_rule.share }})</p>
         {% endif %}
       </div>
+    </section>
+  {% endif %}
+
+  {% if analysis_availability and analysis_availability.rows %}
+    <section class="section section-analysis-availability">
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Analysis Availability</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display">What the bundled artifacts can support</h2>
+        <p class="attack-note">{{ analysis_availability.boundary }}</p>
+      </div>
+      <table class="mini-table">
+        <thead>
+          <tr>
+            <th scope="col">Analysis</th>
+            <th scope="col">Status</th>
+            <th scope="col">Interpretation</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in analysis_availability.rows %}
+            <tr>
+              <td>{{ row.analysis }}</td>
+              <td>{{ row.status }}</td>
+              <td>{{ row.detail }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </section>
   {% endif %}
 
@@ -701,6 +954,14 @@
                     {% endfor %}
                   </div>
                 {% endif %}
+                {% if row.provenance_lines %}
+                  <div class="action-edge"
+                       title="Corroborating source bot/proxy metadata; not proof of intent or root cause.">
+                    {% for line in row.provenance_lines %}
+                      <span>{{ line }}</span>{% if not loop.last %}<br>{% endif %}
+                    {% endfor %}
+                  </div>
+                {% endif %}
               </td>
               <td class="is-num"><span class="num-large tnum">{{ row.requests_display }}</span></td>
               <td class="is-num">
@@ -772,6 +1033,58 @@
       </table>
     {% endif %}
   </section>
+
+  {% if as_reputation_context and as_reputation_context.available %}
+    <section id="as-context" class="section section-as-context">
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">External AS Context</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display">Public reputation context for observed ASNs</h2>
+        <p class="attack-note">{{ as_reputation_context.boundary }}</p>
+      </div>
+      <div class="story-grid">
+        {% for row in as_reputation_context.rows %}
+          <article class="story-panel">
+            <h3>{{ row.asn_display }}{% if row.name %} · {{ row.name }}{% endif %}</h3>
+            <p class="cluster-volume">
+              <strong>{{ row.label_display }}</strong>
+              {% if row.confidence %} · {{ row.confidence | title }} confidence{% endif %}
+              {% if row.evidence_grade %} · {{ row.evidence_grade | replace("_", " ") }}{% endif %}
+            </p>
+            <p class="finding-body">{{ row.external_reputation_point | inline_code }}</p>
+            <p class="finding-body">{{ row.report_local_behavior_point | inline_code }}</p>
+            {% if row.sources %}
+              <table class="mini-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Source</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Summary</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for source in row.sources %}
+                    <tr>
+                      <td><a href="{{ source.url }}" target="_blank" rel="noopener external">{{ source.title }}</a></td>
+                      <td>{{ source.source_type | replace("_", " ") }}</td>
+                      <td>{{ source.summary }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% endif %}
+            <p class="assessment-boundary">
+              Last reviewed {{ row.last_reviewed }}. Public reputation is not a
+              detection gate and does not imply every IP, customer, or request
+              from this AS is malicious.
+            </p>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
 
   {# ══════ TOP PATHS ═════════════════════════════════════════ #}
   <section class="section section-paths">
@@ -1039,6 +1352,96 @@
         <p class="finding-body">No deny-rule aggregation available for this window.</p>
       {% endif %}
     </div>
+  </section>
+  {% endif %}
+
+  {% if bot_source_rows or proxy_classification_rows %}
+  <section class="section section-provenance">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">Source Metadata</span>
+        <span class="hr"></span>
+      </div>
+      <h2 class="display">Bot and Proxy Provenance</h2>
+    </div>
+    {% if claim_profile and claim_profile.provenance_overlap and claim_profile.provenance_overlap.available %}
+      <p class="finding-body">
+        {{ claim_profile.provenance_overlap.summary }}
+      </p>
+    {% endif %}
+    <div class="split-2col">
+      <div>
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Bot Source Provenance</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display-lg">Bot-manager source metadata</h2>
+      </div>
+      {% if bot_source_rows %}
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th scope="col">Category / type / botnet</th>
+              <th scope="col" class="is-num">Reqs</th>
+              <th scope="col" class="is-num">% of incident requests</th>
+              <th scope="col" class="is-num">Δ vs baseline</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in bot_source_rows %}
+              <tr>
+                <td><code class="mono">{{ row.value }}</code></td>
+                <td class="is-num">{{ row.requests_display }}</td>
+                <td class="is-num"><strong>{{ row.share_pct_display }}</strong></td>
+                <td class="is-num">{{ row.delta_vs_baseline_display }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="finding-body">No source bot-manager metadata was populated for this window.</p>
+      {% endif %}
+      </div>
+
+      <div>
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Proxy Classification</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display-lg">EPD proxy classification</h2>
+      </div>
+      {% if proxy_classification_rows %}
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th scope="col">Category / action / match</th>
+              <th scope="col" class="is-num">Reqs</th>
+              <th scope="col" class="is-num">% of incident requests</th>
+              <th scope="col" class="is-num">Δ vs baseline</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in proxy_classification_rows %}
+              <tr>
+                <td><code class="mono">{{ row.value }}</code></td>
+                <td class="is-num">{{ row.requests_display }}</td>
+                <td class="is-num"><strong>{{ row.share_pct_display }}</strong></td>
+                <td class="is-num">{{ row.delta_vs_baseline_display }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="finding-body">No EPD proxy-classification category was populated for this window.</p>
+      {% endif %}
+      </div>
+    </div>
+    <p class="assessment-boundary">
+      Bot and proxy provenance is corroborating source evidence. It does not
+      prove actor intent, root cause, or ownership.
+    </p>
   </section>
   {% endif %}
 
@@ -1373,6 +1776,7 @@
                   <th>ASN</th>
                   <th>Baseline</th>
                   <th>Edge action</th>
+                  <th>Bot/proxy provenance</th>
                   <th>Why ranked here</th>
                 </tr>
               </thead>
@@ -1389,6 +1793,7 @@
                     <td>{{ row.asn }}</td>
                     <td>{{ row.baseline_presence }}</td>
                     <td>{{ row.edge_action }}</td>
+                    <td>{{ row.provenance }}</td>
                     <td>{{ row.why_ranked_here }}</td>
                   </tr>
                 {% endfor %}

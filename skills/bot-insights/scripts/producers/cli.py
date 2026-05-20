@@ -1006,6 +1006,7 @@ def main() -> int:
                 wrapper_path=wrapper_path,
                 output_path=output_path,
                 output_format=args.format,
+                config_path=args.config,
                 title=args.title,
             ),
             cwd=PUBLIC_SKILLS,

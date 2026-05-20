@@ -7,9 +7,12 @@ from ...theme import editorial_palette
 from datetime import datetime, timezone
 
 from .actions import _recommended_actions_view
+from .as_reputation import build_as_reputation_context
+from .browser_versions import build_browser_version_context
 from .claim_gates import build_claim_profile
 from .cohorts import _compute_actor_cohort_overlap
 from .concentration import _concentration_chart_view
+from .explainers import assessment_explainers
 from .findings import _incident_findings
 from .formatters import (
     _format_count,
@@ -42,6 +45,7 @@ from .targets import (
     SUSPICIOUS_TARGETS_DISPLAY_CAP,  # noqa: F401 - re-exported public symbol
     _attack_aggregation,
     _compute_edge_action_for_indicator,
+    _compute_provenance_for_indicator,
     _suspicious_targets_view,
 )
 from .views import (
@@ -214,6 +218,13 @@ def _build_scope_view_rows(scope_art: dict, actors_art: dict) -> dict:
         ),
         "deny_rule_mix_rows": _scope_rows(
             scope_art.get("deny_rule_mix") or [], value_label="Deny rule"
+        ),
+        "bot_source_rows": _scope_rows(
+            scope_art.get("bot_source_mix") or [], value_label="Bot source"
+        ),
+        "proxy_classification_rows": _scope_rows(
+            scope_art.get("proxy_classification_mix") or [],
+            value_label="Proxy classification",
         ),
     }
 
@@ -439,6 +450,9 @@ def _raw_actor_soc_rows(
         edge_action = _compute_edge_action_for_indicator(
             {"target_type": "client_ip", "target_value": value}, actors_art
         )
+        provenance = _compute_provenance_for_indicator(
+            {"target_type": "client_ip", "target_value": value}, actors_art
+        )
         requests = _safe_number(row.get("requests")) or 0
         share = (100.0 * float(requests) / total) if total > 0 else 0.0
         flags = target.get("reason_flags") or []
@@ -468,6 +482,7 @@ def _raw_actor_soc_rows(
                     f"{_format_pct(100.0 * edge_action['top_action_share'])} {edge_action['top_action_label']}"
                     if edge_action else "not available"
                 ),
+                "provenance": (provenance or {}).get("display") or "not available",
                 "severity_label": target.get("severity_label") or "Raw volume only",
                 "action_class_label": target.get("action_class_label") or "No action-target row",
                 "confidence_label": target.get("confidence_label") or "—",
@@ -527,6 +542,11 @@ def _build_soc_evidence_block(
                 "artifact": "bot_incident_action_targets.v1",
                 "source": "targets plus evidence_refs",
             },
+            {
+                "claim": "Bot/proxy provenance",
+                "artifact": "bot_incident_scope.v1 / bot_incident_actors.v1",
+                "source": "bot_source_mix, proxy_classification_mix, and client_ip provenance cooccurrence cells",
+            },
         ],
         "raw_actor_rows": raw_actor_rows,
         "action_target_rows": action_target_rows,
@@ -566,6 +586,111 @@ def _collect_limitations(*artifacts: dict) -> list[str]:
     for art in artifacts:
         out.extend(art.get("limitations") or [])
     return out
+
+
+def _analysis_availability_context(
+    scope_art: dict,
+    actors_art: dict,
+    action_targets_art: dict,
+    suspicious_targets: list[dict],
+    scope_rows: dict,
+) -> dict:
+    """Renderer-ready availability notes for deferred incident analyses."""
+    rows: list[dict] = []
+    asn_ranking = next(
+        (
+            ranking
+            for ranking in actors_art.get("actor_rankings") or []
+            if ranking.get("field") in {"asn", "client_asn"}
+        ),
+        {},
+    )
+    rows.append(
+        {
+            "analysis": "ASN / hosting decomposition",
+            "status": "Partial" if asn_ranking.get("rows") else "Unavailable",
+            "detail": (
+                "Observed ASN ranking is present, but the bundled artifacts do not "
+                "include hosting-provider taxonomy beyond optional AS reputation context."
+                if asn_ranking.get("rows")
+                else "No ASN ranking or hosting-provider taxonomy was bundled."
+            ),
+        }
+    )
+
+    emerging = [
+        target
+        for target in suspicious_targets
+        if any(
+            flag in {"new_in_window", "high_volume_new_actor"}
+            for flag in target.get("reason_flags") or []
+        )
+    ]
+    rows.append(
+        {
+            "analysis": "Baseline-relative actor emergence",
+            "status": "Available" if emerging else "Unavailable",
+            "detail": (
+                f"{len(emerging)} flagged target(s) carried new-in-window or "
+                "high-volume-new-actor evidence."
+                if emerging
+                else "No flagged target carried baseline-emergence reason flags."
+            ),
+        }
+    )
+
+    edge_rows = scope_rows.get("edge_action_mix_rows") or []
+    rows.append(
+        {
+            "analysis": "Edge-action effectiveness",
+            "status": "Observed mix only" if edge_rows else "Unavailable",
+            "detail": (
+                "Edge action mix is present for validation planning, but the artifacts "
+                "do not include before/after evidence needed to claim mitigation effectiveness."
+                if edge_rows
+                else "No edge action mix was bundled."
+            ),
+        }
+    )
+
+    cluster_count = len(action_targets_art.get("behavior_clusters") or [])
+    rows.append(
+        {
+            "analysis": "Flagged-IP clustering",
+            "status": "Available" if cluster_count else "Unavailable",
+            "detail": (
+                f"{cluster_count} behavior cluster(s) were bundled."
+                if cluster_count
+                else "No explicit flagged-IP cluster artifact was bundled."
+            ),
+        }
+    )
+
+    protected = scope_art.get("protected_population") or action_targets_art.get(
+        "protected_population"
+    )
+    counterfactual = scope_art.get("counterfactual") or action_targets_art.get(
+        "counterfactual"
+    )
+    rows.append(
+        {
+            "analysis": "Protected-population / counterfactual check",
+            "status": "Available" if protected and counterfactual else "Unavailable",
+            "detail": (
+                "Protected-population and counterfactual inputs are present."
+                if protected and counterfactual
+                else "The bundled artifacts cannot evaluate collateral impact or counterfactual outcomes."
+            ),
+        }
+    )
+    return {
+        "available": True,
+        "rows": rows,
+        "boundary": (
+            "Availability notes prevent unsupported conclusions. Unavailable rows are "
+            "limitations, not negative findings."
+        ),
+    }
 
 
 def _build_orientation_block() -> dict:
@@ -623,6 +748,15 @@ def prepare(artifact: dict) -> dict:
     claim_profile = build_claim_profile(
         scope_art, actors_art, action_targets_art, suspicious_targets
     )
+    explainers = assessment_explainers(
+        actors_art, action_targets_art, suspicious_targets
+    )
+    as_reputation_context = build_as_reputation_context(
+        actors_art, suspicious_targets
+    )
+    browser_version_context = build_browser_version_context(
+        actors_art, suspicious_targets, scope_meta
+    )
     scope_rows = _build_scope_view_rows(scope_art, actors_art)
     soc_evidence = _build_soc_evidence_block(
         actors_art, action_targets_art, suspicious_targets
@@ -656,6 +790,12 @@ def prepare(artifact: dict) -> dict:
         "concentration_chart": _concentration_chart_view(suspicious_targets),
         "deterministic_summary": deterministic_summary,
         "claim_profile": claim_profile,
+        "assessment_explainers": explainers,
+        "as_reputation_context": as_reputation_context,
+        "browser_version_context": browser_version_context,
+        "analysis_availability": _analysis_availability_context(
+            scope_art, actors_art, action_targets_art, suspicious_targets, scope_rows
+        ),
         **_build_editorial_extensions(
             scope_art, actors_art, action_targets_art, scope_meta,
             suspicious_targets, deterministic_summary, scope_rows,

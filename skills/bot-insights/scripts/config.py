@@ -8,9 +8,9 @@ display caps read. The producer-side consumers thread an explicit
 display caps fall through a process-wide singleton (``active_thresholds()``)
 so the existing ``prepare(artifact: dict) -> dict`` shape stays unchanged.
 
-Default behaviour matches the constants that landed in Phase 1 of the
-refactor (`10ebf42`) exactly, so absence of a ``--config`` file produces
-byte-identical output to the pre-Phase-6a baseline.
+Default behaviour matches the heuristic constants that landed in Phase 1 of
+the refactor (`10ebf42`), with additive report enrichments enabled where a
+packaged local data snapshot is available.
 
 The loader auto-detects file format by suffix:
   - ``.yaml`` / ``.yml`` — soft dep on ``pyyaml`` (raises a clear
@@ -37,6 +37,8 @@ __all__ = [
     "AnomalyThresholds",
     "RiskScoreThresholds",
     "DisplayCaps",
+    "AsReputationConfig",
+    "BrowserVersionHistoryConfig",
     "Thresholds",
     "DEFAULT_THRESHOLDS",
     "load_thresholds",
@@ -49,6 +51,9 @@ __all__ = [
 # canonical default UA pattern without circular imports.
 _DEFAULT_AUTOMATION_UA_PATTERN = (
     r"\b(curl|python-requests|Go-http-client|wget|libwww|httpx|aiohttp)\b"
+)
+_DEFAULT_BROWSER_VERSION_HISTORY_PATH = (
+    Path(__file__).resolve().parents[1] / "data" / "browser-version-history.json"
 )
 
 
@@ -122,6 +127,24 @@ class DisplayCaps:
 
 
 @dataclass(frozen=True)
+class AsReputationConfig:
+    """Optional AS reputation enrichment sources for incident reports."""
+
+    enabled: bool = True
+    spamhaus_asndrop_path: str | None = None
+    local_overrides_path: str | None = None
+
+
+@dataclass(frozen=True)
+class BrowserVersionHistoryConfig:
+    """Optional local browser release-history snapshot for incident reports."""
+
+    enabled: bool = True
+    snapshot_path: str | None = str(_DEFAULT_BROWSER_VERSION_HISTORY_PATH)
+    stale_months: int = 18
+
+
+@dataclass(frozen=True)
 class Thresholds:
     """Top-level aggregate. Single value plumbed through producers + renderers."""
 
@@ -131,6 +154,10 @@ class Thresholds:
     anomaly: AnomalyThresholds = field(default_factory=AnomalyThresholds)
     risk_score: RiskScoreThresholds = field(default_factory=RiskScoreThresholds)
     display: DisplayCaps = field(default_factory=DisplayCaps)
+    as_reputation: AsReputationConfig = field(default_factory=AsReputationConfig)
+    browser_version_history: BrowserVersionHistoryConfig = field(
+        default_factory=BrowserVersionHistoryConfig
+    )
     disabled_rules: frozenset[str] = frozenset()
 
 
@@ -168,8 +195,12 @@ def load_thresholds(path: Path | None = None) -> Thresholds:
     """
     if path is None:
         return DEFAULT_THRESHOLDS
-    raw = _read_config_file(Path(path))
-    return _overlay(DEFAULT_THRESHOLDS, raw)
+    config_path = Path(path)
+    raw = _read_config_file(config_path)
+    return _resolve_config_relative_paths(
+        _overlay(DEFAULT_THRESHOLDS, raw),
+        config_path.parent,
+    )
 
 
 def _read_config_file(path: Path) -> Mapping[str, Any]:
@@ -229,7 +260,46 @@ def _overlay(base: Thresholds, raw: Mapping[str, Any]) -> Thresholds:
         anomaly=_overlay_dc(base.anomaly, heuristics.get("anomaly") or {}),
         risk_score=_overlay_risk(base.risk_score, heuristics.get("risk_score") or {}),
         display=_overlay_dc(base.display, display),
+        as_reputation=_overlay_dc(
+            base.as_reputation,
+            raw.get("as_reputation") or {},
+        ),
+        browser_version_history=_overlay_dc(
+            base.browser_version_history,
+            raw.get("browser_version_history") or {},
+        ),
         disabled_rules=frozenset(heuristics.get("disabled_rules") or []),
+    )
+
+
+def _resolve_config_relative_paths(
+    thresholds: Thresholds,
+    config_dir: Path,
+) -> Thresholds:
+    as_rep = thresholds.as_reputation
+    updates = {}
+    for field_name in ("spamhaus_asndrop_path", "local_overrides_path"):
+        value = getattr(as_rep, field_name)
+        if not value:
+            continue
+        p = Path(value)
+        updates[field_name] = str(p if p.is_absolute() else config_dir / p)
+    if not updates:
+        resolved = thresholds
+    else:
+        resolved = replace(thresholds, as_reputation=replace(as_rep, **updates))
+
+    browser_history = resolved.browser_version_history
+    snapshot_path = browser_history.snapshot_path
+    if not snapshot_path:
+        return resolved
+    p = Path(snapshot_path)
+    return replace(
+        resolved,
+        browser_version_history=replace(
+            browser_history,
+            snapshot_path=str(p if p.is_absolute() else config_dir / p),
+        ),
     )
 
 

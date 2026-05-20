@@ -34,6 +34,7 @@ __all__ = [
     'SUSPICIOUS_TARGETS_DISPLAY_CAP',
     '_IOC_SCOPE_VIEW_TOP_N',
     '_compute_edge_action_for_indicator',
+    '_compute_provenance_for_indicator',
     '_scope_views_for_indicator',
     '_attack_aggregation',
     '_suspicious_targets_view',
@@ -108,6 +109,80 @@ def _compute_edge_action_for_indicator(
         "top_action": top_action,
         "top_action_label": _EDGE_ACTION_LABELS.get(top_action, top_action),
         "top_action_share": round(top_count / total, 4),
+    }
+
+
+def _cell_display_parts(cell: dict, keys: tuple[str, ...]) -> list[str]:
+    parts: list[str] = []
+    for key in keys:
+        value = str(cell.get(key) or "").strip()
+        if value and value not in parts:
+            parts.append(value)
+    return parts
+
+
+def _top_provenance_labels(
+    cells: list[dict],
+    ip_value: str,
+    *,
+    keys: tuple[str, ...],
+    limit: int = 2,
+) -> list[str]:
+    bucket: dict[str, int] = {}
+    for cell in cells:
+        if str(cell.get("ip") or "") != ip_value:
+            continue
+        reqs = int(_safe_number(cell.get("requests")) or 0)
+        if reqs <= 0:
+            continue
+        label = " / ".join(_cell_display_parts(cell, keys))
+        if not label:
+            continue
+        bucket[label] = bucket.get(label, 0) + reqs
+    return [
+        label
+        for label, _requests in sorted(bucket.items(), key=lambda kv: (-kv[1], kv[0]))[
+            :limit
+        ]
+    ]
+
+
+def _compute_provenance_for_indicator(
+    target: dict, actors_artifact: dict | None
+) -> dict | None:
+    """Return source bot/proxy provenance labels for a client IP target.
+
+    These labels are corroborating source metadata only; they do not
+    affect target confidence or imply intent/root cause.
+    """
+    if (target.get("target_type") or "") != "client_ip":
+        return None
+    target_value = str(target.get("target_value") or "")
+    if not target_value:
+        return None
+    cooccur = (actors_artifact or {}).get("actor_cooccurrence") or {}
+    bot_labels = _top_provenance_labels(
+        cooccur.get("client_ip__bot_source") or [],
+        target_value,
+        keys=("bot_category", "bot_type", "botnet_id"),
+    )
+    proxy_labels = _top_provenance_labels(
+        cooccur.get("client_ip__proxy_classification") or [],
+        target_value,
+        keys=("epd_Category", "epd_ActionName", "epd_Match"),
+    )
+    if not bot_labels and not proxy_labels:
+        return None
+    lines: list[str] = []
+    if bot_labels:
+        lines.append(f"{' / '.join(bot_labels)} observed")
+    if proxy_labels:
+        lines.append(f"{' / '.join(proxy_labels)} observed")
+    return {
+        "bot_source_labels": bot_labels,
+        "proxy_classification_labels": proxy_labels,
+        "display_lines": lines,
+        "display": " · ".join(lines),
     }
 
 
@@ -286,6 +361,9 @@ def _scope_views_for_indicator(
     edge_action = _compute_edge_action_for_indicator(target, actors_artifact)
     if edge_action:
         result["edge_action"] = edge_action
+    provenance = _compute_provenance_for_indicator(target, actors_artifact)
+    if provenance:
+        result["provenance"] = provenance
     return result
 
 
@@ -548,6 +626,7 @@ def _target_flag_fields(row: dict) -> dict:
 def _suspicious_target_row(row: dict, actors_artifact: dict | None) -> dict:
     """Project one raw action-target row into the renderer's display shape."""
     edge_action = _compute_edge_action_for_indicator(row, actors_artifact)
+    provenance = _compute_provenance_for_indicator(row, actors_artifact)
     top_label, top_share_display = _edge_action_display_fields(edge_action)
     confidence = row.get("confidence") or ""
     evidence_refs = list(row.get("evidence_refs") or [])
@@ -556,6 +635,9 @@ def _suspicious_target_row(row: dict, actors_artifact: dict | None) -> dict:
         **classes,
         "target_value": str(row.get("target_value") or ""),
         "edge_action": edge_action,
+        "provenance": provenance,
+        "provenance_lines": (provenance or {}).get("display_lines") or [],
+        "provenance_display": (provenance or {}).get("display"),
         "edge_action_top_label": top_label,
         "edge_action_top_share_display": top_share_display,
         **_target_flag_fields(row),

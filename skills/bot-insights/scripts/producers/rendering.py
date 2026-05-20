@@ -21,6 +21,7 @@ def render_report_command(
     wrapper_path: Path,
     output_path: Path,
     output_format: str,
+    config_path: Path | None = None,
     title: str | None = None,
 ) -> list[str]:
     """Build the dependency-safe renderer command used by producers."""
@@ -39,6 +40,8 @@ def render_report_command(
             str(output_path),
         ]
     )
+    if config_path is not None:
+        cmd.extend(["--config", str(config_path)])
     if title:
         cmd.extend(["--title", title])
     return cmd

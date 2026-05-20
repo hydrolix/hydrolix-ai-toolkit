@@ -181,11 +181,13 @@ def _finding_anomaly_cohort(
     anomaly = (anomalies or cohort_targets)[0]
     return {
         "label": "Finding 03",
-        "lead": "Behavioral cohort anomaly is the worry.",
+        "lead": "Human-classified behavioral anomaly needs validation.",
         "body": (
             f"`{anomaly.get('target_value')}` shows a behavioral "
-            "departure from the baseline — consistent "
-            "with sophisticated automation passing bot-classification."
+            "departure from the baseline. Treat this as a likely "
+            "classification mismatch or behavioral anomaly until route "
+            "owners and application telemetry confirm the cause; it is "
+            "not proof of malicious intent."
         ),
     }
 

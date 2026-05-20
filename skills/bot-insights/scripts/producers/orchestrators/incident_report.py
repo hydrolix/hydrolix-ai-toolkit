@@ -78,10 +78,15 @@ from producers.sql.incident import (
     _incident_actor_topk_sql,
     _incident_bucketed_dimension_timeseries_sql,
     _incident_bucketed_edge_action_timeseries_sql,
+    _incident_bot_source_mix_sql,
+    _incident_client_ip_bot_source_cooccurrence_sql,
+    _incident_client_ip_proxy_classification_cooccurrence_sql,
     _incident_columns_query,
     _incident_deny_rule_mix_sql,
     _incident_dimension_sql,
     _incident_edge_action_mix_sql,
+    _incident_flagged_client_ip_timeseries_sql,
+    _incident_proxy_classification_mix_sql,
     _incident_siem_dimension_sql,
     _incident_status_mix_sql,
     _incident_target_bucket_evidence_sql,
@@ -226,6 +231,8 @@ class _IncidentCtx:
     raw_column_by_field: dict[str, str] = field(default_factory=dict)
     raw_path_column: str = "request_path"
     raw_bytes_column: str = "bytesOut"
+    bot_source_columns: set[str] = field(default_factory=set)
+    proxy_classification_columns: set[str] = field(default_factory=set)
     top_n: int = 10
     limitations_scope: list[str] = field(default_factory=list)
     limitations_actors: list[str] = field(default_factory=list)
@@ -240,6 +247,7 @@ class _IncidentCtx:
     target_evidence: dict[str, dict] = field(default_factory=dict)
     behavior_clusters: list[dict] = field(default_factory=list)
     entity_clusters: list[dict] = field(default_factory=list)
+    flagged_client_ip_timeseries: list[dict] = field(default_factory=list)
     detection_source: str = "summary"
     raw_fallback_used: bool = False
 
@@ -588,6 +596,16 @@ def _incident_introspect_columns(
         for optional_field in ("trafficCohort", "action_applied"):
             if optional_field in ctx.logs_columns:
                 ctx.raw_column_by_field.setdefault(optional_field, optional_field)
+        ctx.bot_source_columns = {
+            column
+            for column in ("bot_category", "bot_type", "botnet_id")
+            if column in ctx.logs_columns
+        }
+        ctx.proxy_classification_columns = {
+            column
+            for column in ("epd_ActionName", "epd_Category", "epd_Match")
+            if column in ctx.logs_columns
+        }
         ctx.raw_bytes_column = "bytes" if args.cluster == "expedia" else "bytesOut"
         if ctx.raw_bytes_column not in ctx.logs_columns:
             ctx.raw_bytes_column = "bytesOut" if "bytesOut" in ctx.logs_columns else "bytes"
@@ -808,6 +826,8 @@ def _incident_phase1_dimensions(
     edge_action_mix_rows: list[dict] = []
     deny_rule_mix_rows: list[dict] = []
     edge_action_timeseries_rows: list[dict] = []
+    bot_source_rows: list[dict] = []
+    proxy_classification_rows: list[dict] = []
     if ctx.raw_drilldown_available:
         edge_action_mix_rows = _capture_or_raise(
             args,
@@ -857,6 +877,44 @@ def _incident_phase1_dimensions(
             label="edge action timeseries",
             artifact="edge_action_timeseries",
         )
+        if ctx.bot_source_columns:
+            bot_source_rows = _capture_or_raise(
+                args,
+                _incident_bot_source_mix_sql(
+                    start,
+                    end,
+                    baseline_start,
+                    baseline_end,
+                    args.host,
+                    args.asn,
+                    args.path_pattern,
+                    ctx.top_n,
+                    ctx.raw_path_column,
+                    ctx.bot_source_columns,
+                ),
+                sample_dir / f"{args.report}-phase1-bot_source_mix.json",
+                label="bot source mix",
+                artifact="bot_source_mix",
+            )
+        if "epd_Category" in ctx.proxy_classification_columns:
+            proxy_classification_rows = _capture_or_raise(
+                args,
+                _incident_proxy_classification_mix_sql(
+                    start,
+                    end,
+                    baseline_start,
+                    baseline_end,
+                    args.host,
+                    args.asn,
+                    args.path_pattern,
+                    ctx.top_n,
+                    ctx.raw_path_column,
+                    ctx.proxy_classification_columns,
+                ),
+                sample_dir / f"{args.report}-phase1-proxy_classification_mix.json",
+                label="proxy classification mix",
+                artifact="proxy_classification_mix",
+            )
 
     cohort_timeseries_rows: list[dict] = []
     cohort_dimension = _summary_dimension_column(ctx, "trafficCohort")
@@ -990,6 +1048,20 @@ def _incident_phase1_dimensions(
                 deny_rule_mix_rows, total_current=total_current
             )
             if ctx.raw_drilldown_available
+            else None
+        ),
+        "bot_source_mix": (
+            _incident_dimension_rows(
+                bot_source_rows, total_current=total_current
+            )
+            if bot_source_rows
+            else None
+        ),
+        "proxy_classification_mix": (
+            _incident_dimension_rows(
+                proxy_classification_rows, total_current=total_current
+            )
+            if proxy_classification_rows
             else None
         ),
         "dashboard_url": _resolve_dashboard_url(args),
@@ -1288,6 +1360,144 @@ def _incident_phase2_cooccurrence(
         ctx.actors_artifact["actor_cooccurrence"] = cooccurrence
 
 
+def _incident_phase2_provenance_cooccurrence(
+    args: argparse.Namespace,
+    ctx: _IncidentCtx,
+    current_candidates_by_field: dict[str, list[str]],
+    *,
+    start: datetime,
+    end: datetime,
+    baseline_start: datetime,
+    baseline_end: datetime,
+    sample_dir: Path,
+) -> None:
+    """Attach optional source bot/proxy provenance cells for top IPs."""
+    ip_candidates = current_candidates_by_field.get("client_ip") or []
+    if not ip_candidates:
+        return
+    cooccurrence = ctx.actors_artifact.setdefault("actor_cooccurrence", {})
+    ip_column = ctx.raw_column_by_field.get("client_ip", "client_ip")
+    if ctx.bot_source_columns:
+        rows = _capture_or_raise(
+            args,
+            _incident_client_ip_bot_source_cooccurrence_sql(
+                ip_candidates,
+                start,
+                end,
+                baseline_start,
+                baseline_end,
+                args.host,
+                args.asn,
+                args.path_pattern,
+                ip_column,
+                ctx.raw_path_column,
+                ctx.bot_source_columns,
+            ),
+            sample_dir / f"{args.report}-phase2-client_ip-bot_source-cooccurrence.json",
+            label="actors_cooccurrence:client_ip__bot_source",
+            artifact="actors_cooccurrence_client_ip__bot_source",
+        )
+        cooccurrence["client_ip__bot_source"] = [
+            {
+                "ip": str(row.get("ip") or ""),
+                "bot_category": str(row.get("bot_category") or ""),
+                "bot_type": str(row.get("bot_type") or ""),
+                "botnet_id": str(row.get("botnet_id") or ""),
+                "requests": int(float(row.get("requests") or 0)),
+                "baseline_requests": int(float(row.get("baseline_requests") or 0)),
+            }
+            for row in rows
+            if row.get("ip") and int(float(row.get("requests") or 0)) > 0
+        ]
+    if "epd_Category" in ctx.proxy_classification_columns:
+        rows = _capture_or_raise(
+            args,
+            _incident_client_ip_proxy_classification_cooccurrence_sql(
+                ip_candidates,
+                start,
+                end,
+                baseline_start,
+                baseline_end,
+                args.host,
+                args.asn,
+                args.path_pattern,
+                ip_column,
+                ctx.raw_path_column,
+                ctx.proxy_classification_columns,
+            ),
+            sample_dir / f"{args.report}-phase2-client_ip-proxy_classification-cooccurrence.json",
+            label="actors_cooccurrence:client_ip__proxy_classification",
+            artifact="actors_cooccurrence_client_ip__proxy_classification",
+        )
+        cooccurrence["client_ip__proxy_classification"] = [
+            {
+                "ip": str(row.get("ip") or ""),
+                "epd_Category": str(row.get("epd_Category") or ""),
+                "epd_ActionName": str(row.get("epd_ActionName") or ""),
+                "epd_Match": str(row.get("epd_Match") or ""),
+                "requests": int(float(row.get("requests") or 0)),
+                "baseline_requests": int(float(row.get("baseline_requests") or 0)),
+            }
+            for row in rows
+            if row.get("ip")
+            and row.get("epd_Category")
+            and int(float(row.get("requests") or 0)) > 0
+        ]
+
+
+def _incident_phase2_flagged_ip_timeseries(
+    args: argparse.Namespace,
+    ctx: _IncidentCtx,
+    *,
+    start: datetime,
+    end: datetime,
+    sample_dir: Path,
+) -> None:
+    """Attach bounded current-window series for flagged client-IP targets."""
+    ip_candidates = [
+        str(target.get("target_value") or "")
+        for target in ctx.suspicious_targets
+        if target.get("target_type") == "client_ip" and target.get("target_value")
+    ]
+    if not ip_candidates:
+        return
+    rows = _capture_or_raise(
+        args,
+        _incident_flagged_client_ip_timeseries_sql(
+            ip_candidates,
+            ctx.granularity,
+            start,
+            end,
+            args.host,
+            args.asn,
+            args.path_pattern,
+            ctx.raw_column_by_field.get("client_ip", "client_ip"),
+            ctx.raw_path_column,
+            ctx.logs_columns,
+        ),
+        sample_dir / f"{args.report}-phase2-flagged-client-ip-timeseries.json",
+        label="flagged client-IP timeseries",
+        artifact="flagged_client_ip_timeseries",
+    )
+    ctx.flagged_client_ip_timeseries = [
+        {
+            "bucket": str(row.get("bucket") or ""),
+            "flagged_requests": int(float(row.get("flagged_requests") or 0)),
+            "req_429": int(float(row.get("req_429") or 0)),
+            "req_5xx": int(float(row.get("req_5xx") or 0)),
+            "edge_deny": int(float(row.get("edge_deny") or 0)),
+            "edge_allow": int(float(row.get("edge_allow") or 0)),
+            "edge_challenge": int(float(row.get("edge_challenge") or 0)),
+            "bot_provenance": int(float(row.get("bot_provenance") or 0)),
+            "proxy_classification": int(float(row.get("proxy_classification") or 0)),
+            "graphql": int(float(row.get("graphql") or 0)),
+            "auth_path": int(float(row.get("auth_path") or 0)),
+        }
+        for row in rows
+        if row.get("bucket") and int(float(row.get("flagged_requests") or 0)) > 0
+    ]
+
+
 def _incident_phase2_actors_and_heuristic(
     args: argparse.Namespace,
     ctx: _IncidentCtx,
@@ -1325,6 +1535,13 @@ def _incident_phase2_actors_and_heuristic(
             args, ctx, current_candidates_by_field,
             start=start, end=end, sample_dir=sample_dir,
         )
+        _incident_phase2_provenance_cooccurrence(
+            args, ctx, current_candidates_by_field,
+            start=start, end=end,
+            baseline_start=baseline_start,
+            baseline_end=baseline_end,
+            sample_dir=sample_dir,
+        )
         # Read the active thresholds (primed by ``producers.cli.main``
         # from ``--config`` before this orchestrator runs) so an
         # operator override propagates into the heuristic ladder.
@@ -1335,6 +1552,9 @@ def _incident_phase2_actors_and_heuristic(
             ctx.actors_artifact,
             baseline_actor_rows_by_field,
             thresholds=active_thresholds(),
+        )
+        _incident_phase2_flagged_ip_timeseries(
+            args, ctx, start=start, end=end, sample_dir=sample_dir,
         )
     else:
         ctx.suspicious_targets = []
@@ -1394,6 +1614,10 @@ def _incident_phase2_actors_and_heuristic(
         behavior_clusters=ctx.behavior_clusters,
         entity_clusters=ctx.entity_clusters,
     )
+    if ctx.flagged_client_ip_timeseries:
+        ctx.action_targets_artifact["flagged_client_ip_timeseries"] = (
+            ctx.flagged_client_ip_timeseries
+        )
 
 
 def _incident_emit_or_render(
@@ -1435,11 +1659,17 @@ def _incident_emit_or_render(
         "siem_action_mix": ctx.scope_artifact["siem_action_mix"],
         "siem_policy_mix": ctx.scope_artifact["siem_policy_mix"],
         "siem_bot_type_mix": ctx.scope_artifact["siem_bot_type_mix"],
+        "bot_source_mix": ctx.scope_artifact.get("bot_source_mix"),
+        "proxy_classification_mix": ctx.scope_artifact.get("proxy_classification_mix"),
         "actor_rankings": ctx.actors_artifact["actor_rankings"],
+        "actor_cooccurrence": ctx.actors_artifact.get("actor_cooccurrence") or {},
         "raw_drilldown_available": ctx.raw_drilldown_available,
         "siem_available": ctx.siem_available,
         "suspicious_targets": ctx.suspicious_targets,
         "target_evidence": getattr(ctx, "target_evidence", {}),
+        "flagged_client_ip_timeseries": getattr(
+            ctx, "flagged_client_ip_timeseries", []
+        ),
         "behavior_clusters": getattr(ctx, "behavior_clusters", []),
         "heuristic_version": "v2",
         "limitations": (
@@ -1492,6 +1722,7 @@ def _incident_emit_or_render(
             wrapper_path=wrapper_path,
             output_path=output_path,
             output_format=args.format,
+            config_path=getattr(args, "config", None),
             title=args.title,
         ),
         cwd=PUBLIC_SKILLS,

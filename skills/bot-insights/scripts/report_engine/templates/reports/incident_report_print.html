@@ -334,6 +334,24 @@
   table.tbl.actor-table .actor-ip { font-size: 8.8pt; }
   table.tbl.actor-table .chip { height: 16px; padding: 0 6px; font-size: 6.8pt; letter-spacing: 0.1em; }
   table.tbl.actor-table .basis { font-size: 7.6pt; line-height: 1.2; }
+  .actor-callouts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .actor-callouts.single { grid-template-columns: 1fr; }
+  .actor-callout { padding: 9px 11px; border-left: 3px solid var(--teal-deep); }
+  .actor-callout .callout-title {
+    font-family: var(--mono);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-size: 7pt;
+    color: var(--teal-deep);
+  }
+  .actor-callout p { margin: 5px 0 0; line-height: 1.35; }
+  .actor-callout .boundary { color: var(--ink-3); font-size: 7pt; }
 
   /* Bar in cell */
   .bar {
@@ -467,11 +485,11 @@
 
   /* finding card */
   .finding {
-    padding: 18px;
+    padding: 12px 16px;
     background: var(--paper);
     border: 1px solid var(--line);
     border-radius: 0 0 34px 0;
-    display: flex; flex-direction: column; gap: 12px;
+    display: flex; flex-direction: column; gap: 8px;
     position: relative;
     overflow: hidden;
   }
@@ -481,7 +499,7 @@
     letter-spacing: 0.12em;
   }
   .finding .ix b { color: var(--ink); }
-  .finding h3 { color: var(--ink); }
+  .finding h3 { color: var(--ink); font-size: 13pt; }
   .finding .stripe {
     position: absolute; left: 0; top: 0; bottom: 0;
     width: 3px; background: var(--teal-deep);
@@ -490,6 +508,23 @@
   .finding.critical .ix { color: var(--critical); }
   .finding.high .stripe { background: var(--high); }
   .finding.high .ix { color: var(--high); }
+  .finding-as-callout {
+    border: 1px solid var(--blue-pale);
+    border-left: 4px solid var(--monitor);
+    background: #F2FAFF;
+    border-radius: 0 0 18px 0;
+    padding: 7px 10px;
+  }
+  .finding-as-callout .callout-title {
+    font-family: var(--mono);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-size: 7pt;
+    color: var(--navy-mid);
+  }
+  .finding-as-callout p { margin: 4px 0 0; line-height: 1.24; }
+  .finding-as-callout .boundary { color: var(--ink-2); font-size: 7pt; }
 
   /* priority card */
   .pri {
@@ -549,8 +584,8 @@
   /* IP card */
   .ip-card {
     background: var(--paper); border: 1px solid var(--line);
-    border-radius: 0 0 21px 0; padding: 12px 14px;
-    display: flex; flex-direction: column; gap: 8px;
+    border-radius: 0 0 21px 0; padding: 10px 12px;
+    display: flex; flex-direction: column; gap: 7px;
     position: relative; overflow: hidden;
   }
   .ip-card .ip {
@@ -791,7 +826,7 @@
         </div>
       </div>
 
-      <!-- RIGHT · Score + band, with summary below -->
+      <!-- RIGHT · Score + band -->
       <div class="col gap-12">
         <div style="display: grid; grid-template-columns: auto 1fr; gap: 22px; align-items: center;">
           <div class="risk-num" style="font-size: 64pt; line-height: 0.85; color: #fff;">{{ verdict.risk_score }}<small style="font-size: 16pt; color: var(--teal-light);">/{{ verdict.risk_max }}</small></div>
@@ -801,16 +836,22 @@
             <div class="row between" style="font-family: var(--mono); font-size: 6.5pt; letter-spacing: 0.1em; color: rgba(255,255,255,.6); text-transform: uppercase; margin-top: 2px;">
               {% for b in verdict.bands %}<span {% if b.is_critical %}style="color: var(--critical-pale);"{% endif %}>{{ b.label }}</span>{% endfor %}
             </div>
+            <div class="small" style="color: var(--teal-light); margin-top: 5px; line-height: 1.35;">{{ verdict.calibration_html | safe }}</div>
           </div>
         </div>
-        <p class="lede" style="color: #DDE7F0; margin: 0; font-size: 9.5pt; line-height: 1.5;">
-          {{ verdict.prose_html | safe }}
-        </p>
       </div>
     </div>
 
+    <!-- COVER NARRATIVE CALLOUT -->
+    <div class="pf pf-sm" style="margin-top: 14px; padding: 12px 16px 13px; border-left: 4px solid var(--critical); background: #fff;">
+      <div class="label" style="color: var(--critical);">Assessment summary</div>
+      <p class="small" style="color: var(--ink-1); margin: 6px 0 0; max-width: 86ch; line-height: 1.45;">
+        {{ verdict.prose_html | safe }}
+      </p>
+    </div>
+
     <!-- HERO TIMELINE -->
-    <div style="margin-top: 26px;">
+    <div style="margin-top: 18px;">
       <div class="row between center" style="margin-bottom: 8px;">
         <div class="col">
           <span class="eyebrow">{{ chart.title }}</span>
@@ -934,7 +975,7 @@
   <div class="foot-bar" style="margin-top: auto;">
     <div>{{ customer }} · {{ meta.schema | upper }}</div>
     <div>Cover / Verdict</div>
-    <div class="page-no">01 / 08</div>
+    <div class="page-no">01 / {{ page_count }}</div>
   </div>
 </section>
 
@@ -974,7 +1015,7 @@
         <div style="margin-top: 8px;">
           {% for p in analyst_assessment.inferred %}<span class="pill inferred">{{ p }}</span>{% endfor %}
         </div>
-        <div class="tiny" style="margin-top: 6px;">Inferred labels are interpretations of observed log patterns. They are <strong>not attribution, root cause, or intent</strong> claims.</div>
+        <div class="tiny" style="margin-top: 6px;">Inferred labels are interpretations of observed log patterns. They are <strong>not identity, causal attribution, or actor-intent evidence</strong>.</div>
       </div>
     </div>
 
@@ -1018,7 +1059,7 @@
   <div class="foot-bar">
     <div>{{ customer }} · {{ meta.schema | upper }}</div>
     <div>Analyst Assessment</div>
-    <div class="page-no">02 / 08</div>
+    <div class="page-no">02 / {{ page_count }}</div>
   </div>
 </section>
 
@@ -1041,7 +1082,7 @@
     <div class="finding {{ f.severity }}" style="margin-top: 18px;">
       <span class="stripe"></span>
       <div class="row between center">
-        <span class="ix">Finding <b>{{ f.n }}</b> · {{ f.kicker }}</span>
+        <span class="ix">Finding <b>{{ f.n }}</b>{% if f.kicker %} · {{ f.kicker }}{% endif %}</span>
         <div class="row gap-8">
           <span class="chip {{ f.severity }}">{{ f.severity_label }}</span>
           {% for chip in f.chips %}<span class="chip {{ chip.class | default('ghost') }}">{{ chip.text }}</span>{% endfor %}
@@ -1049,6 +1090,13 @@
       </div>
       <h3>{{ f.headline }}</h3>
       <p class="small" style="color: var(--ink-1);">{{ f.prose_html | safe }}</p>
+      {% if f.as_callout %}
+      <div class="finding-as-callout">
+        <div class="callout-title">{{ f.as_callout.title }}</div>
+        <p class="small">{{ f.as_callout.summary_html | safe }}</p>
+        <p class="boundary">{{ f.as_callout.boundary_html | safe }}</p>
+      </div>
+      {% endif %}
 
       <div class="grid-3" style="margin-top: 4px;">
         {% for ip in f.ips %}
@@ -1057,7 +1105,7 @@
           <div class="asn">{{ ip.asn_label }}</div>
           <div class="row between center" style="margin-top: 4px;">
             <span class="num" style="color: var(--ink); font-size: 11pt;">{{ ip.volume }}</span>
-            <span class="num" style="color: var(--critical); font-size: 9pt;">{{ ip.share }} share</span>
+            <span class="num" style="color: var(--critical); font-size: 9pt;">{{ ip.share }}</span>
           </div>
         </div>
         {% endfor %}
@@ -1069,7 +1117,7 @@
     <div class="finding {{ f.severity }}" style="margin-top: 14px;">
       <span class="stripe"></span>
       <div class="row between center">
-        <span class="ix">Finding <b>{{ f.n }}</b> · {{ f.kicker }}</span>
+        <span class="ix">Finding <b>{{ f.n }}</b>{% if f.kicker %} · {{ f.kicker }}{% endif %}</span>
         <div class="row gap-8">
           <span class="chip {{ f.severity }}">{{ f.severity_label }}</span>
           {% for chip in f.chips %}<span class="chip {{ chip.class | default('ghost') }}">{{ chip.text }}</span>{% endfor %}
@@ -1077,6 +1125,13 @@
       </div>
       <h3>{{ f.headline }}</h3>
       <p class="small" style="color: var(--ink-1);">{{ f.prose_html | safe }}</p>
+      {% if f.ua_age_callout %}
+      <div class="finding-as-callout">
+        <div class="callout-title">{{ f.ua_age_callout.title }}</div>
+        <p class="small">{{ f.ua_age_callout.summary_html | safe }}</p>
+        <p class="boundary">{{ f.ua_age_callout.boundary_html | safe }}</p>
+      </div>
+      {% endif %}
 
       <div class="grid-2" style="margin-top: 4px;">
         {% for ua in f.uas %}
@@ -1091,12 +1146,27 @@
       </div>
     </div>
 
+    {% set f = finding_human_anomaly %}
+    <!-- F03 — Human-classified anomaly finding -->
+    <div class="finding {{ f.severity }}" style="margin-top: 14px;">
+      <span class="stripe"></span>
+      <div class="row between center">
+        <span class="ix">Finding <b>{{ f.n }}</b>{% if f.kicker %} · {{ f.kicker }}{% endif %}</span>
+        <div class="row gap-8">
+          <span class="chip {{ f.severity }}">{{ f.severity_label }}</span>
+          {% for chip in f.chips %}<span class="chip {{ chip.class | default('ghost') }}">{{ chip.text }}</span>{% endfor %}
+        </div>
+      </div>
+      <h3>{{ f.headline }}</h3>
+      <p class="small" style="color: var(--ink-1);">{{ f.prose_html | safe }}</p>
+    </div>
+
   </div>
 
   <div class="foot-bar">
     <div>{{ customer }} · {{ meta.schema | upper }}</div>
     <div>Findings</div>
-    <div class="page-no">03 / 08</div>
+    <div class="page-no">03 / {{ page_count }}</div>
   </div>
 </section>
 
@@ -1135,7 +1205,7 @@
   <div class="foot-bar">
     <div>{{ customer }} · {{ meta.schema | upper }}</div>
     <div>Recommended actions</div>
-    <div class="page-no">04 / 08</div>
+    <div class="page-no">04 / {{ page_count }}</div>
   </div>
 </section>
 
@@ -1205,7 +1275,7 @@
   <div class="foot-bar">
     <div>{{ customer }} · {{ meta.schema | upper }}</div>
     <div>Attack shape</div>
-    <div class="page-no">05 / 08</div>
+    <div class="page-no">05 / {{ page_count }}</div>
   </div>
 </section>
 
@@ -1226,8 +1296,20 @@
     <h2 style="margin-top: 8px;">{{ actors_page.headline }}</h2>
     <p class="small" style="margin-top: 8px; max-width: 70ch;">{{ actors_page.lede_html | safe }}</p>
 
+    {% if actor_correlation_callouts %}
+    <div class="actor-callouts{% if actor_correlation_callouts | length == 1 %} single{% endif %}">
+      {% for callout in actor_correlation_callouts %}
+      <div class="pf pf-sm actor-callout">
+        <div class="callout-title">Actor correlations · {{ callout.title }}</div>
+        <p class="small">{{ callout.summary_html | safe }}</p>
+        <p class="boundary">{{ callout.boundary_html | safe }}</p>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
     <!-- IP table -->
-    <div class="pf pf-sm" style="margin-top: 14px; padding: 0 4px;">
+    <div class="pf pf-sm" style="margin-top: {% if actor_correlation_callouts %}10px{% else %}14px{% endif %}; padding: 0 4px;">
       <table class="tbl actor-table">
         <thead>
           <tr>
@@ -1297,7 +1379,7 @@
   <div class="foot-bar">
     <div>{{ customer }} · {{ meta.schema | upper }}</div>
     <div>Who hit it</div>
-    <div class="page-no">06 / 08</div>
+    <div class="page-no">06 / {{ page_count }}</div>
   </div>
 </section>
 
@@ -1387,7 +1469,7 @@
   <div class="foot-bar">
     <div>{{ customer }} · {{ meta.schema | upper }}</div>
     <div>Classification &amp; edge response</div>
-    <div class="page-no">07 / 08</div>
+    <div class="page-no">07 / {{ page_count }}</div>
   </div>
 </section>
 
@@ -1459,9 +1541,272 @@
   <div class="foot-bar">
     <div>{{ customer }} · {{ meta.schema | upper }}</div>
     <div>ATT&amp;CK · Methodology</div>
-    <div class="page-no">08 / 08</div>
+    <div class="page-no">08 / {{ page_count }}</div>
   </div>
 </section>
+
+<!-- =========================================================
+     PAGE 9 — SCORE + DATA AVAILABILITY
+     ========================================================= -->
+<section class="page" data-screen-label="09 Score &amp; availability">
+  <div class="top-bar">
+    <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
+    <div class="meta" style="display:flex; gap:18px;"><span><b>{{ customer | upper }}</b></span><span>{{ window.date | upper }} · {{ window.start }} — {{ window.end }} {{ window.tz }}</span><span>RISK <b style="color:var(--{{ verdict.band }});">{{ verdict.risk_score }} / {{ verdict.band_label | upper }}</b></span></div>
+  </div>
+
+  <div class="pad">
+    <span class="eyebrow">{{ risk_explanation.eyebrow }}</span>
+    <h2 style="margin-top: 8px;">{{ risk_explanation.headline }}</h2>
+    <p class="small" style="margin-top: 8px; max-width: 74ch;">{{ risk_explanation.lede_html | safe }}</p>
+
+    <div class="grid-2" style="margin-top: 18px; gap: 18px;">
+      <div class="pf pf-sm" style="padding: 12px 16px;">
+        <div class="row between center">
+          <span class="label">Severity-weighted target counts</span>
+          <span class="chip {{ verdict.band }}">{{ verdict.band_label }}</span>
+        </div>
+        <table class="tbl" style="margin-top: 8px;">
+          <thead>
+            <tr><th>Severity</th><th class="right num">Count</th><th class="right num">Weight</th><th class="right num">Weighted</th></tr>
+          </thead>
+          <tbody>
+            {% for r in risk_explanation.severity_rows %}
+            <tr{% if loop.index is even %} class="zebra"{% endif %}>
+              <td><span class="chip {{ r.severity }}">{{ r.label }}</span></td>
+              <td class="right num">{{ r.count }}</td>
+              <td class="right num">{{ r.weight }}</td>
+              <td class="right num">{{ r.weighted }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pf pf-sm" style="padding: 12px 16px;">
+        <span class="label">Fired reasons</span>
+        <div style="margin-top: 10px; display:flex; flex-direction:column; gap:7px;">
+          {% for r in risk_explanation.reason_rows %}
+          <div class="row between center" style="border-bottom:1px solid var(--line); padding-bottom:6px;">
+            <span class="small" style="color:var(--ink-1);">{{ r.reason }}</span>
+            <span class="num" style="font-size: 10pt; color: var(--ink);">{{ r.count }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <hr class="div" />
+    <div class="row between center">
+      <span class="eyebrow">{{ analysis_availability_print.eyebrow }}</span>
+      <span class="chip ghost">Limitations</span>
+    </div>
+    <h3 style="margin-top: 8px; font-size: 17pt;">{{ analysis_availability_print.headline }}</h3>
+    <p class="small" style="margin-top: 8px; max-width: 74ch;">{{ analysis_availability_print.boundary_html | safe }}</p>
+
+    <div class="grid-2" style="margin-top: 12px; gap: 12px;">
+      {% for row in analysis_availability_print.rows %}
+      <div class="pf pf-sm" style="padding: 10px 12px;">
+        <div class="row between center">
+          <span class="label">{{ row.analysis }}</span>
+          <span class="chip ghost">{{ row.status }}</span>
+        </div>
+        <p class="small" style="margin: 7px 0 0; color: var(--ink-1); line-height:1.38;">{{ row.detail_html | safe }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="foot-bar">
+    <div>{{ customer }} · {{ meta.schema | upper }}</div>
+    <div>Score &amp; availability</div>
+    <div class="page-no">09 / {{ page_count }}</div>
+  </div>
+</section>
+
+<!-- =========================================================
+     PAGE 10 — UA AGE
+     ========================================================= -->
+<section class="page" data-screen-label="10 Browser UA age">
+  <div class="top-bar">
+    <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
+    <div class="meta" style="display:flex; gap:18px;"><span><b>{{ customer | upper }}</b></span><span>{{ window.date | upper }} · {{ window.start }} — {{ window.end }} {{ window.tz }}</span><span>RISK <b style="color:var(--{{ verdict.band }});">{{ verdict.risk_score }} / {{ verdict.band_label | upper }}</b></span></div>
+  </div>
+
+  <div class="pad">
+    <span class="eyebrow">{{ browser_age.eyebrow }}</span>
+    <h2 style="margin-top: 8px;">{{ browser_age.headline }}</h2>
+    <p class="small" style="margin-top: 8px; max-width: 76ch;">{{ browser_age.boundary_html | safe }}</p>
+    <div class="tiny" style="margin-top: 5px; color: var(--ink-3);">{{ browser_age.meta }}</div>
+
+    <div class="pf pf-sm" style="margin-top: 12px; padding: 0 4px;">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Browser token</th>
+            <th>Status</th>
+            <th class="right num">Age</th>
+            <th class="right num">Requests</th>
+            <th class="right num">Share</th>
+            <th class="right num">Δ baseline</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in browser_age.rows %}
+          <tr{% if loop.index is even %} class="zebra"{% endif %}>
+            <td>
+              <div class="num" style="font-size: 8.5pt; font-weight:700;">{{ row.browser }}</div>
+              <div class="tiny" style="word-break: break-all;">{{ row.ua }}</div>
+            </td>
+            <td><span class="chip {% if row.stale %}critical{% else %}ghost{% endif %}">{{ row.status }}</span></td>
+            <td class="right num">{{ row.age }}</td>
+            <td class="right num">{{ row.requests }}</td>
+            <td class="right num">{{ row.share }}</td>
+            <td class="right num">{{ row.delta }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if browser_age.comparison_rows %}
+    <div class="grid-3" style="margin-top: 10px; gap: 10px;">
+      {% for row in browser_age.comparison_rows %}
+      <div class="pf pf-sm" style="padding: 9px 11px;">
+        <div class="label">{{ row.browser }}</div>
+        <div class="small" style="margin-top: 5px;">{{ row.requests }} · {{ row.share }}</div>
+        <div class="tiny" style="margin-top: 3px;">{{ row.status }} · {{ row.age }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="foot-bar">
+    <div>{{ customer }} · {{ meta.schema | upper }}</div>
+    <div>UA age</div>
+    <div class="page-no">10 / {{ page_count }}</div>
+  </div>
+</section>
+
+<!-- =========================================================
+     PAGE 11 — UA ROTATION (WHEN AVAILABLE)
+     ========================================================= -->
+{% if ua_rotation_print.available %}
+<section class="page" data-screen-label="{{ '%02d' | format(ua_rotation_page_number) }} User-Agent rotation">
+  <div class="top-bar">
+    <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
+    <div class="meta" style="display:flex; gap:18px;"><span><b>{{ customer | upper }}</b></span><span>{{ window.date | upper }} · {{ window.start }} — {{ window.end }} {{ window.tz }}</span><span>RISK <b style="color:var(--{{ verdict.band }});">{{ verdict.risk_score }} / {{ verdict.band_label | upper }}</b></span></div>
+  </div>
+
+  <div class="pad">
+    <span class="eyebrow">{{ ua_rotation_print.eyebrow }}</span>
+    <h2 style="margin-top: 8px;">{{ ua_rotation_print.headline }}</h2>
+    <p class="small" style="margin-top: 8px; max-width: 76ch;">{{ ua_rotation_print.summary_html | safe }} {{ ua_rotation_print.boundary_html | safe }}</p>
+
+    <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 10px;">
+      {% for row in ua_rotation_print.rows %}
+      <div class="pf pf-sm" style="padding: 12px 14px;">
+        <div class="row between center">
+          <div>
+            <div class="num" style="font-size: 12pt; font-weight: 700;">{{ row.client_ip }}</div>
+            <div class="tiny" style="margin-top: 4px; word-break: break-all;">{{ row.top_user_agent }}</div>
+          </div>
+          <span class="chip {% if row.rotation_label == 'high' %}critical{% elif row.rotation_label == 'moderate' %}monitor{% else %}ghost{% endif %}">{{ row.rotation_label }}</span>
+        </div>
+        <div class="grid-5" style="margin-top: 10px; gap: 8px;">
+          <div>
+            <span class="label">Requests</span>
+            <div class="num" style="margin-top: 4px; font-size: 12pt;">{{ row.requests }}</div>
+          </div>
+          <div>
+            <span class="label">Distinct UAs</span>
+            <div class="num" style="margin-top: 4px; font-size: 12pt;">{{ row.distinct_user_agents }}</div>
+          </div>
+          <div>
+            <span class="label">Top-UA share</span>
+            <div class="num" style="margin-top: 4px; font-size: 12pt;">{{ row.top_user_agent_share }}</div>
+          </div>
+          <div>
+            <span class="label">Entropy</span>
+            <div class="num" style="margin-top: 4px; font-size: 12pt;">{{ row.entropy_bits }}</div>
+          </div>
+          <div>
+            <span class="label">Normalized</span>
+            <div class="num" style="margin-top: 4px; font-size: 12pt;">{{ row.normalized_entropy }}</div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="pf pf-sm" style="margin-top: 16px; padding: 14px 16px;">
+      <span class="label">Interpretation boundary</span>
+      <p class="small" style="margin: 8px 0 0; color: var(--ink-1); max-width: 78ch;">
+        UA rotation is included as corroborating context only. It does not modify the risk score, confidence gates, target ordering, or incident claims.
+      </p>
+    </div>
+  </div>
+
+  <div class="foot-bar">
+    <div>{{ customer }} · {{ meta.schema | upper }}</div>
+    <div>User-Agent rotation</div>
+    <div class="page-no">{{ '%02d' | format(ua_rotation_page_number) }} / {{ page_count }}</div>
+  </div>
+</section>
+{% endif %}
+
+<!-- =========================================================
+     PAGE 11/12 — AS CONTEXT
+     ========================================================= -->
+{% if as_reputation_print.available %}
+<section class="page" data-screen-label="{{ '%02d' | format(as_reputation_page_number) }} External AS context">
+  <div class="top-bar">
+    <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
+    <div class="meta" style="display:flex; gap:18px;"><span><b>{{ customer | upper }}</b></span><span>{{ window.date | upper }} · {{ window.start }} — {{ window.end }} {{ window.tz }}</span><span>RISK <b style="color:var(--{{ verdict.band }});">{{ verdict.risk_score }} / {{ verdict.band_label | upper }}</b></span></div>
+  </div>
+
+  <div class="pad">
+    <span class="eyebrow">{{ as_reputation_print.eyebrow }}</span>
+    <h2 style="margin-top: 8px;">{{ as_reputation_print.headline }}</h2>
+    <p class="small" style="margin-top: 8px; max-width: 76ch;">{{ as_reputation_print.boundary_html | safe }}</p>
+
+    {% for row in as_reputation_print.rows %}
+    <div class="dark-card" style="margin-top: 18px; padding: 18px 20px; border-radius: 0 0 36px 0;">
+      <div class="row between center">
+        <span class="eyebrow on-dark">{{ row.asn }} · {{ row.name }}</span>
+        <span class="chip critical">{{ row.label }}</span>
+      </div>
+      <p class="lede" style="color:#DDE7F0; margin: 12px 0 0; font-size: 10pt; line-height:1.5;">{{ row.external_html | safe }}</p>
+      <hr class="div thin" style="border-color: rgba(255,255,255,.16); margin: 14px 0;" />
+      <p class="small" style="color:#C8D4DC; margin: 0; line-height:1.45;">{{ row.local_html | safe }}</p>
+      {% if row.sources %}
+      <div style="margin-top: 14px;">
+        <span class="label" style="color: var(--teal-light);">Sources</span>
+        <div style="margin-top: 7px; display:flex; flex-wrap:wrap; gap:8px;">
+          {% for source in row.sources %}
+          <span class="chip ghost" style="color:#fff; border-color:rgba(255,255,255,.28);">{{ source }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+
+    <div class="pf pf-sm" style="margin-top: 22px; padding: 14px 16px;">
+      <span class="label">Interpretation boundary</span>
+      <p class="small" style="margin: 8px 0 0; color: var(--ink-1); max-width: 78ch;">
+        Public AS reputation is included as corroborating context only. It does not modify the score, confidence gates, target ordering, or incident claims.
+      </p>
+    </div>
+  </div>
+
+  <div class="foot-bar">
+    <div>{{ customer }} · {{ meta.schema | upper }}</div>
+    <div>External AS context</div>
+    <div class="page-no">{{ '%02d' | format(as_reputation_page_number) }} / {{ page_count }}</div>
+  </div>
+</section>
+{% endif %}
 
 </div>
 </body>

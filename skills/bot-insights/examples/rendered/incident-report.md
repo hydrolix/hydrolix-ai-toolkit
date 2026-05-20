@@ -31,6 +31,16 @@ _From AI assistant._
 - 4 target\(s\) at severity:high — Client ASN \`64500\`, Traffic cohort \`Browser\`, User Agent \`python\-requests/2\.31\`
 - Raw actor rankings and action-target priority are shown separately so volume, severity, action class, and confidence remain distinct.
 
+### Risk Score Explanation
+
+Risk 75/100. Raw score 75\.2/100; verdict band 75\-100. Confidence is gated separately by spike evidence, baseline availability, raw access\-log drilldown, and edge\-response evidence\.
+
+| Severity | Targets | Weight | Weighted count |
+| --- | ---: | ---: | ---: |
+| Critical | 3 | 30 | 90 |
+| High | 4 | 15 | 60 |
+| Low | 2 | 1 | 2 |
+
 ### Open Validation Items
 
 - Validate edge-control candidates against protected traffic before enforcement.
@@ -53,6 +63,18 @@ _From AI assistant._
 Top affected host: **www\.example\.com** (96\.5% of incident requests, \+312% vs baseline).
 
 Top path pattern: `/login/\*` — 2\.90M requests (68\.2% of target traffic, \+530% vs baseline).
+
+## Analysis Availability
+
+Availability notes prevent unsupported conclusions\. Unavailable rows are limitations, not negative findings\.
+
+| Analysis | Status | Interpretation |
+| --- | --- | --- |
+| ASN / hosting decomposition | Partial | Observed ASN ranking is present, but the bundled artifacts do not include hosting\-provider taxonomy beyond optional AS reputation context\. |
+| Baseline\-relative actor emergence | Available | 1 flagged target\(s\) carried new\-in\-window or high\-volume\-new\-actor evidence\. |
+| Edge\-action effectiveness | Unavailable | No edge action mix was bundled\. |
+| Flagged\-IP clustering | Unavailable | No explicit flagged\-IP cluster artifact was bundled\. |
+| Protected\-population / counterfactual check | Unavailable | The bundled artifacts cannot evaluate collateral impact or counterfactual outcomes\. |
 
 ## Drilldown: Flagged Signals
 
@@ -77,6 +99,25 @@ Source: `bot_incident_action_targets.v1` action-target heuristic. This is the au
 | User Agent | `curl/7\.88\.1` | high volume share; automation user agent | T1498, T1071\.001 | 410\.00K | 9\.60% | 51\.00K | High | Medium | High severity; Watch action class; Medium confidence\. |
 | Client IP | `203\.0\.113\.55` | new in window | — | 220\.00K | 5\.20% | 36\.00K | Low | Low | Low severity; Watch action class; Low confidence\. |
 | User Agent | `Go\-http\-client/1\.1` | automation user agent | T1071\.001 | 210\.00K | 4\.90% | 19\.00K | Low | Low | Low severity; Watch action class; Low confidence\. |
+
+## Browser UA Age
+
+Browser age is context only\. Older UA tokens are consistent with intentionally configured, pinned, spoofed, or non\-updating clients; they are not proof of operator intent or classification bypass\.
+
+| Flagged UA | Browser token | Age | Requests | Share | Baseline delta |
+| --- | --- | --- | ---: | ---: | ---: |
+| `python\-requests/2\.31` | Unknown browser family unknown; No supported browser version token was found\. | Age unknown — age unknown | 920\.00K | 21\.6% | — |
+| `curl/7\.88\.1` | Unknown browser family unknown; No supported browser version token was found\. | Age unknown — age unknown | 410\.00K | 9\.60% | — |
+| `Go\-http\-client/1\.1` | Unknown browser family unknown; No supported browser version token was found\. | Age unknown — age unknown | 210\.00K | 4\.90% | — |
+
+Comparison rows:
+
+| UA | Browser token | Age | Requests | Share |
+| --- | --- | --- | ---: | ---: |
+| `Mozilla/5\.0 \(Linux; Android 13\) AppleWebKit/537\.36` | Unknown browser family unknown | age unknown | 1\.28M | 40\.0% |
+| `Mozilla/5\.0 \(Windows NT 10\.0; Win64; x64\) Chrome/124\.0` | Chrome/Chromium token 124 | 2\.1 years old | 380\.00K | 11\.9% |
+
+_Snapshot configured: yes; 185 local release rows read. Stale threshold: 18 months as of 2026-05-13._
 
 ## ATT&CK Mapping
 
@@ -192,18 +233,18 @@ _From AI assistant._
 
 Source: `bot_incident_actors.v1` / `actor_rankings.client_ip`.
 
-| # | Client IP | Requests | Share | 429s | 5xx | Paths | ASN | Baseline | Edge action | Why ranked here |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `203\.0\.113\.10` | 540\.00K | 24\.2% | 92\.00K / 17\.0% | 200 / 0\.04% | 1 | — | not flagged as new | not available | Raw volume rank 1; Critical; Watch; High confidence\. |
-| 2 | `198\.51\.100\.42` | 420\.00K | 18\.9% | 65\.00K / 15\.5% | 80 / 0\.02% | 1 | — | not flagged as new | not available | Raw volume rank 2; Critical; Watch; High confidence\. |
-| 3 | `192\.0\.2\.17` | 360\.00K | 16\.2% | 41\.00K / 11\.4% | 60 / 0\.02% | 1 | — | not flagged as new | not available | Raw volume rank 3; Critical; Watch; High confidence\. |
-| 4 | `203\.0\.113\.55` | 220\.00K | 9\.88% | 36\.00K / 16\.4% | 30 / 0\.01% | 2 | — | absent from baseline | not available | Raw volume rank 4; Low; Watch; Low confidence\. |
-| 5 | `198\.51\.100\.7` | 180\.00K | 8\.08% | 18\.00K / 10\.0% | 25 / 0\.01% | 3 | — | not flagged as new | not available | Raw volume rank 5; no heuristic severity; not promoted to action target; no confidence\. |
-| 6 | `203\.0\.113\.99` | 150\.00K | 6\.74% | 12\.00K / 8\.00% | 30 / 0\.02% | 6 | — | not flagged as new | not available | Raw volume rank 6; no heuristic severity; not promoted to action target; no confidence\. |
-| 7 | `192\.0\.2\.201` | 120\.00K | 5\.39% | 8\.00K / 6\.70% | 18 / 0\.02% | 4 | — | not flagged as new | not available | Raw volume rank 7; no heuristic severity; not promoted to action target; no confidence\. |
-| 8 | `203\.0\.113\.4` | 95\.00K | 4\.27% | 7\.80K / 8\.20% | 22 / 0\.02% | 7 | — | not flagged as new | not available | Raw volume rank 8; no heuristic severity; not promoted to action target; no confidence\. |
-| 9 | `198\.51\.100\.23` | 78\.00K | 3\.50% | 6\.50K / 8\.30% | 10 / 0\.01% | 3 | — | not flagged as new | not available | Raw volume rank 9; no heuristic severity; not promoted to action target; no confidence\. |
-| 10 | `192\.0\.2\.66` | 64\.00K | 2\.87% | 4\.40K / 6\.90% | 14 / 0\.02% | 5 | — | not flagged as new | not available | Raw volume rank 10; no heuristic severity; not promoted to action target; no confidence\. |
+| # | Client IP | Requests | Share | 429s | 5xx | Paths | ASN | Baseline | Edge action | Bot/proxy provenance | Why ranked here |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `203\.0\.113\.10` | 540\.00K | 24\.2% | 92\.00K / 17\.0% | 200 / 0\.04% | 1 | — | not flagged as new | not available | not available | Raw volume rank 1; Critical; Watch; High confidence\. |
+| 2 | `198\.51\.100\.42` | 420\.00K | 18\.9% | 65\.00K / 15\.5% | 80 / 0\.02% | 1 | — | not flagged as new | not available | not available | Raw volume rank 2; Critical; Watch; High confidence\. |
+| 3 | `192\.0\.2\.17` | 360\.00K | 16\.2% | 41\.00K / 11\.4% | 60 / 0\.02% | 1 | — | not flagged as new | not available | not available | Raw volume rank 3; Critical; Watch; High confidence\. |
+| 4 | `203\.0\.113\.55` | 220\.00K | 9\.88% | 36\.00K / 16\.4% | 30 / 0\.01% | 2 | — | absent from baseline | not available | not available | Raw volume rank 4; Low; Watch; Low confidence\. |
+| 5 | `198\.51\.100\.7` | 180\.00K | 8\.08% | 18\.00K / 10\.0% | 25 / 0\.01% | 3 | — | not flagged as new | not available | not available | Raw volume rank 5; no heuristic severity; not promoted to action target; no confidence\. |
+| 6 | `203\.0\.113\.99` | 150\.00K | 6\.74% | 12\.00K / 8\.00% | 30 / 0\.02% | 6 | — | not flagged as new | not available | not available | Raw volume rank 6; no heuristic severity; not promoted to action target; no confidence\. |
+| 7 | `192\.0\.2\.201` | 120\.00K | 5\.39% | 8\.00K / 6\.70% | 18 / 0\.02% | 4 | — | not flagged as new | not available | not available | Raw volume rank 7; no heuristic severity; not promoted to action target; no confidence\. |
+| 8 | `203\.0\.113\.4` | 95\.00K | 4\.27% | 7\.80K / 8\.20% | 22 / 0\.02% | 7 | — | not flagged as new | not available | not available | Raw volume rank 8; no heuristic severity; not promoted to action target; no confidence\. |
+| 9 | `198\.51\.100\.23` | 78\.00K | 3\.50% | 6\.50K / 8\.30% | 10 / 0\.01% | 3 | — | not flagged as new | not available | not available | Raw volume rank 9; no heuristic severity; not promoted to action target; no confidence\. |
+| 10 | `192\.0\.2\.66` | 64\.00K | 2\.87% | 4\.40K / 6\.90% | 14 / 0\.02% | 5 | — | not flagged as new | not available | not available | Raw volume rank 10; no heuristic severity; not promoted to action target; no confidence\. |
 
 ### Highest priority action targets
 
@@ -666,6 +707,7 @@ The same flagged targets, restructured as a portable indicator feed (schema `bot
 | Scope metrics and baseline deltas | `bot\_incident\_scope\.v1` | window\_confirmation, volume\_timeseries, and scope dimension rows |
 | Highest\-volume raw actors | `bot\_incident\_actors\.v1` | actor\_rankings/client\_ip |
 | Highest\-priority action targets | `bot\_incident\_action\_targets\.v1` | targets plus evidence\_refs |
+| Bot/proxy provenance | `bot\_incident\_scope\.v1 / bot\_incident\_actors\.v1` | bot\_source\_mix, proxy\_classification\_mix, and client\_ip provenance cooccurrence cells |
 
 Credential\-access findings require auth endpoint, failure pattern, account/user identifiers, or SIEM/auth correlation\. Without those, T1110/T1110\.004 remain investigation leads\.
 
@@ -679,4 +721,4 @@ Incident report for Demo · Akamai, scope-confirmed against trailing equal\-leng
 - Scoring thresholds: Action targets are sorted by heuristic severity, then observed request volume\.; Raw actor rows are sorted by raw request volume within the actor ranking artifact\.; ATT\&CK credential\-access mappings are investigation leads unless auth\-specific evidence is present\.
 - Constraints: Mechanical features only; No causal claim; No malicious intent claim
 
-Generated 2026-05-19 02:50 UTC
+Generated 2026-05-20 16:21 UTC

@@ -1492,7 +1492,7 @@ def test_incident_report_print_uses_fixed_letter_template():
     assert "width: 8.5in" in actual
     assert "height: 11in" in actual
     assert "@page { size: letter; margin: 0; }" in actual
-    assert actual.count('<section class="page') == 8
+    assert actual.count('<section class="page') == 10
 
     cover_end = actual.index('<section class="page" data-screen-label="02 Analyst Assessment">')
     cover_html = actual[:cover_end]
@@ -1506,6 +1506,17 @@ def test_incident_report_print_uses_fixed_letter_template():
     assert "PEAK ·" in cover_html
     assert "targeted surge" not in cover_html
     assert "Targeted automation remains a medium-confidence hypothesis" in cover_html
+    assert (
+        "Calibration: Critical reflects 9 suspicious targets across 3 severity tiers, "
+        "with 7 fired signal types and 22 total signal hits."
+    ) in cover_html
+    assert "Raw score 75.2/100" in cover_html
+    assert "displayed score is bounded to the Critical band" in cover_html
+    assert "means the observed signals cleared" not in cover_html
+    assert "deterministic action threshold" not in cover_html
+    assert "Finding <b>01</b> · Finding 01" not in actual
+    assert "Finding <b>02</b> · Finding 02" not in actual
+    assert "Finding <b>03</b> · Finding 03" not in actual
 
     ordered = [
         "Analyst Assessment",
@@ -1516,6 +1527,9 @@ def test_incident_report_print_uses_fixed_letter_template():
         "Classification / Edge Response",
         "ATT&amp;CK / Methodology",
         "Technique mapping and method",
+        "How the score was calculated",
+        "Analysis Availability",
+        "Browser UA Age",
     ]
     positions = [actual.index(label) for label in ordered]
     assert positions == sorted(positions)
@@ -1523,6 +1537,456 @@ def test_incident_report_print_uses_fixed_letter_template():
     assert "Metrics and ranks are deterministic" in actual
     assert "Ramp begins" in actual
     assert "Highest pressure" in actual
+
+
+def test_incident_report_print_includes_user_agent_rotation_when_available():
+    fixture = FIXTURES / "incident_report_deterministic_only.json"
+    data = deepcopy(json.loads(fixture.read_text()))
+    data["artifacts"][1]["actor_cooccurrence"] = {
+        "client_ip__user_agent": [
+            {"ip": "203.0.113.10", "ua": f"Mozilla/5.0 Chrome/{idx}", "requests": 54000}
+            for idx in range(10)
+        ]
+    }
+
+    with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+        wrapper_path = Path(f.name)
+        json.dump(data, f)
+    try:
+        actual = _normalize(_render(wrapper_path, "--profile", "print"))
+    finally:
+        wrapper_path.unlink(missing_ok=True)
+
+    assert actual.count('<section class="page') == 11
+    assert "Browser UA Age" in actual
+    assert "User-Agent Rotation" in actual
+    assert "External AS Context" not in actual
+    ordered = ["Browser UA Age", "User-Agent Rotation"]
+    positions = [actual.index(label) for label in ordered]
+    assert positions == sorted(positions)
+    assert "UA rotation is consistent with automation or aggregator behavior" in actual
+    assert "11 / 11" in actual
+    assert "confirmed automation" not in actual.lower()
+
+
+def test_incident_report_print_omits_user_agent_rotation_when_unavailable():
+    fixture = FIXTURES / "incident_report_deterministic_only.json"
+    actual = _normalize(_render(fixture, "--profile", "print"))
+
+    assert actual.count('<section class="page') == 10
+    assert "User-Agent Rotation" not in actual
+    assert "External AS Context" not in actual
+    assert "Actor correlations" not in actual
+    assert "10 / 10" in actual
+
+
+def _incident_print_callout_fixture() -> dict:
+    data = deepcopy(
+        json.loads((FIXTURES / "incident_report_deterministic_only.json").read_text())
+    )
+    actors = data["artifacts"][1]
+    action_targets = data["artifacts"][2]
+    asn_ranking = next(r for r in actors["actor_rankings"] if r["field"] == "asn")
+    asn_ranking["rows"][0]["value"] = "44477"
+    asn_target = next(t for t in action_targets["targets"] if t["target_type"] == "asn")
+    asn_target["target_value"] = "44477"
+    actors["actor_cooccurrence"] = {
+        "client_ip__user_agent": [
+            {"ip": "203.0.113.10", "ua": f"Mozilla/5.0 Chrome/{idx}", "requests": 54000}
+            for idx in range(10)
+        ]
+    }
+    return data
+
+
+def _write_as_reputation_override(tmp_path: Path) -> Path:
+    path = tmp_path / "as-reputation.json"
+    path.write_text(
+        json.dumps(
+            {
+                "entries": [
+                    {
+                        "asns": ["44477"],
+                        "name": "STARK INDUSTRIES SOLUTIONS LTD",
+                        "label": "public_threat_enabler",
+                        "confidence": "medium",
+                        "sources": [
+                            {
+                                "title": "Source A",
+                                "url": "https://example.test/a",
+                                "source_type": "network_intelligence",
+                            },
+                            {
+                                "title": "Source B",
+                                "url": "https://example.test/b",
+                                "source_type": "security_research",
+                            },
+                        ],
+                    }
+                ]
+            }
+        )
+    )
+    return path
+
+
+def test_incident_report_print_actor_correlation_callouts_emit_when_evidence_exists(
+    tmp_path,
+):
+    from config import (
+        AsReputationConfig,
+        Thresholds,
+        active_thresholds,
+        set_active_thresholds,
+    )
+    from report_engine.contexts.incident import module
+    from report_engine.contexts.incident.print_adapter import build_print_report
+
+    data = _incident_print_callout_fixture()
+    original = active_thresholds()
+    try:
+        set_active_thresholds(
+            Thresholds(
+                as_reputation=AsReputationConfig(
+                    local_overrides_path=str(_write_as_reputation_override(tmp_path))
+                )
+            )
+        )
+        ctx = module.prepare(module.assemble(data["artifacts"]))
+        print_ctx = build_print_report(ctx)
+    finally:
+        set_active_thresholds(original)
+
+    callouts = print_ctx["actor_correlation_callouts"]
+    assert [row["kind"] for row in callouts] == ["as-reputation", "ua-rotation"]
+    assert "AS44477" in callouts[0]["summary_html"]
+    assert "STARK INDUSTRIES SOLUTIONS LTD" in callouts[0]["summary_html"]
+    assert "flagged target" in callouts[0]["summary_html"]
+    assert "consistent with automation" in callouts[1]["summary_html"]
+    assert "malicious" not in " ".join(row["summary_html"] for row in callouts).lower()
+    assert print_ctx["risk_explanation"]
+    assert print_ctx["ua_rotation_print"]["available"] is True
+    assert print_ctx["as_reputation_print"]["available"] is True
+
+
+def test_incident_print_finding_as_reputation_callout_is_evidence_gated():
+    from report_engine.contexts.incident.print_adapter import _findings
+
+    ctx = {
+        "incident_findings": [
+            {
+                "label": "Finding 01",
+                "lead": "Critical-tier client IPs coordinated against this window.",
+                "body": "These IPs crossed the multi-signal heuristic ladder.",
+                "entities": [
+                    {
+                        "value": "5.180.30.239",
+                        "target_type": "client_ip",
+                        "target_type_label": "Client IP",
+                        "meta": "AS44477 · Stark Industries Solutions Ltd · 0.45% of window",
+                        "severity": "critical",
+                    }
+                ],
+            }
+        ],
+        "as_reputation_context": {
+            "available": True,
+            "rows": [
+                {
+                    "asn_display": "AS44477",
+                    "name": "Stark Industries Solutions Ltd",
+                    "requests_display": "686.87M",
+                    "flagged_target_count": 4,
+                    "external_reputation_point": (
+                        "Multiple public sources describe AS44477/Stark Industries "
+                        "Solutions Ltd as associated with threat-enabling infrastructure. "
+                        "This context does not imply every IP, customer, or request "
+                        "from the AS is malicious."
+                    ),
+                }
+            ],
+        },
+    }
+
+    findings = _findings(ctx)
+    callout = findings[0]["as_callout"]
+
+    assert callout["title"] == "Why AS context is included"
+    assert callout["summary_html"] == (
+        "Included because AS44477 matched the AS reputation corpus and overlapped "
+        "this finding&#x27;s flagged client-IP cluster: 686.87M requests; "
+        "4 flagged targets. Multiple public sources describe AS44477/Stark "
+        "Industries Solutions Ltd as associated with threat-enabling infrastructure."
+    )
+    assert "not attribution" in callout["boundary_html"]
+    assert "malicious" not in callout["boundary_html"].lower()
+    assert findings[0]["ips"][0]["share"] == "AS44477 · 0.45% window"
+    assert "Stark Industries Solutions Ltd" not in findings[0]["ips"][0]["share"]
+    assert _findings({**ctx, "as_reputation_context": {"available": False, "rows": []}})[
+        0
+    ]["as_callout"] is None
+
+
+def test_incident_print_finding_ua_age_callout_is_evidence_gated():
+    from report_engine.contexts.incident.print_adapter import _findings
+
+    ua_old = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36"
+    )
+    ua_new = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+    )
+    ctx = {
+        "incident_findings": [
+            {
+                "label": "Finding 02",
+                "lead": "User agents drawing outsized request share.",
+                "body": "UA strings accounted for outsized window share.",
+                "entities": [
+                    {
+                        "value": ua_old,
+                        "target_type": "user_agent",
+                        "target_type_label": "User Agent",
+                        "meta": "2.13% of window",
+                    },
+                    {
+                        "value": ua_new,
+                        "target_type": "user_agent",
+                        "target_type_label": "User Agent",
+                        "meta": "0.29% of window",
+                    },
+                ],
+            }
+        ],
+        "browser_version_context": {
+            "available": True,
+            "rows": [
+                {
+                    "user_agent": ua_old,
+                    "browser_label": "Chrome/Chromium token",
+                    "version_display": "109",
+                    "age_display": "3.3 years old",
+                    "stale": True,
+                },
+                {
+                    "user_agent": ua_new,
+                    "browser_label": "Chrome/Chromium token",
+                    "version_display": "147",
+                    "age_display": "25 days old",
+                    "stale": False,
+                },
+            ],
+        },
+    }
+
+    finding = _findings(ctx)[0]
+    callout = finding["ua_age_callout"]
+
+    assert callout["title"] == "Browser age context"
+    assert callout["summary_html"] == "Chrome 109 (3.3y) is a stale UA token."
+    assert "not identity or intent evidence" in callout["boundary_html"]
+    assert finding["uas"][0]["label_html"] == "Chrome 109 / Windows"
+    assert finding["uas"][1]["label_html"] == "Chrome 147 / Windows"
+    assert ua_old not in finding["uas"][0]["label_html"]
+    assert _findings(
+        {**ctx, "browser_version_context": {"available": False, "rows": []}}
+    )[0]["ua_age_callout"] is None
+
+
+def test_incident_print_finding_ua_age_callout_summarizes_multiple_stale_tokens():
+    from report_engine.contexts.incident.print_adapter import _findings
+
+    ua_109 = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36"
+    )
+    ua_122 = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    )
+    ctx = {
+        "incident_findings": [
+            {
+                "label": "Finding 02",
+                "lead": "User agents drawing outsized request share.",
+                "body": "UA strings accounted for outsized window share.",
+                "entities": [
+                    {
+                        "value": ua_109,
+                        "target_type": "user_agent",
+                        "target_type_label": "User Agent",
+                        "meta": "2.13% of window",
+                    },
+                    {
+                        "value": ua_122,
+                        "target_type": "user_agent",
+                        "target_type_label": "User Agent",
+                        "meta": "0.29% of window",
+                    },
+                ],
+            }
+        ],
+        "browser_version_context": {
+            "available": True,
+            "rows": [
+                {
+                    "user_agent": ua_109,
+                    "browser_family": "Chrome",
+                    "browser_label": "Chrome/Chromium token",
+                    "version_display": "109",
+                    "age_display": "3.3 years old",
+                    "stale": True,
+                },
+                {
+                    "user_agent": ua_122,
+                    "browser_family": "Chrome",
+                    "browser_label": "Chrome/Chromium token",
+                    "version_display": "122",
+                    "age_display": "2.2 years old",
+                    "stale": True,
+                },
+            ],
+        },
+    }
+
+    finding = _findings(ctx)[0]
+    callout = finding["ua_age_callout"]
+
+    assert callout["summary_html"] == (
+        "Chrome 109 (3.3y) and Chrome 122 (2.2y) are stale UA tokens."
+    )
+    assert callout["boundary_html"] == (
+        "Stale tokens can be pinned, spoofed, or non-updating clients; "
+        "not identity or intent evidence."
+    )
+    assert [row["label_html"] for row in finding["uas"]] == [
+        "Chrome 109 / Windows",
+        "Chrome 122 / Windows",
+    ]
+
+
+def test_incident_report_print_actor_correlation_callouts_omit_missing_as_evidence():
+    from report_engine.contexts.incident import module
+    from report_engine.contexts.incident.print_adapter import build_print_report
+
+    data = _incident_print_callout_fixture()
+    ctx = module.prepare(module.assemble(data["artifacts"]))
+    print_ctx = build_print_report(ctx)
+
+    assert [row["kind"] for row in print_ctx["actor_correlation_callouts"]] == [
+        "ua-rotation"
+    ]
+
+
+def test_incident_report_print_actor_correlation_callouts_omit_missing_ua_evidence(
+    tmp_path,
+):
+    from config import (
+        AsReputationConfig,
+        Thresholds,
+        active_thresholds,
+        set_active_thresholds,
+    )
+    from report_engine.contexts.incident import module
+    from report_engine.contexts.incident.print_adapter import build_print_report
+
+    data = _incident_print_callout_fixture()
+    data["artifacts"][1]["actor_cooccurrence"] = {}
+    original = active_thresholds()
+    try:
+        set_active_thresholds(
+            Thresholds(
+                as_reputation=AsReputationConfig(
+                    local_overrides_path=str(_write_as_reputation_override(tmp_path))
+                )
+            )
+        )
+        ctx = module.prepare(module.assemble(data["artifacts"]))
+        print_ctx = build_print_report(ctx)
+    finally:
+        set_active_thresholds(original)
+
+    assert [row["kind"] for row in print_ctx["actor_correlation_callouts"]] == [
+        "as-reputation"
+    ]
+
+
+def test_incident_report_print_actor_correlation_callouts_do_not_change_core_context(
+    tmp_path,
+):
+    from config import (
+        AsReputationConfig,
+        Thresholds,
+        active_thresholds,
+        set_active_thresholds,
+    )
+    from report_engine.contexts.incident import module
+
+    fixture = FIXTURES / "incident_report_deterministic_only.json"
+    base_data = json.loads(fixture.read_text())
+    enriched_data = _incident_print_callout_fixture()
+    original = active_thresholds()
+    try:
+        base_ctx = module.prepare(module.assemble(base_data["artifacts"]))
+        set_active_thresholds(
+            Thresholds(
+                as_reputation=AsReputationConfig(
+                    local_overrides_path=str(_write_as_reputation_override(tmp_path))
+                )
+            )
+        )
+        enriched_ctx = module.prepare(module.assemble(enriched_data["artifacts"]))
+    finally:
+        set_active_thresholds(original)
+
+    assert enriched_ctx["risk_score"] == base_ctx["risk_score"]
+    assert enriched_ctx["claim_profile"] == base_ctx["claim_profile"]
+    assert [
+        (row["target_type"], row["severity"], row["requests"])
+        for row in enriched_ctx["suspicious_targets"]
+    ] == [
+        (row["target_type"], row["severity"], row["requests"])
+        for row in base_ctx["suspicious_targets"]
+    ]
+    assert enriched_ctx["assessment_explainers"]["user_agent_rotation"]["available"]
+    assert enriched_ctx["as_reputation_context"]["available"]
+
+
+def test_incident_report_print_template_renders_actor_correlation_callouts(tmp_path):
+    data = _incident_print_callout_fixture()
+    with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+        wrapper_path = Path(f.name)
+        json.dump(data, f)
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "as_reputation": {
+                    "local_overrides_path": str(_write_as_reputation_override(tmp_path))
+                }
+            }
+        )
+    )
+    try:
+        actual = _normalize(
+            _render(wrapper_path, "--profile", "print", "--config", str(config_path))
+        )
+    finally:
+        wrapper_path.unlink(missing_ok=True)
+
+    assert "Actor correlations" in actual
+    assert "Actor correlations · AS reputation cluster" in actual
+    assert "AS44477" in actual
+    assert "STARK INDUSTRIES SOLUTIONS LTD" in actual
+    assert "Actor correlations · User-Agent rotation" in actual
+    assert "consistent with automation" in actual
+    assert "User-Agent Rotation" in actual
+    assert "External AS Context" in actual
+    assert actual.count('<section class="page') == 12
+    assert "confirmed automation" not in actual.lower()
+    assert "known bad" not in actual.lower()
 
 
 def test_incident_report_verdict_falls_back_to_deterministic_summary_without_note():
@@ -1626,8 +2090,1063 @@ def test_incident_claim_profile_missing_raw_or_edge_lowers_confidence():
     assert profile["targeted_automation_confidence"] == "low"
 
 
+def test_incident_provenance_absent_is_silent():
+    from report_engine.contexts.incident import module
+
+    fixture = FIXTURES / "incident_report_deterministic_only.json"
+    data = deepcopy(json.loads(fixture.read_text()))
+
+    ctx = module.prepare(module.assemble(data["artifacts"]))
+    profile = ctx["claim_profile"]
+
+    assert ctx["bot_source_rows"] == []
+    assert ctx["proxy_classification_rows"] == []
+    assert all(not row.get("provenance_display") for row in ctx["suspicious_targets"])
+    assert profile["provenance_overlap"]["available"] is False
+    assert profile["traffic_anomaly_confidence"] == "high"
+    assert profile["targeted_automation_confidence"] == "medium"
+    assert "corroborated by source bot/proxy metadata" not in profile["hero_summary"]
+    assert "flagged client-IP traffic overlapped" not in _normalize(_render(fixture))
+
+
+def test_incident_provenance_overlap_scores_flagged_client_ip_share():
+    from report_engine.contexts.incident.claim_gates import compute_provenance_overlap
+
+    targets = [
+        {
+            "target_type": "client_ip",
+            "target_value": "203.0.113.10",
+            "supporting": {"requests": 40},
+        },
+        {
+            "target_type": "client_ip",
+            "target_value": "198.51.100.42",
+            "supporting": {"requests": 60},
+        },
+    ]
+    actors = {
+        "actor_cooccurrence": {
+            "client_ip__bot_source": [
+                {"ip": "203.0.113.10", "bot_category": "HTTP Libraries", "requests": 40}
+            ]
+        }
+    }
+
+    overlap = compute_provenance_overlap(actors, targets)
+
+    assert overlap["available"] is True
+    assert overlap["flagged_client_ip_requests"] == 100
+    assert overlap["overlap_requests"] == 40
+    assert overlap["overlap_share"] == pytest.approx(0.4)
+    assert overlap["overlap_share_display"] == "40.0%"
+    assert overlap["overlapping_target_count"] == 1
+    assert overlap["total_client_ip_target_count"] == 2
+
+
+def test_incident_provenance_overlap_caps_same_ip_bot_and_proxy_cells():
+    from report_engine.contexts.incident.claim_gates import compute_provenance_overlap
+
+    targets = [
+        {
+            "target_type": "client_ip",
+            "target_value": "203.0.113.10",
+            "supporting": {"requests": 100},
+        }
+    ]
+    actors = {
+        "actor_cooccurrence": {
+            "client_ip__bot_source": [
+                {"ip": "203.0.113.10", "bot_category": "HTTP Libraries", "requests": 80}
+            ],
+            "client_ip__proxy_classification": [
+                {"ip": "203.0.113.10", "epd_Category": "Residential Proxy", "requests": 80}
+            ],
+        }
+    }
+
+    overlap = compute_provenance_overlap(actors, targets)
+
+    assert overlap["available"] is True
+    assert overlap["overlap_requests"] == 100
+    assert overlap["overlap_share"] == pytest.approx(1.0)
+    assert overlap["overlap_share_display"] == "100%"
+    assert overlap["overlapping_target_count"] == 1
+
+
+def test_incident_provenance_overlap_ignores_non_flagged_cells():
+    from report_engine.contexts.incident.claim_gates import compute_provenance_overlap
+
+    targets = [
+        {
+            "target_type": "client_ip",
+            "target_value": "203.0.113.10",
+            "supporting": {"requests": 100},
+        }
+    ]
+    actors = {
+        "actor_cooccurrence": {
+            "client_ip__bot_source": [
+                {"ip": "198.51.100.42", "bot_category": "HTTP Libraries", "requests": 70}
+            ]
+        }
+    }
+
+    overlap = compute_provenance_overlap(actors, targets)
+
+    assert overlap["available"] is True
+    assert overlap["overlap_requests"] == 0
+    assert overlap["overlap_share"] == 0
+    assert overlap["overlapping_target_count"] == 0
+
+
+def test_incident_provenance_projects_scope_rows_and_flagged_annotations():
+    from report_engine.contexts.incident import module
+
+    fixture = FIXTURES / "incident_report_deterministic_only.json"
+    data = deepcopy(json.loads(fixture.read_text()))
+    scope = data["artifacts"][0]
+    actors = data["artifacts"][1]
+    scope["bot_source_mix"] = [
+        {
+            "value": "Browser Impersonator / HTTP Libraries",
+            "requests": 540000,
+            "share_pct": 12.7,
+            "delta_vs_baseline_pct": 240.0,
+        }
+    ]
+    scope["proxy_classification_mix"] = [
+        {
+            "value": "Residential Proxy / Public Proxy",
+            "requests": 220000,
+            "share_pct": 5.2,
+            "delta_vs_baseline_pct": 180.0,
+        }
+    ]
+    actors["actor_cooccurrence"] = {
+        "client_ip__bot_source": [
+            {
+                "ip": "203.0.113.10",
+                "bot_category": "Browser Impersonator",
+                "bot_type": "HTTP Libraries",
+                "botnet_id": "",
+                "requests": 540000,
+            }
+        ],
+        "client_ip__proxy_classification": [
+            {
+                "ip": "203.0.113.10",
+                "epd_Category": "Residential Proxy",
+                "epd_ActionName": "Public Proxy",
+                "epd_Match": "",
+                "requests": 220000,
+            }
+        ],
+    }
+
+    ctx = module.prepare(module.assemble(data["artifacts"]))
+    top_target = ctx["suspicious_targets"][0]
+
+    assert ctx["bot_source_rows"][0]["value"] == "Browser Impersonator / HTTP Libraries"
+    assert ctx["proxy_classification_rows"][0]["value"] == "Residential Proxy / Public Proxy"
+    assert "Browser Impersonator / HTTP Libraries observed" in top_target["provenance_lines"]
+    assert "Residential Proxy / Public Proxy observed" in top_target["provenance_lines"]
+    assert ctx["claim_profile"]["traffic_anomaly_confidence"] == "high"
+    assert ctx["claim_profile"]["targeted_automation_confidence"] == "medium"
+    assert ctx["claim_profile"]["provenance_overlap"]["available"] is True
+    assert ctx["claim_profile"]["provenance_overlap"]["overlap_requests"] == 540000
+    assert "corroborated by source bot/proxy metadata" in ctx["claim_profile"]["hero_summary"]
+
+
+def test_incident_provenance_renders_without_root_cause_claims():
+    fixture = FIXTURES / "incident_report_deterministic_only.json"
+    data = deepcopy(json.loads(fixture.read_text()))
+    data["artifacts"][0]["bot_source_mix"] = [
+        {
+            "value": "Expedia Custom AI Bot",
+            "requests": 10000,
+            "share_pct": 0.25,
+            "delta_vs_baseline_pct": 50.0,
+        }
+    ]
+    data["artifacts"][0]["proxy_classification_mix"] = [
+        {
+            "value": "Anonymous VPN / Public Proxy",
+            "requests": 20000,
+            "share_pct": 0.47,
+            "delta_vs_baseline_pct": 75.0,
+        }
+    ]
+    data["artifacts"][1]["actor_cooccurrence"] = {
+        "client_ip__bot_source": [
+            {
+                "ip": "203.0.113.10",
+                "bot_category": "Expedia Custom AI Bot",
+                "bot_type": "",
+                "botnet_id": "",
+                "requests": 10000,
+            },
+            {
+                "ip": "198.51.100.42",
+                "bot_category": "Expedia Custom AI Bot",
+                "bot_type": "",
+                "botnet_id": "",
+                "requests": 420000,
+            }
+        ],
+        "client_ip__proxy_classification": [
+            {
+                "ip": "203.0.113.10",
+                "epd_Category": "Anonymous VPN",
+                "epd_ActionName": "Public Proxy",
+                "epd_Match": "",
+                "requests": 540000,
+            }
+        ],
+    }
+    with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+        wrapper_path = Path(f.name)
+        json.dump(data, f)
+    try:
+        actual = _normalize(_render(wrapper_path))
+    finally:
+        wrapper_path.unlink(missing_ok=True)
+
+    assert "Bot Source Provenance" in actual
+    assert "Proxy Classification" in actual
+    assert "62.3% of flagged client-IP traffic overlapped bot/proxy provenance metadata." in actual
+    assert "Expedia Custom AI Bot observed" in actual
+    assert "Anonymous VPN / Public Proxy observed" in actual
+    assert "not proof of intent or root cause" in actual
+    assert "confirmed credential stuffing" not in actual.lower()
+
+
+def test_incident_assessment_explainers_use_flagged_ip_denominator_only():
+    from report_engine.contexts.incident.explainers import assessment_explainers
+
+    targets = [
+        {
+            "target_type": "client_ip",
+            "target_value": "203.0.113.10",
+            "supporting": {"requests": 100},
+        },
+        {
+            "target_type": "user_agent",
+            "target_value": "curl/8",
+            "supporting": {"requests": 999},
+        },
+    ]
+    actors = {
+        "actor_cooccurrence": {
+            "client_ip__request_path": [
+                {"ip": "203.0.113.10", "path": "/login", "requests": 60},
+                {"ip": "198.51.100.42", "path": "/login", "requests": 1000},
+            ]
+        }
+    }
+
+    explainers = assessment_explainers(actors, {}, targets)
+    path = explainers["path_ip_convergence"]
+
+    assert path["available"] is True
+    assert path["flagged_client_ip_count"] == 1
+    assert path["total_flagged_client_ip_requests"] == 100
+    assert path["top_paths"][0]["path"] == "/login"
+    assert path["top_paths"][0]["share"] == pytest.approx(0.6)
+    assert path["top_paths"][0]["auth_related"] is True
+
+
+def test_incident_assessment_explainers_timeseries_and_ua_rotation_are_bounded():
+    from report_engine.contexts.incident.explainers import assessment_explainers
+
+    targets = [
+        {
+            "target_type": "client_ip",
+            "target_value": "203.0.113.10",
+            "supporting": {"requests": 100},
+        }
+    ]
+    actors = {
+        "actor_cooccurrence": {
+            "client_ip__user_agent": [
+                {"ip": "203.0.113.10", "ua": f"ua-{idx}", "requests": 10}
+                for idx in range(10)
+            ]
+        }
+    }
+    action_targets = {
+        "flagged_client_ip_timeseries": [
+            {"bucket": "2026-05-01T00:00:00Z", "flagged_requests": 10, "req_429": 1},
+            {"bucket": "2026-05-01T00:01:00Z", "flagged_requests": 50, "req_429": 5},
+            {"bucket": "2026-05-01T00:02:00Z", "flagged_requests": 20, "req_429": 2},
+        ]
+    }
+
+    explainers = assessment_explainers(actors, action_targets, targets)
+    timeseries = explainers["flagged_ip_timeseries_alignment"]
+    rotation = explainers["user_agent_rotation"]
+
+    assert timeseries["available"] is True
+    assert timeseries["peak_bucket"] == "2026-05-01T00:01:00Z"
+    assert timeseries["peak_signals"] == ["429s"]
+    assert timeseries["correlations"][0]["correlation"] == pytest.approx(1.0)
+    assert rotation["available"] is True
+    assert rotation["rows"][0]["distinct_user_agents"] == 10
+    assert rotation["rows"][0]["rotation_label"] == "high"
+
+
+def test_incident_user_agent_rotation_missing_cells_unavailable():
+    from report_engine.contexts.incident.explainers import assessment_explainers
+
+    targets = [
+        {
+            "target_type": "client_ip",
+            "target_value": "203.0.113.10",
+            "supporting": {"requests": 100},
+        }
+    ]
+
+    explainers = assessment_explainers({"actor_cooccurrence": {}}, {}, targets)
+
+    assert explainers["user_agent_rotation"]["available"] is False
+
+
+def test_incident_user_agent_rotation_labels_are_deterministic():
+    from report_engine.contexts.incident.explainers import assessment_explainers
+
+    targets = [
+        {"target_type": "client_ip", "target_value": "203.0.113.10", "supporting": {"requests": 100}},
+        {"target_type": "client_ip", "target_value": "203.0.113.20", "supporting": {"requests": 80}},
+        {"target_type": "client_ip", "target_value": "203.0.113.30", "supporting": {"requests": 60}},
+    ]
+    actors = {
+        "actor_cooccurrence": {
+            "client_ip__user_agent": [
+                *[
+                    {"ip": "203.0.113.10", "ua": f"high-{idx}", "requests": 10}
+                    for idx in range(10)
+                ],
+                {"ip": "203.0.113.20", "ua": "moderate-primary", "requests": 70},
+                {"ip": "203.0.113.20", "ua": "moderate-1", "requests": 10},
+                {"ip": "203.0.113.20", "ua": "moderate-2", "requests": 10},
+                {"ip": "203.0.113.20", "ua": "moderate-3", "requests": 10},
+                {"ip": "203.0.113.30", "ua": "low-primary", "requests": 95},
+                {"ip": "203.0.113.30", "ua": "low-secondary", "requests": 5},
+            ]
+        }
+    }
+
+    rotation = assessment_explainers(actors, {}, targets)["user_agent_rotation"]
+    labels = {row["client_ip"]: row["rotation_label"] for row in rotation["rows"]}
+
+    assert rotation["available"] is True
+    assert labels["203.0.113.10"] == "high"
+    assert labels["203.0.113.20"] == "moderate"
+    assert labels["203.0.113.30"] == "low"
+
+
+def test_incident_assessment_explainer_rendering_and_gates_are_separate():
+    from report_engine.contexts.incident import module
+
+    fixture = FIXTURES / "incident_report_deterministic_only.json"
+    data = deepcopy(json.loads(fixture.read_text()))
+    actors = data["artifacts"][1]
+    action_targets = data["artifacts"][2]
+    actors["actor_cooccurrence"] = {
+        "client_ip__request_path": [
+            {"ip": "203.0.113.10", "path": "/login/submit", "requests": 430000},
+            {"ip": "198.51.100.42", "path": "/login/submit", "requests": 330000},
+            {"ip": "192.0.2.17", "path": "/graphql", "requests": 250000},
+        ],
+        "client_ip__user_agent": [
+            {"ip": "203.0.113.10", "ua": f"ua-{idx}", "requests": 54000}
+            for idx in range(10)
+        ],
+    }
+    action_targets["flagged_client_ip_timeseries"] = [
+        {"bucket": "2026-05-13T14:00:00Z", "flagged_requests": 10, "req_429": 1},
+        {"bucket": "2026-05-13T14:01:00Z", "flagged_requests": 50, "req_429": 5},
+        {"bucket": "2026-05-13T14:02:00Z", "flagged_requests": 20, "req_429": 2},
+    ]
+
+    ctx = module.prepare(module.assemble(data["artifacts"]))
+
+    assert ctx["assessment_explainers"]["available"] is True
+    assert ctx["claim_profile"]["traffic_anomaly_confidence"] == "high"
+    assert ctx["claim_profile"]["targeted_automation_confidence"] == "medium"
+    assert ctx["risk_score"]["value"] == module.prepare(
+        module.assemble(json.loads(fixture.read_text())["artifacts"])
+    )["risk_score"]["value"]
+
+    with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+        wrapper_path = Path(f.name)
+        json.dump(data, f)
+    try:
+        actual = _normalize(_render(wrapper_path))
+    finally:
+        wrapper_path.unlink(missing_ok=True)
+
+    assert "Assessment Explanation Signals" in actual
+    assert "Corroborating signals behind the assessment" in actual
+    assert "does not prove operator intent" in actual
+    assert "confirmed credential stuffing" not in actual.lower()
+
+
+def test_incident_assessment_explainer_section_omitted_when_unavailable():
+    fixture = FIXTURES / "incident_report_deterministic_only.json"
+    actual = _normalize(_render(fixture))
+
+    assert "Assessment Explanation Signals" not in actual
+
+
+def test_incident_browser_user_agent_parser_precedence():
+    from report_engine.contexts.incident.browser_versions import parse_browser_user_agent
+
+    edge = parse_browser_user_agent(
+        "Mozilla/5.0 AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36 Edg/121.0"
+    )
+    firefox = parse_browser_user_agent("Mozilla/5.0 Firefox/115.0")
+    chrome = parse_browser_user_agent("Mozilla/5.0 CriOS/96.0 Mobile/15E148 Safari/604.1")
+    safari = parse_browser_user_agent("Mozilla/5.0 Version/17.3 Safari/605.1.15")
+    unknown = parse_browser_user_agent("curl/8.5.0")
+
+    assert edge["family"] == "Edge"
+    assert edge["major_version"] == 121
+    assert firefox["family"] == "Firefox"
+    assert chrome["family"] == "Chrome"
+    assert "Chromium-compatible" in chrome["caveat"]
+    assert safari["family"] == "Safari"
+    assert unknown["family"] == "Unknown"
+
+
+def test_incident_browser_version_context_stale_recent_unknown_and_comparison(
+    tmp_path: Path,
+):
+    from config import BrowserVersionHistoryConfig, Thresholds, active_thresholds, set_active_thresholds
+    from report_engine.contexts.incident.browser_versions import (
+        build_browser_version_context,
+    )
+
+    snapshot = tmp_path / "browser-history.json"
+    snapshot.write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "family": "Chrome",
+                        "major_version": 90,
+                        "release_date": "2021-04-14",
+                        "channel": "stable",
+                        "source_name": "Chrome VersionHistory API",
+                        "source_url": "https://versionhistory.googleapis.com/v1",
+                    },
+                    {
+                        "family": "Edge",
+                        "major_version": 121,
+                        "release_date": "2024-01-25",
+                        "channel": "stable",
+                        "source_name": "Microsoft Learn",
+                        "source_url": "https://learn.microsoft.com/en-us/deployedge/microsoft-edge-release-schedule",
+                    },
+                    {
+                        "family": "Firefox",
+                        "major_version": 126,
+                        "release_date": "2026-04-01",
+                        "channel": "stable",
+                        "source_name": "Mozilla Product Details",
+                        "source_url": "https://docs.telemetry.mozilla.org/datasets/releases",
+                    },
+                ]
+            }
+        )
+    )
+    original = active_thresholds()
+    try:
+        set_active_thresholds(
+            Thresholds(
+                browser_version_history=BrowserVersionHistoryConfig(
+                    snapshot_path=str(snapshot),
+                    stale_months=18,
+                )
+            )
+        )
+        actors = {
+            "actor_rankings": [
+                {
+                    "field": "user_agent",
+                    "rows": [
+                        {"value": "Mozilla/5.0 Firefox/126.0", "requests": 300},
+                        {"value": "Mozilla/5.0 Edg/121.0 Chrome/120.0", "requests": 200},
+                        {"value": "UnknownAgent/1.0", "requests": 100},
+                    ],
+                }
+            ]
+        }
+        targets = [
+            {
+                "target_type": "user_agent",
+                "target_value": "Mozilla/5.0 Chrome/90.0.4430.85 Safari/537.36",
+                "supporting": {"requests": 500, "share_pct": 50.0},
+            },
+            {
+                "target_type": "user_agent",
+                "target_value": "UnknownAgent/1.0",
+                "supporting": {"requests": 100, "share_pct": 10.0},
+            },
+        ]
+
+        ctx = build_browser_version_context(
+            actors,
+            targets,
+            {"end": "2026-05-13T17:00:00Z"},
+        )
+    finally:
+        set_active_thresholds(original)
+
+    assert ctx["available"] is True
+    assert ctx["rows"][0]["status"] == "stale"
+    assert ctx["rows"][0]["source_name"] == "Chrome VersionHistory API"
+    assert ctx["rows"][1]["status"] == "unknown"
+    assert [row["browser_family"] for row in ctx["comparison_rows"]] == [
+        "Firefox",
+        "Edge",
+    ]
+    assert all(row["user_agent"] != "UnknownAgent/1.0" for row in ctx["comparison_rows"])
+
+
+def test_incident_browser_version_render_uses_local_snapshot(tmp_path: Path):
+    fixture = FIXTURES / "incident_report_deterministic_only.json"
+    data = deepcopy(json.loads(fixture.read_text()))
+    actors = data["artifacts"][1]
+    action_targets = data["artifacts"][2]
+    ua_old = "Mozilla/5.0 Chrome/90.0.4430.85 Safari/537.36"
+    ua_edge = "Mozilla/5.0 AppleWebKit/537.36 Chrome/120.0 Safari/537.36 Edg/121.0"
+    ua_firefox = "Mozilla/5.0 Firefox/126.0"
+    action_targets.setdefault("targets", []).insert(
+        0,
+        {
+            "target_type": "user_agent",
+            "target_value": ua_old,
+            "severity": "high",
+            "kind": "actor",
+            "action_class": "watch",
+            "confidence": "medium",
+            "reason_flags": ["automation_user_agent"],
+            "supporting": {"requests": 500000, "share_pct": 11.7},
+        },
+    )
+    actors.setdefault("actor_rankings", []).append(
+        {
+            "field": "user_agent",
+            "rows": [
+                {"value": ua_edge, "requests": 400000000},
+                {"value": ua_firefox, "requests": 300000000},
+                {"value": "UnknownAgent/1.0", "requests": 200000000},
+            ],
+        }
+    )
+    snapshot = tmp_path / "browser-history.json"
+    snapshot.write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "family": "Chrome",
+                        "major_version": 90,
+                        "release_date": "2021-04-14",
+                        "channel": "stable",
+                        "source_name": "Chrome VersionHistory API",
+                        "source_url": "https://versionhistory.googleapis.com/v1",
+                    },
+                    {
+                        "family": "Edge",
+                        "major_version": 121,
+                        "release_date": "2024-01-25",
+                        "channel": "stable",
+                        "source_name": "Microsoft Learn",
+                        "source_url": "https://learn.microsoft.com/en-us/deployedge/microsoft-edge-release-schedule",
+                    },
+                    {
+                        "family": "Firefox",
+                        "major_version": 126,
+                        "release_date": "2026-04-01",
+                        "channel": "stable",
+                        "source_name": "Mozilla Product Details",
+                        "source_url": "https://docs.telemetry.mozilla.org/datasets/releases",
+                    },
+                ]
+            }
+        )
+    )
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps({"browser_version_history": {"snapshot_path": str(snapshot)}})
+    )
+
+    with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+        wrapper_path = Path(f.name)
+        json.dump(data, f)
+    try:
+        actual = _normalize(_render(wrapper_path, "--config", str(config)))
+    finally:
+        wrapper_path.unlink(missing_ok=True)
+
+    assert "Browser UA Age" in actual
+    assert "Chrome/Chromium token" in actual
+    assert "Stale" in actual
+    assert "Comparison rows" in actual
+    assert "Firefox 126" in actual
+    assert "Edge 121" in actual
+    assert "intentionally configured, pinned, spoofed, or non-updating clients" in actual
+
+
+def test_incident_analysis_availability_renders_limitations_without_claims():
+    fixture = FIXTURES / "incident_report_deterministic_only.json"
+    data = deepcopy(json.loads(fixture.read_text()))
+    data["artifacts"][0]["edge_action_mix"] = [
+        {"value": "Allow", "requests": 100, "share_pct": 80.0},
+        {"value": "Deny", "requests": 25, "share_pct": 20.0},
+    ]
+    with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+        wrapper_path = Path(f.name)
+        json.dump(data, f)
+    try:
+        actual = _normalize(_render(wrapper_path))
+    finally:
+        wrapper_path.unlink(missing_ok=True)
+
+    assert "Analysis Availability" in actual
+    assert "What the bundled artifacts can support" in actual
+    assert "Protected-population / counterfactual check" in actual
+    assert "cannot evaluate collateral impact or counterfactual outcomes" in actual
+    assert "do not include before/after evidence needed to claim mitigation effectiveness" in actual
+
+
+def test_incident_as_reputation_keeps_external_and_local_points_separate():
+    from report_engine.contexts.incident.as_reputation import (
+        build_as_reputation_context,
+    )
+
+    corpus = [
+        {
+            "asns": ["64501"],
+            "name": "Example Sanctioned Host",
+            "label": "sanctioned_bulletproof_hosting",
+            "confidence": "high",
+            "evidence_grade": "authoritative_plus_public_ti",
+            "last_reviewed": "2026-05-20",
+            "sources": [
+                {
+                    "title": "Sanctions source",
+                    "url": "https://example.test/sanctions-as64501",
+                    "source_type": "sanctions",
+                    "summary": "Authoritative sanctions listing.",
+                },
+                {
+                    "title": "Threat intelligence source",
+                    "url": "https://example.test/ti-as64501",
+                    "source_type": "threat_intelligence",
+                    "summary": "Independent threat-intelligence reporting.",
+                },
+            ],
+        }
+    ]
+    actors = {
+        "actor_rankings": [
+            {
+                "field": "asn",
+                "rows": [
+                    {"value": "64501", "requests": 250},
+                    {"value": "64500", "requests": 750},
+                ],
+            }
+        ]
+    }
+    targets = [
+        {
+            "target_type": "asn",
+            "target_value": "64501",
+            "reason_flags": ["high_volume_share"],
+            "supporting": {"requests": 250, "share_pct": 25.0},
+        }
+    ]
+
+    ctx = build_as_reputation_context(actors, targets, corpus=corpus)
+    row = ctx["rows"][0]
+
+    assert ctx["available"] is True
+    assert row["asn_display"] == "AS64501"
+    assert "public source" in row["external_reputation_point"]
+    assert "In this report" in row["report_local_behavior_point"]
+    assert row["external_reputation_point"] != row["report_local_behavior_point"]
+    assert row["evidence_profile"]["known_bad_wording_allowed"] is True
+    assert row["flagged_target_count"] == 1
+
+
+def test_incident_as_reputation_spamhaus_snapshot_matches_observed_asn(tmp_path):
+    from report_engine.contexts.incident.as_reputation import (
+        SpamhausAsnDropProvider,
+        build_as_reputation_context,
+    )
+
+    snapshot = tmp_path / "asndrop.json"
+    snapshot.write_text(
+        json.dumps(
+            {
+                "records": [
+                    {
+                        "asn": "AS64510",
+                        "name": "Example Dropped Network",
+                        "last_updated": "2026-05-20",
+                    }
+                ]
+            }
+        )
+    )
+    actors = {
+        "actor_rankings": [
+            {"field": "asn", "rows": [{"value": "64510", "requests": 100}]}
+        ]
+    }
+    targets = [
+        {
+            "target_type": "asn",
+            "target_value": "64510",
+            "supporting": {"requests": 100, "share_pct": 10.0},
+        }
+    ]
+
+    ctx = build_as_reputation_context(
+        actors,
+        targets,
+        providers=[SpamhausAsnDropProvider(snapshot)],
+    )
+    row = ctx["rows"][0]
+
+    assert ctx["available"] is True
+    assert row["asn_display"] == "AS64510"
+    assert row["label"] == "public_threat_enabler"
+    assert row["sources"][0]["title"] == "Spamhaus ASN-DROP"
+    assert "routing and reputation context" in row["external_reputation_point"]
+    assert row["evidence_profile"]["bar"] == "provider_snapshot"
+    assert row["evidence_profile"]["known_bad_wording_allowed"] is False
+
+
+def test_incident_as_reputation_spamhaus_unobserved_asn_does_not_render(tmp_path):
+    from report_engine.contexts.incident.as_reputation import (
+        SpamhausAsnDropProvider,
+        build_as_reputation_context,
+    )
+
+    snapshot = tmp_path / "asndrop.json"
+    snapshot.write_text(
+        json.dumps({"records": [{"asn": "64510", "name": "Example Dropped Network"}]})
+    )
+    actors = {
+        "actor_rankings": [
+            {"field": "asn", "rows": [{"value": "64511", "requests": 100}]}
+        ]
+    }
+
+    ctx = build_as_reputation_context(
+        actors,
+        [],
+        providers=[SpamhausAsnDropProvider(snapshot)],
+    )
+
+    assert ctx["available"] is False
+    assert ctx["rows"] == []
+
+
+def test_incident_as_reputation_weak_single_source_does_not_qualify():
+    from report_engine.contexts.incident.as_reputation import (
+        build_as_reputation_context,
+        reputation_evidence_profile,
+    )
+
+    corpus = {
+        "64500": {
+            "asn": "64500",
+            "name": "Example Transit",
+            "label": "reputation_hit",
+            "sources": [
+                {
+                    "title": "Single TI note",
+                    "url": "https://example.test/as64500",
+                    "source_type": "threat_intelligence",
+                    "summary": "One non-authoritative reputation note.",
+                }
+            ],
+        }
+    }
+    actors = {
+        "actor_rankings": [
+            {"field": "asn", "rows": [{"value": "64500", "requests": 10}]}
+        ]
+    }
+
+    profile = reputation_evidence_profile(corpus["64500"])
+    ctx = build_as_reputation_context(actors, [], corpus=corpus)
+
+    assert profile["qualifies"] is False
+    assert profile["known_bad_wording_allowed"] is False
+    assert ctx["available"] is False
+    assert "known bad" not in json.dumps(ctx).lower()
+
+
+def test_incident_as_reputation_local_override_weak_source_does_not_qualify(
+    tmp_path,
+):
+    from report_engine.contexts.incident.as_reputation import (
+        LocalAsReputationOverrideProvider,
+        build_as_reputation_context,
+    )
+
+    overrides = tmp_path / "overrides.json"
+    overrides.write_text(
+        json.dumps(
+            {
+                "entries": [
+                    {
+                        "asns": ["64512"],
+                        "name": "Example Override Network",
+                        "label": "reputation_hit",
+                        "sources": [
+                            {
+                                "title": "Single research note",
+                                "url": "https://example.test/one-note",
+                                "source_type": "security_research",
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+    )
+    actors = {
+        "actor_rankings": [
+            {"field": "asn", "rows": [{"value": "64512", "requests": 10}]}
+        ]
+    }
+
+    ctx = build_as_reputation_context(
+        actors,
+        [],
+        providers=[LocalAsReputationOverrideProvider(overrides)],
+    )
+
+    assert ctx["available"] is False
+
+
+def test_incident_as_reputation_authoritative_source_qualifies_alone():
+    from report_engine.contexts.incident.as_reputation import (
+        build_as_reputation_context,
+    )
+
+    corpus = [
+        {
+            "asns": ["64502"],
+            "name": "Example Sanctioned Host",
+            "label": "sanctioned_bulletproof_hosting",
+            "confidence": "high",
+            "evidence_grade": "authoritative",
+            "last_reviewed": "2026-05-20",
+            "sources": [
+                {
+                    "title": "Sanctions source",
+                    "url": "https://example.test/sanctions",
+                    "source_type": "sanctions",
+                    "summary": "Authoritative sanctions listing.",
+                }
+            ],
+        }
+    ]
+    actors = {
+        "actor_rankings": [
+            {"field": "asn", "rows": [{"value": "AS64502", "requests": 10}]}
+        ]
+    }
+
+    ctx = build_as_reputation_context(actors, [], corpus=corpus)
+
+    assert ctx["available"] is True
+    assert ctx["rows"][0]["evidence_profile"]["bar"] == "authoritative_source"
+    assert ctx["rows"][0]["evidence_profile"]["known_bad_wording_allowed"] is True
+
+
+def test_incident_as_reputation_local_override_authoritative_qualifies_alone(
+    tmp_path,
+):
+    from report_engine.contexts.incident.as_reputation import (
+        LocalAsReputationOverrideProvider,
+        build_as_reputation_context,
+    )
+
+    overrides = tmp_path / "overrides.json"
+    overrides.write_text(
+        json.dumps(
+            [
+                {
+                    "asns": ["64513"],
+                    "name": "Example Sanctioned Override",
+                    "label": "sanctioned_bulletproof_hosting",
+                    "confidence": "high",
+                    "evidence_grade": "authoritative",
+                    "last_reviewed": "2026-05-20",
+                    "sources": [
+                        {
+                            "title": "Sanctions source",
+                            "url": "https://example.test/sanctions",
+                            "source_type": "sanctions",
+                        }
+                    ],
+                }
+            ]
+        )
+    )
+    actors = {
+        "actor_rankings": [
+            {"field": "asn", "rows": [{"value": "64513", "requests": 10}]}
+        ]
+    }
+
+    ctx = build_as_reputation_context(
+        actors,
+        [],
+        providers=[LocalAsReputationOverrideProvider(overrides)],
+    )
+
+    assert ctx["available"] is True
+    assert ctx["rows"][0]["evidence_profile"]["bar"] == "authoritative_source"
+
+
+def test_incident_as_reputation_omits_when_no_observed_asn_matches_corpus():
+    from report_engine.contexts.incident.as_reputation import (
+        build_as_reputation_context,
+    )
+
+    actors = {
+        "actor_rankings": [
+            {"field": "asn", "rows": [{"value": "64500", "requests": 10}]}
+        ]
+    }
+
+    ctx = build_as_reputation_context(actors, [])
+
+    assert ctx == {
+        "available": False,
+        "rows": [],
+        "boundary": (
+            "External AS reputation is corroborating context only. It does not "
+            "change risk score, confidence gates, target ordering, or incident claims."
+        ),
+    }
+
+
+def test_incident_as_reputation_does_not_change_scoring_or_target_order():
+    from report_engine.contexts.incident import module
+    from config import (
+        AsReputationConfig,
+        Thresholds,
+        active_thresholds,
+        set_active_thresholds,
+    )
+
+    fixture = FIXTURES / "incident_report_deterministic_only.json"
+    base_data = json.loads(fixture.read_text())
+    enriched_data = deepcopy(base_data)
+    actors = enriched_data["artifacts"][1]
+    action_targets = enriched_data["artifacts"][2]
+    asn_ranking = next(r for r in actors["actor_rankings"] if r["field"] == "asn")
+    asn_ranking["rows"][0]["value"] = "44477"
+    asn_target = next(t for t in action_targets["targets"] if t["target_type"] == "asn")
+    asn_target["target_value"] = "44477"
+
+    with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+        snapshot_path = Path(f.name)
+        json.dump(
+            {"records": [{"asn": "44477", "name": "Example Dropped Network"}]},
+            f,
+        )
+    original = active_thresholds()
+    try:
+        base_ctx = module.prepare(module.assemble(base_data["artifacts"]))
+        set_active_thresholds(
+            Thresholds(
+                as_reputation=AsReputationConfig(
+                    spamhaus_asndrop_path=str(snapshot_path)
+                )
+            )
+        )
+        enriched_ctx = module.prepare(module.assemble(enriched_data["artifacts"]))
+    finally:
+        set_active_thresholds(original)
+        snapshot_path.unlink(missing_ok=True)
+
+    assert enriched_ctx["as_reputation_context"]["available"] is True
+    assert enriched_ctx["risk_score"] == base_ctx["risk_score"]
+    assert (
+        enriched_ctx["claim_profile"]["traffic_anomaly_confidence"]
+        == base_ctx["claim_profile"]["traffic_anomaly_confidence"]
+    )
+    assert (
+        enriched_ctx["claim_profile"]["targeted_automation_confidence"]
+        == base_ctx["claim_profile"]["targeted_automation_confidence"]
+    )
+    assert [
+        (row["target_type"], row["severity"], row["requests"])
+        for row in enriched_ctx["suspicious_targets"]
+    ] == [
+        (row["target_type"], row["severity"], row["requests"])
+        for row in base_ctx["suspicious_targets"]
+    ]
+
+
+def test_incident_as_reputation_renders_points_and_citations():
+    fixture = FIXTURES / "incident_report_deterministic_only.json"
+    data = deepcopy(json.loads(fixture.read_text()))
+    actors = data["artifacts"][1]
+    action_targets = data["artifacts"][2]
+    asn_ranking = next(r for r in actors["actor_rankings"] if r["field"] == "asn")
+    asn_ranking["rows"][0]["value"] = "44477"
+    asn_target = next(t for t in action_targets["targets"] if t["target_type"] == "asn")
+    asn_target["target_value"] = "44477"
+
+    with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+        wrapper_path = Path(f.name)
+        json.dump(data, f)
+    with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+        snapshot_path = Path(f.name)
+        json.dump(
+            {"records": [{"asn": "44477", "name": "Example Dropped Network"}]},
+            f,
+        )
+    with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+        config_path = Path(f.name)
+        json.dump(
+            {"as_reputation": {"spamhaus_asndrop_path": str(snapshot_path)}},
+            f,
+        )
+    try:
+        actual = _normalize(_render(wrapper_path, "--config", str(config_path)))
+    finally:
+        wrapper_path.unlink(missing_ok=True)
+        snapshot_path.unlink(missing_ok=True)
+        config_path.unlink(missing_ok=True)
+
+    assert "External AS Context" in actual
+    assert "Public reputation context for observed ASNs" in actual
+    assert "AS44477" in actual
+    assert "External AS reputation is corroborating context only" in actual
+    assert "This context does not imply every IP, customer" in actual
+    assert "In this report, AS44477 accounted for" in actual
+    assert "Spamhaus ASN-DROP" in actual
+    assert "https://www.spamhaus.org/drop/asndrop/" in actual
+    assert "known bad" not in actual.lower()
+
+
 def test_incident_expedia_canonical_wrapper_keeps_expected_incident_context():
     from report_engine.contexts.incident import module
+    from report_engine.contexts.incident.print_adapter import build_print_report
 
     fixture = Path(
         "/Users/turtlebender/src/expedia-analysis/reports/"
@@ -1657,6 +3176,39 @@ def test_incident_expedia_canonical_wrapper_keeps_expected_incident_context():
     assert {"/:slug", "/graphql"} <= top_paths
     target_values = {target["target_value"] for target in action_art["targets"]}
     assert {"5.180.30.239", "5.180.30.203", "5.180.30.200"} <= target_values
+    finding_text = "\n".join(
+        f"{finding.get('lead', '')} {finding.get('body', '')}"
+        for finding in ctx["incident_findings"]
+    )
+    assert "Human-classified behavioral anomaly needs validation" in finding_text
+    assert "classification mismatch or behavioral anomaly" in finding_text
+    assert "not proof of malicious intent" in finding_text
+    action_text = "\n".join(
+        f"{action.get('step', '')} {action.get('reason', '')} {action.get('validation', '')}"
+        for action in ctx["recommended_actions"]
+    )
+    assert "Test narrow guardrail for /:slug" not in action_text
+    assert (
+        "Validate route normalization and owner telemetry for `/:slug` before any control change"
+        in action_text
+    )
+    assert "route normalization" in action_text
+    assert "business-critical flow ownership" in action_text
+    slug_action = next(
+        action for action in ctx["recommended_actions"]
+        if "`/:slug`" in action.get("step", "")
+    )
+    assert "rate-limit pressure" not in (slug_action.get("reason") or "")
+    print_ctx = build_print_report(ctx)
+    calibration = print_ctx["verdict"]["calibration_html"]
+    assert (
+        "Calibration: Critical reflects 187 suspicious targets across 3 severity tiers, "
+        "with 8 fired signal types and 272 total signal hits."
+    ) in calibration
+    assert "Raw score 97.9/100" in calibration
+    assert "displayed score is bounded to the Critical band" in calibration
+    assert "means the observed signals cleared" not in calibration
+    assert "deterministic action threshold" not in calibration
 
 
 def test_incident_report_print_degraded_fixture_renders_missing_data_states():
@@ -1664,7 +3216,7 @@ def test_incident_report_print_degraded_fixture_renders_missing_data_states():
     actual = _normalize(_render(fixture, "--profile", "print"))
 
     assert 'data-pdf-layout="fixed-letter"' in actual
-    assert actual.count('<section class="page') == 8
+    assert actual.count('<section class="page') == 10
     assert "raw drilldown is degraded" in actual or "Rows are truncated" in actual
     assert "No ATT&amp;CK mapping available" in actual or "Technique mapping" in actual
 
@@ -1693,6 +3245,10 @@ def test_incident_print_adapter_maps_series_and_limits_rows():
     assert adapted["verdict"]["band"] == "critical"
     assert len(adapted["actors"]) == 10
     assert len(adapted["actions"]) == 5
+    assert adapted["finding_ip_cluster"]["kicker"] == ""
+    assert [chip["text"] for chip in adapted["finding_ip_cluster"]["chips"]] == [
+        "Client IP"
+    ]
     assert adapted["finding_ip_cluster"]["ips"][:1][0]["ip"] == "203.0.113.10"
     phases = [stop["phase"] for stop in adapted["attack_shape"]["timeline"]]
     assert "Ramp begins" in phases

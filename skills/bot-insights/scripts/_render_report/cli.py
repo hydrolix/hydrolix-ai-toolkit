@@ -137,6 +137,15 @@ def parse_args() -> argparse.Namespace:
             "always pins light regardless of --theme."
         ),
     )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help=(
+            "Path to a threshold/enrichment override file (YAML/TOML/JSON). "
+            "Loaded into the active config singleton before render runs."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -292,7 +301,15 @@ def main() -> int:
             raise ReportError("--format pdf requires --output.")
         if args.analysis_mode == "both" and args.output is None:
             raise ReportError("--analysis-mode both requires --output.")
+        if args.output is not None and not args.output.parent.exists():
+            raise ReportError(
+                f"Output directory does not exist: {args.output.parent}"
+            )
         _bootstrap_render_deps(args)
+        if args.config is not None:
+            from config import load_thresholds, set_active_thresholds
+
+            set_active_thresholds(load_thresholds(args.config))
         value = json.loads(read_input(args))
 
         render_jobs = _render_jobs(value, args)

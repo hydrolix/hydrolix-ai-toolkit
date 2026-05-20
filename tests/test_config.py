@@ -23,6 +23,8 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 import heuristics  # noqa: E402
 from config import (  # noqa: E402
+    AsReputationConfig,
+    BrowserVersionHistoryConfig,
     DEFAULT_THRESHOLDS,
     RiskScoreThresholds,
     SuspiciousTargetsThresholds,
@@ -89,6 +91,23 @@ def test_default_thresholds_disabled_rules_is_empty() -> None:
     assert DEFAULT_THRESHOLDS.disabled_rules == frozenset()
 
 
+def test_default_as_reputation_config_is_opt_in() -> None:
+    assert DEFAULT_THRESHOLDS.as_reputation == AsReputationConfig()
+    assert DEFAULT_THRESHOLDS.as_reputation.enabled is True
+    assert DEFAULT_THRESHOLDS.as_reputation.spamhaus_asndrop_path is None
+    assert DEFAULT_THRESHOLDS.as_reputation.local_overrides_path is None
+
+
+def test_default_browser_version_history_config_uses_packaged_snapshot() -> None:
+    assert DEFAULT_THRESHOLDS.browser_version_history == BrowserVersionHistoryConfig()
+    assert DEFAULT_THRESHOLDS.browser_version_history.enabled is True
+    snapshot_path = DEFAULT_THRESHOLDS.browser_version_history.snapshot_path
+    assert snapshot_path is not None
+    assert snapshot_path.endswith("skills/bot-insights/data/browser-version-history.json")
+    assert Path(snapshot_path).exists()
+    assert DEFAULT_THRESHOLDS.browser_version_history.stale_months == 18
+
+
 # ---------------------------------------------------------------------------
 # Loader.
 # ---------------------------------------------------------------------------
@@ -121,6 +140,53 @@ def test_load_thresholds_supports_json(tmp_path: Path) -> None:
     p.write_text(json.dumps({"display": {"suspicious_targets_cap": 25}}))
     t = load_thresholds(p)
     assert t.display.suspicious_targets_cap == 25
+
+
+def test_load_thresholds_overlays_as_reputation_paths_relative_to_config(
+    tmp_path: Path,
+) -> None:
+    p = tmp_path / "config.json"
+    p.write_text(
+        json.dumps(
+            {
+                "as_reputation": {
+                    "spamhaus_asndrop_path": "fixtures/asndrop.json",
+                    "local_overrides_path": "overrides/as-reputation.yaml",
+                }
+            }
+        )
+    )
+    t = load_thresholds(p)
+    assert (
+        t.as_reputation.spamhaus_asndrop_path
+        == str(tmp_path / "fixtures/asndrop.json")
+    )
+    assert (
+        t.as_reputation.local_overrides_path
+        == str(tmp_path / "overrides/as-reputation.yaml")
+    )
+
+
+def test_load_thresholds_overlays_browser_snapshot_path_relative_to_config(
+    tmp_path: Path,
+) -> None:
+    p = tmp_path / "config.json"
+    p.write_text(
+        json.dumps(
+            {
+                "browser_version_history": {
+                    "snapshot_path": "fixtures/browser-history.json",
+                    "stale_months": 12,
+                }
+            }
+        )
+    )
+    t = load_thresholds(p)
+    assert (
+        t.browser_version_history.snapshot_path
+        == str(tmp_path / "fixtures/browser-history.json")
+    )
+    assert t.browser_version_history.stale_months == 12
 
 
 def test_load_thresholds_supports_toml(tmp_path: Path) -> None:

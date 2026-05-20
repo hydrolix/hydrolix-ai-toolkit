@@ -72,9 +72,12 @@ def _enrich_criticals_action(crits: list[dict]) -> _ActionTuple | None:
 def _rate_limit_action(
     crit_or_high: list[dict], suspicious_targets: list[dict]
 ) -> _ActionTuple | None:
-    """Tighten rate-limit on the top path pattern flagged as
-    severity:critical/high if one exists; otherwise on the most-
-    concentrated path target overall."""
+    """Validate the top flagged path pattern as an investigation target.
+
+    Path patterns such as ``/:slug`` can be normalized route templates,
+    aggregation artifacts, or business-critical flows. Keep this action
+    investigation-only; enforcement requires owner and telemetry validation.
+    """
     path_target = next(
         (t for t in crit_or_high if t.get("target_type") == "request_path"),
         next(
@@ -86,16 +89,16 @@ def _rate_limit_action(
         return None
     path_value = path_target.get("target_value") or ""
     return (
-        f"Evaluate conservative rate limit for path-pattern candidate `{path_value}`",
+        f"Validate route normalization and owner telemetry for `{path_value}` before any control change",
         "Platform",
         "today",
         _action_effect_rate_limit(path_target),
         _action_reason_from_target(path_target),
-        f"Path-pattern candidate `{path_value}`",
-        "1h trial, then reassess",
-        "Medium; route-level controls can affect legitimate bursts.",
-        "Expect scoped 429 rate to stabilize without increased 5xx or support tickets.",
-        "Rollback if normal user conversion/errors degrade or path proves to be an aggregation artifact.",
+        f"Route-pattern investigation `{path_value}`",
+        "Same-shift validation",
+        "Low operational risk; investigation only. Do not enforce without owner confirmation.",
+        "Confirm route normalization, protected traffic, business-critical flow ownership, and conversion/error telemetry before considering controls.",
+        "N/A for investigation; do not proceed to enforcement if owner validation fails or telemetry indicates legitimate flow impact.",
     )
 
 
@@ -206,7 +209,8 @@ def _recommended_actions_view(
       - Second action enriches the next 1–3 critical / high targets
         ("Enrich in case management") — collapses to a count phrase
         when the list grows.
-      - Third action tightens rate-limit on the top path pattern.
+      - Third action validates the top path pattern as an investigation
+        target before any route-level control.
       - Fourth action surfaces any behavioral-anomaly targets for
         AppSec.
       - Fifth action is the dashboard link (if available).
@@ -282,7 +286,7 @@ def _action_reason_from_target(target: dict) -> str | None:
         parts.append(f"{share} request share")
     if req_429 and req_429 != "—":
         parts.append(f"{req_429} 429 rate within target traffic")
-    evidence_class = _evidence_class(target.get("reason_flag_labels") or [])
+    evidence_class = _evidence_class_for_target(target)
     if evidence_class:
         parts.append(evidence_class)
     if not parts:
@@ -298,6 +302,21 @@ def _evidence_class(labels: list[str]) -> str | None:
     if labels:
         return "flagged heuristic evidence"
     return None
+
+
+def _evidence_class_for_target(target: dict) -> str | None:
+    labels = target.get("reason_flag_labels") or []
+    normalized = " ".join(labels).lower()
+    target_type = target.get("target_type")
+    if target_type == "request_path" and "single path" in normalized:
+        return "path concentration"
+    if target_type == "request_path" and "behavioral anomaly" in normalized:
+        return "route-pattern anomaly"
+    if target_type == "request_path" and "high volume" in normalized:
+        return "route concentration"
+    if target_type == "cohort" and "behavioral anomaly" in normalized:
+        return "behavioral anomaly"
+    return _evidence_class(labels)
 
 
 def _severity_mix(targets: list[dict]) -> str:
@@ -351,7 +370,9 @@ def _action_reason_from_targets(targets: list[dict]) -> str | None:
     share_phrase = _safe_aggregate_share(targets) or _strongest_individual_share(targets)
     if share_phrase:
         parts.append(share_phrase)
-    evidence_class = _evidence_class(labels)
+    evidence_class = "behavioral anomaly" if any(
+        "behavioral anomaly" in str(label).lower() for label in labels
+    ) else _evidence_class(labels)
     if evidence_class:
         parts.append(evidence_class)
     return "Why this recommendation exists: " + "; ".join(parts) + "."

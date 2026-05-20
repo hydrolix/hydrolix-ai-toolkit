@@ -72,7 +72,7 @@ def _primary_concern_view(
     """Promote strong Human/Browser-classified anomaly evidence.
 
     The copy deliberately frames this as classification-evasive behavior
-    or a Human-classified anomaly, not proven bot bypass.
+    or a Human-classified anomaly, not proven evasion success.
     """
     target = next((t for t in suspicious_targets if _strong_human_target(t)), None)
     if target:
@@ -91,7 +91,7 @@ def _primary_concern_view(
             ],
             "boundary": (
                 "This supports classification-evasive behavior or a Human-classified "
-                "anomaly. It does not prove bot bypass or intent."
+                "anomaly. It does not prove evasion success or intent."
             ),
         }
 

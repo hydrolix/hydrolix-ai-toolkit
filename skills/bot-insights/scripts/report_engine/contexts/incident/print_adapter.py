@@ -6,11 +6,19 @@ import html
 from datetime import datetime, timedelta
 from typing import Any
 
+from .browser_versions import parse_browser_user_agent
+
 
 def _text(value: Any, default: str = "") -> str:
     if value is None:
         return default
     return str(value)
+
+
+def _clean_print_claim_language(value: str) -> str:
+    return value.replace("root cause", "causal attribution").replace(
+        "Root cause", "Causal attribution"
+    )
 
 
 def _fmt_dt(value: str, fmt: str) -> str:
@@ -426,11 +434,11 @@ def volume_chart(ctx: dict[str, Any]) -> dict[str, Any]:
 
 
 def _html(value: Any) -> str:
-    return html.escape(_text(value))
+    return html.escape(_clean_print_claim_language(_text(value)))
 
 
 def _prose(value: Any) -> str:
-    text = _text(value)
+    text = _clean_print_claim_language(_text(value))
     try:
         from ...markdown import render_safe
 
@@ -529,9 +537,9 @@ def _compact_cover_action(value: Any) -> str:
     if text.startswith("Enrich the "):
         count = text.removeprefix("Enrich the ").split(" ", 1)[0]
         return f"Enrich {count} critical targets in case mgmt"
-    if text.startswith("Evaluate conservative rate limit for path-pattern candidate "):
-        target = text.removeprefix("Evaluate conservative rate limit for path-pattern candidate ").split(" ", 1)[0]
-        return f"Tighten {target} rate limit"
+    if text.startswith("Validate route normalization and owner telemetry for "):
+        target = text.removeprefix("Validate route normalization and owner telemetry for ").split(" ", 1)[0]
+        return f"Validate {target} route evidence"
     return text[:82].rstrip() + ("..." if len(text) > 82 else "")
 
 
@@ -546,6 +554,194 @@ def _cover_actions(ctx: dict[str, Any], limit: int = 3) -> list[dict[str, str]]:
     ]
 
 
+def _finding_kicker(finding: dict[str, Any], idx: int) -> str:
+    label = _text(finding.get("label"))
+    return "" if label == f"Finding {idx:02d}" else label
+
+
+def _finding_chips(entities: list[dict[str, Any]]) -> list[dict[str, str]]:
+    chips = []
+    seen = set()
+    for entity in entities:
+        text = _text(entity.get("target_type_label") or "Signal")
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        chips.append({"text": text, "class": "ghost"})
+        if len(chips) == 2:
+            break
+    return chips
+
+
+def _compact_as_meta(meta: Any) -> str:
+    parts = [_text(part).strip() for part in _text(meta).split("·")]
+    parts = [part for part in parts if part]
+    if not parts:
+        return ""
+    asn = next((part for part in parts if part.upper().startswith("AS")), parts[0])
+    share = next((part for part in reversed(parts) if "%" in part), "")
+    if share:
+        share = share.replace(" of window", " window")
+        return f"{asn} · {share}"
+    return asn
+
+
+def _browser_family_label(row: dict[str, Any]) -> str:
+    family = _text(row.get("browser_family"))
+    if family and family != "Unknown":
+        return family
+    label = _text(row.get("browser_label"))
+    if "Chrome" in label or "Chromium" in label:
+        return "Chrome"
+    return label.split()[0] if label else "Browser"
+
+
+def _ua_platform_label(user_agent: str) -> str:
+    ua = _text(user_agent)
+    if "Windows" in ua:
+        return "Windows"
+    if "Macintosh" in ua or "Mac OS X" in ua:
+        return "macOS"
+    if "Android" in ua:
+        return "Android"
+    if "iPhone" in ua or "iPad" in ua:
+        return "iOS"
+    if "Linux" in ua:
+        return "Linux"
+    return "Unknown"
+
+
+def _compact_ua_label(user_agent: Any, ctx: dict[str, Any]) -> str:
+    ua = _text(user_agent)
+    rows = (ctx.get("browser_version_context") or {}).get("rows") or []
+    for row in rows:
+        if _text(row.get("user_agent")) != ua:
+            continue
+        browser = _browser_family_label(row)
+        version = _text(row.get("version_display"))
+        platform = _ua_platform_label(ua)
+        token = f"{browser} {version}".strip()
+        return f"{token} / {platform}" if platform != "Unknown" else token
+    parsed = parse_browser_user_agent(ua)
+    browser = _browser_family_label(
+        {
+            "browser_family": parsed.get("family"),
+            "browser_label": parsed.get("label"),
+        }
+    )
+    version = _text(parsed.get("major_version"))
+    platform = _ua_platform_label(ua)
+    token = f"{browser} {version}".strip()
+    return f"{token} / {platform}" if token and platform != "Unknown" else (token or ua)
+
+
+def _compact_browser_age(row: dict[str, Any]) -> str:
+    age = _text(row.get("age_display"))
+    age = age.replace(" years old", "y").replace(" year old", "y")
+    age = age.replace(" months old", "mo").replace(" month old", "mo")
+    age = age.replace(" days old", "d").replace(" day old", "d")
+    return age
+
+
+def _join_phrase(items: list[str]) -> str:
+    if len(items) <= 1:
+        return "".join(items)
+    return ", ".join(items[:-1]) + f" and {items[-1]}"
+
+
+def _first_sentence(value: Any) -> str:
+    text = " ".join(_text(value).split())
+    if not text:
+        return ""
+    sentence, sep, _rest = text.partition(". ")
+    return f"{sentence}." if sep else text
+
+
+def _finding_as_reputation_callout(
+    finding: dict[str, Any],
+    ctx: dict[str, Any],
+) -> dict[str, str] | None:
+    entities = finding.get("entities") or []
+    source = ctx.get("as_reputation_context") or {}
+    if not source.get("available"):
+        return None
+    entity_text = " ".join(
+        _text(entity.get("meta")) for entity in entities
+    )
+    for row in source.get("rows") or []:
+        asn = _text(row.get("asn_display"))
+        if not asn or asn not in entity_text:
+            continue
+        name = _text(row.get("name"))
+        requests = _text(row.get("requests_display"))
+        flagged = int(float(row.get("flagged_target_count") or 0))
+        flagged_text = (
+            f"{flagged} flagged target{'' if flagged == 1 else 's'}"
+            if flagged > 0
+            else "flagged actor overlap"
+        )
+        inclusion_reason = (
+            f"Included because {asn} matched the AS reputation corpus and "
+            "overlapped this finding's flagged client-IP cluster"
+        )
+        public_reason = _first_sentence(row.get("external_reputation_point"))
+        public_reason = f" {public_reason}" if public_reason else ""
+        return {
+            "title": "Why AS context is included",
+            "summary_html": _html(
+                f"{inclusion_reason}: {requests} requests; {flagged_text}."
+                f"{public_reason}"
+            ),
+            "boundary_html": _html(
+                "Corroborating context only; not attribution."
+            ),
+        }
+    return None
+
+
+def _finding_ua_age_callout(
+    finding: dict[str, Any],
+    ctx: dict[str, Any],
+) -> dict[str, str] | None:
+    entities = [
+        entity
+        for entity in (finding.get("entities") or [])
+        if entity.get("target_type") == "user_agent"
+    ]
+    if not entities:
+        return None
+    source = ctx.get("browser_version_context") or {}
+    if not source.get("available"):
+        return None
+    ua_values = {_text(entity.get("value")) for entity in entities}
+    stale_rows = [
+        row
+        for row in (source.get("rows") or [])
+        if bool(row.get("stale")) and _text(row.get("user_agent")) in ua_values
+    ]
+    if not stale_rows:
+        return None
+    stale_rows = stale_rows[:2]
+    tokens = [
+        f"{_browser_family_label(row)} {_text(row.get('version_display'))}"
+        f" ({_compact_browser_age(row)})"
+        for row in stale_rows
+    ]
+    subject = _join_phrase(tokens)
+    predicate = "is a stale UA token" if len(tokens) == 1 else "are stale UA tokens"
+    return {
+        "title": "Browser age context",
+        "summary_html": _html(
+            f"{subject} {predicate}."
+        ),
+        "boundary_html": _html(
+            "Stale tokens can be pinned, spoofed, or non-updating clients; "
+            "not identity or intent evidence."
+        ),
+    }
+
+
 def _findings(ctx: dict[str, Any]) -> list[dict[str, Any]]:
     out = []
     for idx, finding in enumerate((ctx.get("incident_findings") or [])[:3], start=1):
@@ -553,13 +749,12 @@ def _findings(ctx: dict[str, Any]) -> list[dict[str, Any]]:
         out.append(
             {
                 "n": f"{idx:02d}",
-                "kicker": _text(finding.get("label") or f"Finding {idx:02d}"),
+                "kicker": _finding_kicker(finding, idx),
                 "severity": "critical" if idx == 1 else "high",
                 "severity_label": "Critical" if idx == 1 else "High",
-                "chips": [
-                    {"text": _text(entity.get("target_type_label") or "Signal"), "class": "ghost"}
-                    for entity in entities[:2]
-                ],
+                "chips": _finding_chips(entities),
+                "as_callout": _finding_as_reputation_callout(finding, ctx),
+                "ua_age_callout": _finding_ua_age_callout(finding, ctx),
                 "headline": _text(finding.get("lead")),
                 "prose_html": _html(finding.get("body")),
                 "ips": [
@@ -568,13 +763,13 @@ def _findings(ctx: dict[str, Any]) -> list[dict[str, Any]]:
                         "tag": _text(entity.get("severity_label") or entity.get("severity")),
                         "asn_label": _text(entity.get("target_type_label")),
                         "volume": _text(entity.get("requests_display") or ""),
-                        "share": _text(entity.get("meta") or ""),
+                        "share": _compact_as_meta(entity.get("meta")),
                     }
                     for entity in entities[:4]
                 ],
                 "uas": [
                     {
-                        "label_html": _html(entity.get("value")),
+                        "label_html": _html(_compact_ua_label(entity.get("value"), ctx)),
                         "share": _text(entity.get("meta") or ""),
                         "full": _text(entity.get("target_type_label")),
                     }
@@ -643,6 +838,39 @@ def _verdict_prose(ctx: dict[str, Any], summary: dict[str, Any]) -> str:
     claim_profile = ctx.get("claim_profile") or {}
     prose = claim_profile.get("hero_summary") or summary.get("headline")
     return _html(prose)
+
+
+def _row_count(value: Any) -> int:
+    try:
+        return int(float(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _risk_signal_summary(risk: dict[str, Any]) -> dict[str, int]:
+    severity_rows = risk.get("severity_rows") or []
+    reason_rows = risk.get("reason_rows") or []
+    return {
+        "target_count": sum(_row_count(row.get("count")) for row in severity_rows),
+        "severity_tier_count": len(severity_rows),
+        "signal_type_count": len(reason_rows),
+        "signal_hit_count": sum(_row_count(row.get("count")) for row in reason_rows),
+    }
+
+
+def _score_calibration(ctx: dict[str, Any], band_label: str) -> str:
+    risk = ctx.get("risk_score") or {}
+    raw = risk.get("raw_score_display") or "unavailable"
+    signal_summary = _risk_signal_summary(risk)
+    basis = risk.get("confidence_basis") or "Evidence is bounded by available artifacts."
+    return _html(
+        f"Calibration: {band_label} reflects {signal_summary['target_count']} "
+        f"suspicious targets across {signal_summary['severity_tier_count']} "
+        f"severity tiers, with {signal_summary['signal_type_count']} fired signal "
+        f"types and {signal_summary['signal_hit_count']} total signal hits. "
+        f"Raw score {raw}; displayed score is bounded to the {band_label} band. "
+        f"{basis}"
+    )
 
 
 def _primary(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -791,6 +1019,234 @@ def _attck(ctx: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _risk_explanation(ctx: dict[str, Any]) -> dict[str, Any]:
+    risk = ctx.get("risk_score") or {}
+    signal_summary = _risk_signal_summary(risk)
+    band_label = severity_band(
+        (ctx.get("deterministic_summary") or {}).get("level"),
+        risk.get("value"),
+    )["band_label"]
+    return {
+        "eyebrow": "Score Explanation",
+        "headline": "How the score was calculated",
+        "lede_html": _html(
+            f"Risk {risk.get('value', 0)}/100 reflects "
+            f"{signal_summary['target_count']} suspicious targets across "
+            f"{signal_summary['severity_tier_count']} severity tiers, with "
+            f"{signal_summary['signal_type_count']} fired signal types and "
+            f"{signal_summary['signal_hit_count']} total signal hits. Raw score "
+            f"{risk.get('raw_score_display', 'unknown')}; displayed score is "
+            f"bounded to the {band_label} band. "
+            f"{risk.get('confidence_basis', '')}"
+        ),
+        "severity_rows": [
+            {
+                "severity": _text(row.get("severity")),
+                "label": _text(row.get("severity_label")),
+                "count": _text(row.get("count")),
+                "weight": _text(row.get("weight")),
+                "weighted": _text(row.get("weighted_count")),
+            }
+            for row in (risk.get("severity_rows") or [])[:6]
+        ],
+        "reason_rows": [
+            {
+                "reason": _text(row.get("reason")).replace("_", " "),
+                "count": _text(row.get("count")),
+            }
+            for row in (risk.get("reason_rows") or [])[:8]
+        ],
+    }
+
+
+def _analysis_availability(ctx: dict[str, Any]) -> dict[str, Any]:
+    source = ctx.get("analysis_availability") or {}
+    return {
+        "eyebrow": "Analysis Availability",
+        "headline": "What the bundled artifacts can and cannot support",
+        "boundary_html": _html(source.get("boundary")),
+        "rows": [
+            {
+                "analysis": _text(row.get("analysis")),
+                "status": _text(row.get("status")),
+                "detail_html": _html(row.get("detail")),
+            }
+            for row in (source.get("rows") or [])[:6]
+        ],
+    }
+
+
+def _browser_age(ctx: dict[str, Any]) -> dict[str, Any]:
+    source = ctx.get("browser_version_context") or {}
+    return {
+        "eyebrow": "Browser UA Age",
+        "headline": "Age context for flagged browser user agents",
+        "boundary_html": _html(source.get("boundary")),
+        "meta": (
+            f"{source.get('snapshot_row_count', 0)} local release rows; "
+            f"{source.get('stale_threshold_months', 18)} month stale threshold "
+            f"as of {source.get('as_of', 'window end')}."
+        ),
+        "rows": [
+            {
+                "browser": _text(
+                    f"{row.get('browser_label')} {row.get('version_display')}"
+                ),
+                "status": _text(row.get("status_label")),
+                "age": _text(row.get("age_display")),
+                "share": _text(row.get("share_pct_display")),
+                "requests": _text(row.get("requests_display")),
+                "delta": _text(row.get("baseline_delta_display")),
+                "source": _text(row.get("source_name") or "local snapshot"),
+                "ua": _text(row.get("user_agent")),
+                "stale": bool(row.get("stale")),
+            }
+            for row in (source.get("rows") or [])[:6]
+        ],
+        "comparison_rows": [
+            {
+                "browser": _text(
+                    f"{row.get('browser_label')} {row.get('version_display')}"
+                ),
+                "status": _text(row.get("status_label")),
+                "age": _text(row.get("age_display")),
+                "share": _text(row.get("share_pct_display")),
+                "requests": _text(row.get("requests_display")),
+            }
+            for row in (source.get("comparison_rows") or [])[:3]
+        ],
+    }
+
+
+def _short_user_agent(value: Any, limit: int = 74) -> str:
+    text = " ".join(_text(value).split())
+    if len(text) <= limit:
+        return text
+    return f"{text[: max(0, limit - 3)].rstrip()}..."
+
+
+def _user_agent_rotation(ctx: dict[str, Any]) -> dict[str, Any]:
+    source = (ctx.get("assessment_explainers") or {}).get("user_agent_rotation") or {}
+    rows = []
+    for row in (source.get("rows") or [])[:5]:
+        rows.append(
+            {
+                "client_ip": _text(row.get("client_ip")),
+                "requests": _text(row.get("requests_display")),
+                "distinct_user_agents": _text(row.get("distinct_user_agents")),
+                "top_user_agent_share": _text(row.get("top_user_agent_share_display")),
+                "entropy_bits": _text(row.get("entropy_bits")),
+                "normalized_entropy": _text(row.get("normalized_entropy")),
+                "rotation_label": _text(row.get("rotation_label")),
+                "top_user_agent": _short_user_agent(row.get("top_user_agent")),
+            }
+        )
+    return {
+        "available": bool(source.get("available") and rows),
+        "eyebrow": "User-Agent Rotation",
+        "headline": "Rotation patterns among flagged client IPs",
+        "summary_html": _html(source.get("summary")),
+        "boundary_html": _html(source.get("boundary")),
+        "rows": rows,
+    }
+
+
+def _as_reputation(ctx: dict[str, Any]) -> dict[str, Any]:
+    source = ctx.get("as_reputation_context") or {}
+    rows = [
+        {
+            "asn": _text(row.get("asn_display")),
+            "name": _text(row.get("name")),
+            "label": _text(row.get("label_display")),
+            "confidence": _text(row.get("confidence")),
+            "requests": row.get("requests") or 0,
+            "requests_display": _text(row.get("requests_display")),
+            "flagged_target_count": row.get("flagged_target_count") or 0,
+            "external_html": _html(row.get("external_reputation_point")),
+            "local_html": _html(row.get("report_local_behavior_point")),
+            "sources": [
+                _text(src.get("title"))
+                for src in (row.get("sources") or [])[:3]
+            ],
+        }
+        for row in (source.get("rows") or [])[:3]
+    ]
+    return {
+        "available": bool(source.get("available") and rows),
+        "eyebrow": "External AS Context",
+        "headline": "Corroborating public reputation context",
+        "boundary_html": _html(source.get("boundary")),
+        "rows": rows,
+    }
+
+
+def _actor_correlation_callouts(
+    as_reputation: dict[str, Any],
+    ua_rotation: dict[str, Any],
+) -> list[dict[str, Any]]:
+    callouts: list[dict[str, Any]] = []
+    as_rows = list(as_reputation.get("rows") or [])
+    if as_reputation.get("available") and as_rows:
+        strongest = max(
+            as_rows,
+            key=lambda row: (
+                float(row.get("flagged_target_count") or 0),
+                float(row.get("requests") or 0),
+                row.get("asn") or "",
+            ),
+        )
+        bits = [
+            f"{strongest.get('asn')} / {strongest.get('name')}".strip(" /"),
+            f"{strongest.get('requests_display')} requests",
+        ]
+        flagged = int(float(strongest.get("flagged_target_count") or 0))
+        if flagged > 0:
+            bits.append(f"{flagged} flagged target{'' if flagged == 1 else 's'}")
+        callouts.append(
+            {
+                "kind": "as-reputation",
+                "title": "AS reputation cluster",
+                "summary_html": _html(
+                    "Corroborating context connects this observed actor pattern "
+                    f"to {'; '.join(bits)}."
+                ),
+                "boundary_html": (
+                    "External AS reputation is corroborating context only; it "
+                    "does not change scoring, target ordering, or incident claims."
+                ),
+            }
+        )
+
+    ua_rows = list(ua_rotation.get("rows") or [])
+    if ua_rotation.get("available") and ua_rows:
+        strongest_rows = ua_rows[:2]
+        row_bits = [
+            (
+                f"{row.get('client_ip')} used {row.get('distinct_user_agents')} "
+                f"distinct UAs with top-UA share {row.get('top_user_agent_share')} "
+                f"({row.get('rotation_label')} rotation)"
+            )
+            for row in strongest_rows
+        ]
+        callouts.append(
+            {
+                "kind": "ua-rotation",
+                "title": "User-Agent rotation",
+                "summary_html": _html(
+                    "Observed actor pattern is consistent with automation: "
+                    + "; ".join(row_bits)
+                    + "."
+                ),
+                "boundary_html": (
+                    "UA rotation is corroborating context only and does not "
+                    "prove operator intent."
+                ),
+            }
+        )
+
+    return callouts[:2]
+
+
 def build_print_report(ctx: dict[str, Any]) -> dict[str, Any]:
     summary = ctx.get("deterministic_summary") or {}
     score = int((ctx.get("risk_score") or {}).get("value") or 0)
@@ -800,6 +1256,18 @@ def build_print_report(ctx: dict[str, Any]) -> dict[str, Any]:
     classification = _classification(ctx)
     methodology = ctx.get("method") or {}
     tiles = (ctx.get("impact") or {}).get("tiles") or []
+    ua_rotation = _user_agent_rotation(ctx)
+    as_reputation = _as_reputation(ctx)
+    actor_correlation_callouts = _actor_correlation_callouts(
+        as_reputation, ua_rotation
+    )
+    page_count = 10 + int(ua_rotation["available"]) + int(as_reputation["available"])
+    ua_rotation_page_number = 11 if ua_rotation["available"] else None
+    as_reputation_page_number = (
+        10 + int(ua_rotation["available"]) + 1
+        if as_reputation["available"]
+        else None
+    )
     return {
         "customer": ctx.get("headline") or (ctx.get("scope") or {}).get("request_host") or "Incident",
         "meta": {"schema": methodology.get("schema_version") or "bot_incident_scope.v1"},
@@ -820,6 +1288,7 @@ def build_print_report(ctx: dict[str, Any]) -> dict[str, Any]:
                 {"label": "High", "is_critical": False},
                 {"label": "Critical", "is_critical": True},
             ],
+            "calibration_html": _score_calibration(ctx, band["band_label"]),
             **band,
         },
         "chart": volume_chart(ctx),
@@ -848,6 +1317,7 @@ def build_print_report(ctx: dict[str, Any]) -> dict[str, Any]:
         },
         "finding_ip_cluster": findings[0],
         "finding_ua_share": findings[1],
+        "finding_human_anomaly": findings[2],
         "actions_page": {
             "eyebrow": "Recommended Actions",
             "headline": "What to do next",
@@ -862,6 +1332,7 @@ def build_print_report(ctx: dict[str, Any]) -> dict[str, Any]:
             "total_flagged": len(ctx.get("suspicious_targets") or []),
             "appendix_note": "Rows are truncated for fixed-page print layout.",
         },
+        "actor_correlation_callouts": actor_correlation_callouts,
         "actors": actors,
         "top_hosts": [
             {
@@ -887,6 +1358,13 @@ def build_print_report(ctx: dict[str, Any]) -> dict[str, Any]:
         "classification": classification,
         **classification,
         "attck_page": _attck(ctx),
+        "risk_explanation": _risk_explanation(ctx),
+        "analysis_availability_print": _analysis_availability(ctx),
+        "browser_age": _browser_age(ctx),
+        "ua_rotation_print": ua_rotation,
+        "ua_rotation_page_number": ua_rotation_page_number,
+        "as_reputation_print": as_reputation,
+        "as_reputation_page_number": as_reputation_page_number,
         "methodology": {
             "prose_html": (
                 "This report is presentation-only. Metrics, ranks, evidence limits, "
@@ -906,5 +1384,5 @@ def build_print_report(ctx: dict[str, Any]) -> dict[str, Any]:
                 {"label": "Constraints", "value": ", ".join(methodology.get("interpretation_constraints") or [])},
             ],
         },
-        "page_count": 8,
+        "page_count": page_count,
     }

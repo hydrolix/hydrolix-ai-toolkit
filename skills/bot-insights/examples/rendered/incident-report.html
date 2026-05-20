@@ -4041,6 +4041,7 @@ footer {
 <a href="#verdict">Verdict</a>
 <a href="#impact">Impact</a>
 <a href="#flagged">Flagged</a>
+<a href="#browser-age">UA Age</a>
 <a href="#actions">Actions</a>
 <a href="#iocs">IOCs</a>
 <a href="#evidence">Evidence</a>
@@ -4061,9 +4062,13 @@ footer {
               Risk: 75/100
             </span>
             <span class="pill pill-medium pill-lg"
-                  title="Aggregate confidence — reflects which evidence sources were available (raw access log, edge-response data). Per-indicator confidence is shown separately on each flagged-target row in the Who Hit It table.">
-              Confidence: High
+                  title="Traffic-anomaly confidence reflects spike evidence, baseline availability, raw access-log drilldown, and edge-response evidence. Targeted-automation confidence is separate.">
+              High traffic-anomaly confidence
             </span>
+              <span class="pill pill-medium pill-lg"
+                    title="Targeted automation remains a hypothesis unless multi-signal actor/path evidence and a stronger baseline are present.">
+                Medium targeted-automation hypothesis confidence
+              </span>
           </div>
 
           <div class="severity-ladder" role="img"
@@ -4091,11 +4096,10 @@ footer {
 
             <p class="verdict-caveat">This report describes traffic patterns, not intent. It is built from log rules, so it does not claim any actor is malicious or attribute a root cause.</p>
             <p class="verdict-caveat">
-              Confidence labels reflect how much evidence was available.
-              The overall confidence is based on the data sources we had
-              (raw access log and edge actions). Each indicator row carries
+              Confidence labels separate the observed traffic anomaly from
+              the targeted-automation hypothesis. Each indicator row carries
               its own confidence — that may be higher or lower than the
-              overall.
+              report-level gates.
             </p>
           <div class="story-grid" style="margin-top: 14px;">
             <div class="story-panel">
@@ -4158,7 +4162,7 @@ footer {
           <div class="kicker section-eyebrow">Primary Concern</div>
           <h2>Primary concern: anomalous Human-classified traffic</h2>
           <p>Browser traffic was classified as human-like but flagged at high severity by behavioral evidence.</p>
-          <p class="assessment-boundary">This supports classification-evasive behavior or a Human-classified anomaly. It does not prove bot bypass or intent.</p>
+          <p class="assessment-boundary">This supports classification-evasive behavior or a Human-classified anomaly. It does not prove evasion success or intent.</p>
         </div>
         <ul>
             <li>28.6% of window requests</li>
@@ -4204,8 +4208,8 @@ footer {
         </li>
         <li>
           <div class="finding-label">Finding 03</div>
-          <div class="finding-lead">Behavioral cohort anomaly is the worry.</div>
-          <p class="finding-body"><code>Browser</code> shows a behavioral departure from the baseline — consistent with sophisticated automation passing bot-classification.</p>
+          <div class="finding-lead">Human-classified behavioral anomaly needs validation.</div>
+          <p class="finding-body"><code>Browser</code> shows a behavioral departure from the baseline. Treat this as a likely classification mismatch or behavioral anomaly until route owners and application telemetry confirm the cause; it is not proof of malicious intent.</p>
         </li>
     </ol>
 
@@ -4221,6 +4225,40 @@ footer {
         Those counts are normalized with a hyperbolic curve, which rises
         quickly and then tapers, and the displayed score is clamped to
         the current verdict band so the number and verdict stay aligned.
+      </p>
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th scope="col">Severity</th>
+              <th scope="col" class="is-num">Targets</th>
+              <th scope="col" class="is-num">Weight</th>
+              <th scope="col" class="is-num">Weighted count</th>
+            </tr>
+          </thead>
+          <tbody>
+              <tr>
+                <td>Critical</td>
+                <td class="is-num">3</td>
+                <td class="is-num">30</td>
+                <td class="is-num">90</td>
+              </tr>
+              <tr>
+                <td>High</td>
+                <td class="is-num">4</td>
+                <td class="is-num">15</td>
+                <td class="is-num">60</td>
+              </tr>
+              <tr>
+                <td>Low</td>
+                <td class="is-num">2</td>
+                <td class="is-num">1</td>
+                <td class="is-num">2</td>
+              </tr>
+          </tbody>
+        </table>
+      <p>
+        Raw score 75.2/100; verdict band
+        75-100. Confidence is gated separately by spike evidence, baseline availability, raw access-log drilldown, and edge-response evidence.
       </p>
         <ul class="score-methodology-reasons">
               <li>spike flags fired (Volume up, 429 rate up, Bot share up)</li>
@@ -4590,6 +4628,104 @@ footer {
     </div>
   </section>
 
+    <section id="browser-age" class="section section-browser-age">
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Browser UA Age</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display">Browser-token age context for flagged UAs</h2>
+        <p class="attack-note">Browser age is context only. Older UA tokens are consistent with intentionally configured, pinned, spoofed, or non-updating clients; they are not proof of operator intent or classification bypass.</p>
+      </div>
+      <table class="mini-table">
+        <thead>
+          <tr>
+            <th scope="col">Flagged UA</th>
+            <th scope="col">Browser token</th>
+            <th scope="col">Age</th>
+            <th scope="col" class="is-num">Requests</th>
+            <th scope="col" class="is-num">Share</th>
+            <th scope="col" class="is-num">Baseline delta</th>
+          </tr>
+        </thead>
+        <tbody>
+            <tr>
+              <td><code>python-requests/2.31</code></td>
+              <td>
+                Unknown browser family unknown
+<div class="action-edge">No supported browser version token was found.</div>              </td>
+              <td>
+                <span class="pill pill-sm pill-medium">Age unknown</span>
+                <span>age unknown</span>
+              </td>
+              <td class="is-num">920.00K</td>
+              <td class="is-num">21.6%</td>
+              <td class="is-num">—</td>
+            </tr>
+            <tr>
+              <td><code>curl/7.88.1</code></td>
+              <td>
+                Unknown browser family unknown
+<div class="action-edge">No supported browser version token was found.</div>              </td>
+              <td>
+                <span class="pill pill-sm pill-medium">Age unknown</span>
+                <span>age unknown</span>
+              </td>
+              <td class="is-num">410.00K</td>
+              <td class="is-num">9.60%</td>
+              <td class="is-num">—</td>
+            </tr>
+            <tr>
+              <td><code>Go-http-client/1.1</code></td>
+              <td>
+                Unknown browser family unknown
+<div class="action-edge">No supported browser version token was found.</div>              </td>
+              <td>
+                <span class="pill pill-sm pill-medium">Age unknown</span>
+                <span>age unknown</span>
+              </td>
+              <td class="is-num">210.00K</td>
+              <td class="is-num">4.90%</td>
+              <td class="is-num">—</td>
+            </tr>
+        </tbody>
+      </table>
+        <h3>Comparison rows</h3>
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th scope="col">UA</th>
+              <th scope="col">Browser token</th>
+              <th scope="col">Age</th>
+              <th scope="col" class="is-num">Requests</th>
+              <th scope="col" class="is-num">Share</th>
+            </tr>
+          </thead>
+          <tbody>
+              <tr>
+                <td><code>Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36</code></td>
+                <td>Unknown browser family unknown</td>
+                <td>age unknown</td>
+                <td class="is-num">1.28M</td>
+                <td class="is-num">40.0%</td>
+              </tr>
+              <tr>
+                <td><code>Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0</code></td>
+                <td>Chrome/Chromium token 124</td>
+                <td>2.1 years old</td>
+                <td class="is-num">380.00K</td>
+                <td class="is-num">11.9%</td>
+              </tr>
+          </tbody>
+        </table>
+      <p class="assessment-boundary">
+        Snapshot configured: yes;
+        185 local release rows read.
+        Stale threshold: 18 months as of 2026-05-13.
+      </p>
+    </section>
+
+
   <section class="section section-progression">
     <div class="section-head">
       <div class="section-head-rule">
@@ -4607,6 +4743,53 @@ footer {
       </ul>
   </section>
 
+
+    <section class="section section-analysis-availability">
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Analysis Availability</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display">What the bundled artifacts can support</h2>
+        <p class="attack-note">Availability notes prevent unsupported conclusions. Unavailable rows are limitations, not negative findings.</p>
+      </div>
+      <table class="mini-table">
+        <thead>
+          <tr>
+            <th scope="col">Analysis</th>
+            <th scope="col">Status</th>
+            <th scope="col">Interpretation</th>
+          </tr>
+        </thead>
+        <tbody>
+            <tr>
+              <td>ASN / hosting decomposition</td>
+              <td>Partial</td>
+              <td>Observed ASN ranking is present, but the bundled artifacts do not include hosting-provider taxonomy beyond optional AS reputation context.</td>
+            </tr>
+            <tr>
+              <td>Baseline-relative actor emergence</td>
+              <td>Available</td>
+              <td>1 flagged target(s) carried new-in-window or high-volume-new-actor evidence.</td>
+            </tr>
+            <tr>
+              <td>Edge-action effectiveness</td>
+              <td>Unavailable</td>
+              <td>No edge action mix was bundled.</td>
+            </tr>
+            <tr>
+              <td>Flagged-IP clustering</td>
+              <td>Unavailable</td>
+              <td>No explicit flagged-IP cluster artifact was bundled.</td>
+            </tr>
+            <tr>
+              <td>Protected-population / counterfactual check</td>
+              <td>Unavailable</td>
+              <td>The bundled artifacts cannot evaluate collateral impact or counterfactual outcomes.</td>
+            </tr>
+        </tbody>
+      </table>
+    </section>
 
 
   <section id="flagged" class="section section-actors">
@@ -5060,6 +5243,7 @@ footer {
       </table>
   </section>
 
+
   <section class="section section-paths">
     <div>
       <div class="section-head">
@@ -5267,6 +5451,7 @@ footer {
         </table>
     </div>
   </section>
+
 
 
   <section class="section section-attack">
@@ -5772,7 +5957,7 @@ footer {
     </div>
     <div class="right">
       <span class="label">Generated</span>
-      <span class="tnum">2026-05-19 02:50 UTC</span>
+      <span class="tnum">2026-05-20 16:21 UTC</span>
     </div>
   </footer>
 
@@ -6145,6 +6330,7 @@ footer {
                   <th>ASN</th>
                   <th>Baseline</th>
                   <th>Edge action</th>
+                  <th>Bot/proxy provenance</th>
                   <th>Why ranked here</th>
                 </tr>
               </thead>
@@ -6160,6 +6346,7 @@ footer {
                     <td>—</td>
                     <td>not flagged as new</td>
                     <td>not available</td>
+                    <td>not available</td>
                     <td>Raw volume rank 1; Critical; Watch; High confidence.</td>
                   </tr>
                   <tr>
@@ -6172,6 +6359,7 @@ footer {
                     <td class="is-num">1</td>
                     <td>—</td>
                     <td>not flagged as new</td>
+                    <td>not available</td>
                     <td>not available</td>
                     <td>Raw volume rank 2; Critical; Watch; High confidence.</td>
                   </tr>
@@ -6186,6 +6374,7 @@ footer {
                     <td>—</td>
                     <td>not flagged as new</td>
                     <td>not available</td>
+                    <td>not available</td>
                     <td>Raw volume rank 3; Critical; Watch; High confidence.</td>
                   </tr>
                   <tr>
@@ -6198,6 +6387,7 @@ footer {
                     <td class="is-num">2</td>
                     <td>—</td>
                     <td>absent from baseline</td>
+                    <td>not available</td>
                     <td>not available</td>
                     <td>Raw volume rank 4; Low; Watch; Low confidence.</td>
                   </tr>
@@ -6212,6 +6402,7 @@ footer {
                     <td>—</td>
                     <td>not flagged as new</td>
                     <td>not available</td>
+                    <td>not available</td>
                     <td>Raw volume rank 5; no heuristic severity; not promoted to action target; no confidence.</td>
                   </tr>
                   <tr>
@@ -6224,6 +6415,7 @@ footer {
                     <td class="is-num">6</td>
                     <td>—</td>
                     <td>not flagged as new</td>
+                    <td>not available</td>
                     <td>not available</td>
                     <td>Raw volume rank 6; no heuristic severity; not promoted to action target; no confidence.</td>
                   </tr>
@@ -6238,6 +6430,7 @@ footer {
                     <td>—</td>
                     <td>not flagged as new</td>
                     <td>not available</td>
+                    <td>not available</td>
                     <td>Raw volume rank 7; no heuristic severity; not promoted to action target; no confidence.</td>
                   </tr>
                   <tr>
@@ -6250,6 +6443,7 @@ footer {
                     <td class="is-num">7</td>
                     <td>—</td>
                     <td>not flagged as new</td>
+                    <td>not available</td>
                     <td>not available</td>
                     <td>Raw volume rank 8; no heuristic severity; not promoted to action target; no confidence.</td>
                   </tr>
@@ -6264,6 +6458,7 @@ footer {
                     <td>—</td>
                     <td>not flagged as new</td>
                     <td>not available</td>
+                    <td>not available</td>
                     <td>Raw volume rank 9; no heuristic severity; not promoted to action target; no confidence.</td>
                   </tr>
                   <tr>
@@ -6276,6 +6471,7 @@ footer {
                     <td class="is-num">5</td>
                     <td>—</td>
                     <td>not flagged as new</td>
+                    <td>not available</td>
                     <td>not available</td>
                     <td>Raw volume rank 10; no heuristic severity; not promoted to action target; no confidence.</td>
                   </tr>
@@ -6823,6 +7019,7 @@ footer {
               <tr><td>Scope metrics and baseline deltas</td><td><code>bot_incident_scope.v1</code></td><td>window_confirmation, volume_timeseries, and scope dimension rows</td></tr>
               <tr><td>Highest-volume raw actors</td><td><code>bot_incident_actors.v1</code></td><td>actor_rankings/client_ip</td></tr>
               <tr><td>Highest-priority action targets</td><td><code>bot_incident_action_targets.v1</code></td><td>targets plus evidence_refs</td></tr>
+              <tr><td>Bot/proxy provenance</td><td><code>bot_incident_scope.v1 / bot_incident_actors.v1</code></td><td>bot_source_mix, proxy_classification_mix, and client_ip provenance cooccurrence cells</td></tr>
           </tbody>
         </table>
         <p class="finding-body">Credential-access findings require auth endpoint, failure pattern, account/user identifiers, or SIEM/auth correlation. Without those, T1110/T1110.004 remain investigation leads.</p>
@@ -6903,7 +7100,7 @@ footer {
 </article>
 
   <footer>
-    Generated 2026-05-19 02:50 UTC · artifact bot_incident_scope.v1  </footer>
+    Generated 2026-05-20 16:21 UTC · artifact bot_incident_scope.v1  </footer>
 </main>
 </body>
 </html>

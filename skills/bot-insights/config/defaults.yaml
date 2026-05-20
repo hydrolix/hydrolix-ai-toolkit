@@ -93,3 +93,20 @@ display:
   exec_actions_cap: 5
   # KPI tile cap in the executive view's Measured-impact strip.
   exec_impact_tiles_cap: 5
+
+browser_version_history:
+  # Browser-token age context for incident reports. The runtime default points
+  # at the packaged snapshot under data/browser-version-history.json; override
+  # this path to use a freshly generated local snapshot.
+  enabled: true
+  snapshot_path: data/browser-version-history.json
+  # Rows at or above this age are labeled Stale.
+  stale_months: 18
+
+as_reputation:
+  # Optional corroborating AS reputation context for observed ASNs. The runtime
+  # default is opt-in: configure a generated Spamhaus ASN-DROP snapshot or an
+  # analyst-maintained override file when AS context should be rendered.
+  enabled: true
+  spamhaus_asndrop_path:
+  local_overrides_path:

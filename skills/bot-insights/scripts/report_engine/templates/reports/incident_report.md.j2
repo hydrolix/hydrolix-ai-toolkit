@@ -40,6 +40,18 @@ _Mechanical — derived from artifact data only._
 {% endfor %}
 - Raw actor rankings and action-target priority are shown separately so volume, severity, action class, and confidence remain distinct.
 
+### Risk Score Explanation
+
+Risk {{ risk_score.value_display | md_escape }}. Raw score {{ risk_score.raw_score_display | md_escape }}; verdict band {{ risk_score.band_display | md_escape }}{% if risk_score.clamped %}, so the displayed value was clamped into that band{% endif %}. {{ risk_score.confidence_basis | md_escape }}
+
+{% if risk_score.severity_rows %}
+| Severity | Targets | Weight | Weighted count |
+| --- | ---: | ---: | ---: |
+{% for row in risk_score.severity_rows %}
+| {{ row.severity_label | md_escape }} | {{ row.count }} | {{ row.weight }} | {{ row.weighted_count }} |
+{% endfor %}
+
+{% endif %}
 ### Open Validation Items
 
 - Validate edge-control candidates against protected traffic before enforcement.
@@ -85,6 +97,18 @@ Top path pattern: `{{ impact.top_path_pattern.value | md_escape }}` — {{ impac
 _{{ mitigation_coverage.boundary | md_escape }}_
 
 {% endif %}
+{% if analysis_availability and analysis_availability.rows %}
+## Analysis Availability
+
+{{ analysis_availability.boundary | md_escape }}
+
+| Analysis | Status | Interpretation |
+| --- | --- | --- |
+{% for row in analysis_availability.rows %}
+| {{ row.analysis | md_escape }} | {{ row.status | md_escape }} | {{ row.detail | md_escape }} |
+{% endfor %}
+
+{% endif %}
 {% if entity_clusters %}
 ## Entity Clusters
 
@@ -126,10 +150,60 @@ Source: `bot_incident_action_targets.v1` action-target heuristic. This is the au
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 {% for row in suspicious_targets %}
 | {{ row.target_type_label | md_escape }} | `{{ row.target_value | md_escape }}` | {% for label in row.reason_flag_labels %}{{ label | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %} | {{ row.attack_techniques_summary | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} | {{ row.req_429_display | md_escape }} | {{ row.severity_label | md_escape }} | {{ row.confidence_label | md_escape }} | {{ row.why_ranked_here | md_escape }} |
+{% if row.provenance_display %}|  |  | Bot/proxy provenance: {{ row.provenance_display | md_escape }} |  |  |  |  |  |  | Corroborating source metadata only; not proof of intent or root cause. |
+{% endif %}
 {% endfor %}
 
 {% else %}
 > **No flagged targets** — no targets crossed the suspicious-actor heuristic thresholds for this window. Either the cluster has no raw access log, or no actor crossed the heuristic thresholds. Scope evidence below still applies.
+
+{% endif %}
+{% if as_reputation_context and as_reputation_context.available %}
+## External AS Context
+
+{{ as_reputation_context.boundary | md_escape }}
+
+{% for row in as_reputation_context.rows %}
+### {{ row.asn_display | md_escape }}{% if row.name %} — {{ row.name | md_escape }}{% endif %}
+
+**{{ row.label_display | md_escape }}**{% if row.confidence %} · {{ row.confidence | title | md_escape }} confidence{% endif %}{% if row.evidence_grade %} · {{ row.evidence_grade | replace("_", " ") | md_escape }}{% endif %}
+
+External reputation point: {{ row.external_reputation_point | md_escape }}
+
+Report-local behavior point: {{ row.report_local_behavior_point | md_escape }}
+
+| Source | Type | Summary |
+| --- | --- | --- |
+{% for source in row.sources %}
+| [{{ source.title | md_escape }}]({{ source.url }}) | {{ source.source_type | replace("_", " ") | md_escape }} | {{ source.summary | md_escape }} |
+{% endfor %}
+
+_Last reviewed {{ row.last_reviewed | md_escape }}. Public reputation is not a detection gate and does not imply every IP, customer, or request from this AS is malicious._
+
+{% endfor %}
+{% endif %}
+{% if browser_version_context and browser_version_context.available %}
+## Browser UA Age
+
+{{ browser_version_context.boundary | md_escape }}
+
+| Flagged UA | Browser token | Age | Requests | Share | Baseline delta |
+| --- | --- | --- | ---: | ---: | ---: |
+{% for row in browser_version_context.rows %}
+| `{{ row.user_agent | md_escape }}` | {{ row.browser_label | md_escape }} {{ row.version_display | md_escape }}{% if row.token_caveat %}; {{ row.token_caveat | md_escape }}{% endif %} | {{ row.status_label | md_escape }} — {{ row.age_display | md_escape }}{% if row.release_date %} (released {{ row.release_date | md_escape }}){% endif %} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} | {{ row.baseline_delta_display | md_escape }} |
+{% endfor %}
+
+{% if browser_version_context.comparison_rows %}
+Comparison rows:
+
+| UA | Browser token | Age | Requests | Share |
+| --- | --- | --- | ---: | ---: |
+{% for row in browser_version_context.comparison_rows %}
+| `{{ row.user_agent | md_escape }}` | {{ row.browser_label | md_escape }} {{ row.version_display | md_escape }} | {{ row.age_display | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} |
+{% endfor %}
+
+{% endif %}
+_Snapshot configured: {{ "yes" if browser_version_context.snapshot_configured else "no" }}; {{ browser_version_context.snapshot_row_count }} local release rows read. Stale threshold: {{ browser_version_context.stale_threshold_months }} months as of {{ browser_version_context.as_of }}._
 
 {% endif %}
 {% if attack_aggregation %}
@@ -143,6 +217,62 @@ Techniques the observed signal is consistent with, not attribution. Credential-a
 | {{ tech.id | md_escape }} {{ tech.name | md_escape }} | {{ tech.mapping_class | md_escape }} | {{ tech.supporting_evidence_text | md_escape }} | {% for chip in tech.metric_chips %}{{ chip | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %} | {{ tech.tactic | md_escape }} |
 {% endfor %}
 
+{% endif %}
+{% if assessment_explainers and assessment_explainers.available %}
+## Assessment Explanation Signals
+
+{{ assessment_explainers.boundary | md_escape }}
+
+{% if assessment_explainers.path_ip_convergence.available %}
+### Path-by-IP convergence
+
+{{ assessment_explainers.path_ip_convergence.summary | md_escape }}
+
+| Path | Requests | Share of flagged client-IP requests | Flagged IPs | Labels |
+| --- | --- | --- | --- | --- |
+{% for row in assessment_explainers.path_ip_convergence.top_paths[:5] %}
+| `{{ row.path | md_escape }}` | {{ row.requests_display | md_escape }} | {{ row.share_display | md_escape }} | {{ row.flagged_ip_count }} | {% if row.auth_related %}auth{% endif %}{% if row.auth_related and row.api_related %}; {% endif %}{% if row.api_related %}API{% endif %} |
+{% endfor %}
+
+{% endif %}
+{% if assessment_explainers.flagged_ip_timeseries_alignment.available %}
+### Flagged-IP time-series alignment
+
+{{ assessment_explainers.flagged_ip_timeseries_alignment.summary | md_escape }} Correlation is not causation.
+
+{% if assessment_explainers.flagged_ip_timeseries_alignment.correlations %}
+| Signal | Pearson correlation to flagged requests |
+| --- | --- |
+{% for row in assessment_explainers.flagged_ip_timeseries_alignment.correlations[:6] %}
+| {{ row.signal | md_escape }} | {{ "%.3f" | format(row.correlation) }} |
+{% endfor %}
+
+{% endif %}
+{% endif %}
+{% if assessment_explainers.user_agent_rotation.available %}
+### User-agent rotation
+
+{{ assessment_explainers.user_agent_rotation.summary | md_escape }} {{ assessment_explainers.user_agent_rotation.boundary | md_escape }}
+
+| Client IP | Distinct UAs | Top UA share | Entropy bits | Label |
+| --- | --- | --- | --- | --- |
+{% for row in assessment_explainers.user_agent_rotation.rows %}
+| `{{ row.client_ip | md_escape }}` | {{ row.distinct_user_agents }} | {{ row.top_user_agent_share_display | md_escape }} | {{ row.entropy_bits }} | {{ row.rotation_label | md_escape }} |
+{% endfor %}
+
+{% endif %}
+{% if assessment_explainers.bot_proxy_provenance_overlap.available %}
+### Bot/proxy provenance overlap
+
+{{ assessment_explainers.bot_proxy_provenance_overlap.summary | md_escape }} {{ assessment_explainers.bot_proxy_provenance_overlap.boundary | md_escape }}
+
+| Measure | Value |
+| --- | ---: |
+| Flagged client-IP requests | {{ assessment_explainers.bot_proxy_provenance_overlap.flagged_client_ip_requests | int }} |
+| Overlap share | {{ assessment_explainers.bot_proxy_provenance_overlap.overlap_share_display | md_escape }} |
+| Overlapping IP targets | {{ assessment_explainers.bot_proxy_provenance_overlap.overlapping_target_count }} |
+
+{% endif %}
 {% endif %}
 ## Section A — Scope Confirmation
 
@@ -242,6 +372,36 @@ Current: {{ baseline_context.current_window.start | md_escape }} → {{ baseline
 
 {% endif %}
 {% endif %}
+{% if bot_source_rows or proxy_classification_rows %}
+## Bot and Proxy Provenance
+
+{% if claim_profile and claim_profile.provenance_overlap and claim_profile.provenance_overlap.available %}
+{{ claim_profile.provenance_overlap.summary | md_escape }}
+
+{% endif %}
+Corroborating source evidence only. These rows do not prove actor intent, root cause, or ownership.
+
+{% if bot_source_rows %}
+### Bot source mix
+
+| Category / type / botnet | Requests | % of incident requests | Δ vs baseline |
+| --- | --- | --- | --- |
+{% for row in bot_source_rows %}
+| {{ row.value | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} | {{ row.delta_vs_baseline_display | md_escape }} |
+{% endfor %}
+
+{% endif %}
+{% if proxy_classification_rows %}
+### Proxy classification mix
+
+| Category / action / match | Requests | % of incident requests | Δ vs baseline |
+| --- | --- | --- | --- |
+{% for row in proxy_classification_rows %}
+| {{ row.value | md_escape }} | {{ row.requests_display | md_escape }} | {{ row.share_pct_display | md_escape }} | {{ row.delta_vs_baseline_display | md_escape }} |
+{% endfor %}
+
+{% endif %}
+{% endif %}
 {% set op_note = notes_by_slot.get("operational_interpretation") if notes_by_slot else None %}
 {% if op_note %}
 ## Operational Interpretation
@@ -261,10 +421,10 @@ _From {{ (op_note.author_type or "analyst") | humanize_author | md_escape }}._
 
 Source: `bot_incident_actors.v1` / `actor_rankings.client_ip`.
 
-| # | Client IP | Requests | Share | 429s | 5xx | Paths | ASN | Baseline | Edge action | Why ranked here |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| # | Client IP | Requests | Share | 429s | 5xx | Paths | ASN | Baseline | Edge action | Bot/proxy provenance | Why ranked here |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 {% for row in raw_actor_rows %}
-| {{ row.rank }} | `{{ row.value | md_escape }}` | {{ row.requests_display | md_escape }} | {{ row.share_display | md_escape }} | {{ row.req_429_display | md_escape }} / {{ row.req_429_rate_display | md_escape }} | {{ row.req_5xx_display | md_escape }} / {{ row.req_5xx_rate_display | md_escape }} | {{ row.distinct_paths_display | md_escape }} | {{ row.asn | md_escape }} | {{ row.baseline_presence | md_escape }} | {{ row.edge_action | md_escape }} | {{ row.why_ranked_here | md_escape }} |
+| {{ row.rank }} | `{{ row.value | md_escape }}` | {{ row.requests_display | md_escape }} | {{ row.share_display | md_escape }} | {{ row.req_429_display | md_escape }} / {{ row.req_429_rate_display | md_escape }} | {{ row.req_5xx_display | md_escape }} / {{ row.req_5xx_rate_display | md_escape }} | {{ row.distinct_paths_display | md_escape }} | {{ row.asn | md_escape }} | {{ row.baseline_presence | md_escape }} | {{ row.edge_action | md_escape }} | {{ row.provenance | md_escape }} | {{ row.why_ranked_here | md_escape }} |
 {% endfor %}
 
 ### Highest priority action targets

@@ -192,6 +192,22 @@ uv run python skills/bot-insights/scripts/bot_insights_report.py \
   --output llm-template.md
 ```
 
+Optional AS reputation context for incident reports is configured with local
+input files only. The renderer does not fetch network data. To use Spamhaus
+ASN-DROP as generic routing and reputation context, generate a local snapshot,
+then point report rendering at it:
+
+```bash
+uv run python skills/bot-insights/scripts/as_reputation_snapshot.py \
+  --source spamhaus-asndrop \
+  --output /path/asndrop.json
+```
+
+```yaml
+as_reputation:
+  spamhaus_asndrop_path: /path/asndrop.json
+```
+
 `~/src/utils/bot-insights-report` is a thin executable convenience wrapper for
 the same script:
 

@@ -404,16 +404,49 @@ def _risk_score(
     bands = t.risk_score.bands
     level = deterministic_summary.get("level") or "low"
     counts: dict[str, int] = {}
+    fired_reasons: dict[str, int] = {}
     for target in suspicious_targets or []:
         sev = target.get("severity") or "review"
         counts[sev] = counts.get(sev, 0) + 1
+        for flag in target.get("reason_flags") or []:
+            fired_reasons[str(flag)] = fired_reasons.get(str(flag), 0) + 1
     penalty = sum(weights.get(sev, 0) * count for sev, count in counts.items())
     raw_score = 100.0 * penalty / (50.0 + penalty)
     band_min, band_max = bands.get(level, (0, 100))
     clamped = max(band_min, min(band_max, raw_score))
+    severity_rows = [
+        {
+            "severity": sev,
+            "severity_label": sev.title(),
+            "count": count,
+            "weight": weights.get(sev, 0),
+            "weighted_count": weights.get(sev, 0) * count,
+        }
+        for sev, count in sorted(
+            counts.items(),
+            key=lambda kv: (_SEVERITY_ORDER.get(kv[0], 99), kv[0]),
+        )
+    ]
+    reason_rows = [
+        {"reason": reason, "count": count}
+        for reason, count in sorted(fired_reasons.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
     return {
         "value": int(round(clamped)),
         "value_display": f"{int(round(clamped))}/100",
+        "severity_rows": severity_rows,
+        "reason_rows": reason_rows,
+        "penalty": penalty,
+        "raw_score": round(raw_score, 1),
+        "raw_score_display": f"{raw_score:.1f}/100",
+        "band_min": band_min,
+        "band_max": band_max,
+        "band_display": f"{band_min}-{band_max}",
+        "clamped": int(round(clamped)) != int(round(raw_score)),
+        "confidence_basis": (
+            "Confidence is gated separately by spike evidence, baseline availability, "
+            "raw access-log drilldown, and edge-response evidence."
+        ),
     }
 
 

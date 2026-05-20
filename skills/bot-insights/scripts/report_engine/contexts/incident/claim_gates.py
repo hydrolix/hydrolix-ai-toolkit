@@ -5,9 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from .formatters import _format_count
+from .formatters import _format_count, _format_pct, _safe_number
 
-__all__ = ["build_claim_profile"]
+__all__ = ["build_claim_profile", "compute_provenance_overlap"]
 
 
 _AUTH_PATH_MARKERS = (
@@ -179,6 +179,98 @@ def _targeted_automation_confidence(
     return "medium"
 
 
+def _positive_requests(value: Any) -> float:
+    number = _safe_number(value)
+    if number is None:
+        return 0.0
+    return max(float(number), 0.0)
+
+
+def compute_provenance_overlap(
+    actors_art: dict[str, Any],
+    targets: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Measure flagged client-IP traffic with bot/proxy provenance evidence.
+
+    The score is correlation evidence only. It deliberately uses only
+    ``bot_incident_action_targets.v1.targets`` client-IP entries plus
+    IP-keyed actor cooccurrence cells; report-level mix rows are context and
+    must not feed this numerator.
+    """
+    flagged_ip_requests: dict[str, float] = {}
+    for target in targets:
+        if target.get("target_type") != "client_ip":
+            continue
+        ip = str(target.get("target_value") or "")
+        if not ip:
+            continue
+        requests = _positive_requests((target.get("supporting") or {}).get("requests"))
+        if requests <= 0:
+            continue
+        flagged_ip_requests[ip] = flagged_ip_requests.get(ip, 0.0) + requests
+
+    flagged_client_ip_requests = sum(flagged_ip_requests.values())
+    empty_result = {
+        "flagged_client_ip_requests": flagged_client_ip_requests,
+        "overlap_requests": 0.0,
+        "overlap_share": 0.0,
+        "overlap_share_pct": 0.0,
+        "overlap_share_display": "—",
+        "overlapping_target_count": 0,
+        "total_client_ip_target_count": len(flagged_ip_requests),
+        "available": False,
+        "summary": "",
+    }
+    if not flagged_ip_requests:
+        return empty_result
+
+    cooccur = actors_art.get("actor_cooccurrence") or {}
+    provenance_requests_by_ip: dict[str, float] = {}
+    has_provenance_cells = False
+    for key in ("client_ip__bot_source", "client_ip__proxy_classification"):
+        for cell in cooccur.get(key) or []:
+            requests = _positive_requests(cell.get("requests"))
+            if requests <= 0:
+                continue
+            has_provenance_cells = True
+            ip = str(cell.get("ip") or "")
+            if ip in flagged_ip_requests:
+                provenance_requests_by_ip[ip] = (
+                    provenance_requests_by_ip.get(ip, 0.0) + requests
+                )
+    if not has_provenance_cells:
+        return empty_result
+
+    overlap_requests = sum(
+        min(flagged_ip_requests[ip], provenance_requests)
+        for ip, provenance_requests in provenance_requests_by_ip.items()
+        if provenance_requests > 0
+    )
+    overlap_share = (
+        overlap_requests / flagged_client_ip_requests
+        if flagged_client_ip_requests > 0
+        else 0.0
+    )
+    overlap_share_pct = overlap_share * 100.0
+    overlap_display = _format_pct(overlap_share_pct)
+    return {
+        "flagged_client_ip_requests": flagged_client_ip_requests,
+        "overlap_requests": overlap_requests,
+        "overlap_share": overlap_share,
+        "overlap_share_pct": overlap_share_pct,
+        "overlap_share_display": overlap_display,
+        "overlapping_target_count": sum(
+            1 for value in provenance_requests_by_ip.values() if value > 0
+        ),
+        "total_client_ip_target_count": len(flagged_ip_requests),
+        "available": True,
+        "summary": (
+            f"{overlap_display} of flagged client-IP traffic overlapped "
+            "bot/proxy provenance metadata."
+        ),
+    }
+
+
 def _walk_values(value: Any) -> list[str]:
     out: list[str] = []
     if isinstance(value, dict):
@@ -227,6 +319,11 @@ def _build_hero_summary(
         )
     else:
         tail = "Targeted automation remains a low-confidence hypothesis pending corroborating actor/path evidence."
+    if claim_profile.get("target_provenance_overlap") and automation_conf in {
+        "high",
+        "medium",
+    }:
+        tail = tail.rstrip(".") + ", corroborated by source bot/proxy metadata."
     return f"{traffic_conf}-confidence traffic anomaly across {target}. {tail}"
 
 
@@ -243,6 +340,7 @@ def build_claim_profile(
     """
     baseline_strength = _baseline_strength(scope_art.get("scope") or {})
     top_raw_paths = scope_art.get("top_raw_paths") or []
+    provenance_overlap = compute_provenance_overlap(actors_art, suspicious_targets)
     profile: dict[str, Any] = {
         "baseline_strength": baseline_strength,
         "traffic_anomaly_confidence": _traffic_anomaly_confidence(
@@ -250,6 +348,11 @@ def build_claim_profile(
         ),
         "targeted_automation_confidence": _targeted_automation_confidence(
             actors_art, suspicious_targets, top_raw_paths, baseline_strength
+        ),
+        "provenance_overlap": provenance_overlap,
+        "target_provenance_overlap": (
+            bool(provenance_overlap.get("available"))
+            and _positive_requests(provenance_overlap.get("overlap_requests")) > 0
         ),
         "credential_access_allowed": (
             _has_auth_endpoint(scope_art, actors_art)
