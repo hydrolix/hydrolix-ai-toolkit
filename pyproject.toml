@@ -1,0 +1,57 @@
+[project]
+name = "public-skills-workspace"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "bot-insights",
+  "reportkit",
+]
+
+[tool.uv.workspace]
+members = [
+  "reportkit",
+  "packages/bot-insights",
+]
+
+[tool.uv.sources]
+reportkit = { workspace = true }
+bot-insights = { workspace = true }
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["C901"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
+
+[tool.ruff.lint.per-file-ignores]
+"packages/bot-insights/src/bot_insights/attribution.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/baselines.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/cache_origin_impact.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/compare_posture.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/_render_report/cli.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/_render_report/legacy_html.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/_render_report/legacy_markdown.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/_render_report/validators.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/scorecard.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/producers/cli.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/producers/evidence/incident.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/producers/evidence/labeling.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/producers/evidence/scorecard.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/producers/orchestrators/incident_report.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/producers/suspicious_targets/ladder.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/producers/threat_hunt.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/producers/threat_hunt_campaigns.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/producers/threat_hunt_ua_plausibility.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/report_engine/contexts/incident/module.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/report_engine/contexts/incident/print_adapter.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/report_engine/contexts/threat_hunt.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/report_engine/volume_impact.py" = ["C901"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "off"
+reportMissingImports = "none"

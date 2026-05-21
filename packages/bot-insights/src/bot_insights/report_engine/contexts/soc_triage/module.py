@@ -1,0 +1,324 @@
+"""SCHEMA / REPORT_TYPE / TEMPLATE / NOTE_ID_TO_SLOT / PURPOSE + assemble + prepare."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from collections import Counter
+from ... import scorecards as scorecards_mod
+from ... import verdicts as verdicts_mod
+from ...humanize import cluster_display
+from ...humanize import humanize_entity_type
+from ...humanize import humanize_entity_type_plural
+from ...humanize import title_case_label
+from .._shared import _aggregate_coverage
+from .._shared import _queue_rows
+from .._shared import _shadow_scorecard
+from .._shared import _shadow_verdict
+from .._shared import _triage_strip
+from ..scorecard_brief import _aggregate_actions
+from ..scorecard_brief import _entity_row
+
+from .entity_view import (
+    _entity_display,
+    _resolve_entity_type,
+)
+from .evidence_view import _security_evidence_cards
+from .narrative import _actionable_summary
+from .triage_queue import (
+    _coverage_rows,
+    _domain_score_matrix,
+    _entity_actions,
+)
+
+__all__ = [
+    'SCHEMA',
+    'REPORT_TYPE',
+    'TEMPLATE',
+    'NOTE_ID_TO_SLOT',
+    'PURPOSE',
+    'assemble',
+    'prepare',
+]
+
+
+SCHEMA = "bot_scorecard_artifacts.v1"
+
+
+REPORT_TYPE = "soc_triage"
+
+
+TEMPLATE = "reports/soc_triage.html"
+
+
+NOTE_ID_TO_SLOT = {
+    "llm-interpretation": "executive_summary",
+    "llm-operational": "operational_interpretation",
+    "llm-finding-overrides": "finding_overrides",
+}
+
+
+PURPOSE = {
+    "kicker": "Bot Insights — security risk triage",
+    "measures": (
+        "A risk score for each ranked entity (typically ASN) on a 0–100 "
+        "scale. Higher scores reflect more triggered security signals — "
+        "bad-bot share, SIEM auth failures, SIEM blocked requests — plus "
+        "movement-side context."
+    ),
+    "score_legend": (
+        "Higher score = more triggered security/movement rules. "
+        "Bands: escalate, monitor, observe."
+    ),
+    "cant_say": (
+        "Not a confirmed-malicious determination. Missing inputs are "
+        "reported as missing — they are not scored as safe."
+    ),
+}
+
+
+def _first_artifact(artifacts: list[dict], schema: str) -> dict | None:
+    return next((a for a in artifacts if a.get("schema_version") == schema), None)
+
+
+def _unpack_scorecard_artifacts(
+    artifacts: list[dict],
+) -> tuple[dict | None, list[dict], object, bool, object]:
+    """Return ``(index, scorecards, producer_limit, result_truncated, total_ranked)``.
+
+    Accepts both bundled (``bot_scorecard_artifacts.v1``) and flat
+    (separate ``bot_scorecard_index.v1`` + ``bot_entity_scorecard.v1``)
+    layouts the producer may emit.
+    """
+    packet = _first_artifact(artifacts, "bot_scorecard_artifacts.v1")
+    if packet is not None:
+        return (
+            packet.get("index"),
+            list(packet.get("scorecards") or []),
+            packet.get("producer_limit"),
+            packet.get("result_truncated", False),
+            packet.get("total_ranked_entities"),
+        )
+    index = _first_artifact(artifacts, "bot_scorecard_index.v1")
+    scorecards = [
+        a for a in artifacts if a.get("schema_version") == "bot_entity_scorecard.v1"
+    ]
+    return index, scorecards, (index or {}).get("producer_limit"), False, None
+
+
+def assemble(artifacts: list[dict]) -> dict:
+    """Reassemble a ``bot_report_input.v1`` wrapper's artifacts into the dict
+    shape ``prepare()`` expects.
+
+    Accepts both shapes the producer may emit:
+    - Bundled: a single ``bot_scorecard_artifacts.v1`` packet that nests
+      ``index`` + ``scorecards``. This is the shape the SOC fixture uses.
+    - Flat: separate ``bot_scorecard_index.v1`` and a list of
+      ``bot_entity_scorecard.v1`` entries. Same fallback the brief uses.
+    """
+    index, scorecards, producer_limit, result_truncated, total_ranked = (
+        _unpack_scorecard_artifacts(artifacts)
+    )
+    if index is None:
+        raise ValueError("soc_triage wrapper missing bot_scorecard_index.v1 artifact")
+    if total_ranked is None:
+        total_ranked = len(index.get("ranked_entities") or [])
+    return {
+        "schema_version": SCHEMA,
+        "index": index,
+        "scorecards": scorecards,
+        "producer_limit": producer_limit,
+        "result_row_count": len(scorecards),
+        "result_truncated": result_truncated,
+        "total_ranked_entities": total_ranked,
+    }
+
+
+def _resolve_scorecards(
+    artifact: dict, ranked_entities: list[dict]
+) -> tuple[list[dict], bool]:
+    """Return ``(scorecards, degraded)``. Degraded mode builds shadow
+    cards from the ranking when the wrapper carries no scorecard
+    artifacts."""
+    scorecards = artifact.get("scorecards") or []
+    if scorecards or not ranked_entities:
+        return scorecards, False
+    return [_shadow_scorecard(e, artifact["index"]) for e in ranked_entities], True
+
+
+def _resolve_scope_context(
+    scorecards: list[dict], index: dict
+) -> tuple[dict, str, str, str, str]:
+    """Return ``(scope, scope_host, cluster, cluster_label, table_used)``."""
+    scope = (scorecards[0]["scope"] if scorecards else index.get("scope")) or {}
+    scope_host = scope.get("request_host") or ""
+    cluster = scope.get("cluster") or ""
+    cluster_label = cluster_display(cluster) if cluster else (scope_host or "")
+    table_used = (scorecards[0].get("table_used") if scorecards else None) or (
+        index.get("table_used") or ""
+    )
+    return scope, scope_host, cluster, cluster_label, table_used
+
+
+def _build_verdicts_by_entity(
+    scorecards: list[dict], degraded: bool
+) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for sc in scorecards:
+        if degraded:
+            out[sc["entity"]] = _shadow_verdict(sc["band"])
+        else:
+            rc = scorecards_mod.rule_counts(sc)
+            out[sc["entity"]] = verdicts_mod.classify(sc["band"], rc)
+    return out
+
+
+def _annotate_entity_row(
+    e: dict,
+    verdicts_by_entity: dict[str, dict],
+    entity_type: str,
+    entity_type_label: str,
+) -> None:
+    v = verdicts_by_entity.get(e["entity"])
+    e["verdict"] = v
+    e["verdict_state"] = v["state"] if v else "watch"
+    e["verdict_label"] = v["label"] if v else "Watch"
+    e["verdict_tone"] = v["tone"] if v else "monitor"
+    e["entity_type"] = entity_type
+    e["entity_type_label"] = entity_type_label
+    e["entity_display"] = _entity_display(e["entity"], entity_type)
+
+
+def _build_security_views(
+    scorecards: list[dict],
+    verdicts_by_entity: dict[str, dict],
+    rank_lookup: dict,
+    entity_type: str,
+    degraded: bool,
+) -> tuple[list[dict], dict]:
+    """Build ``(security_cards, domain_matrix)`` — empty in degraded mode.
+
+    Degraded mode (no producer scorecards) cannot populate security cards
+    or the domain matrix — the synthetic shadow rule_results carry no
+    per-feature evidence, only enough state to drive band-based verdicts.
+    """
+    if degraded:
+        return [], {"domains": [], "rows": []}
+    cards = _security_evidence_cards(
+        scorecards, verdicts_by_entity, rank_lookup, entity_type
+    )
+    matrix = _domain_score_matrix(scorecards, rank_lookup, entity_type)
+    return cards, matrix
+
+
+def _build_windows_block(index: dict, scorecards: list[dict]) -> dict | None:
+    """Index falls back to first scorecard's window when absent (degraded
+    fixture path) so the comparison strip still renders."""
+    current_window = index.get("current_window") or (
+        scorecards[0].get("current_window") if scorecards else None
+    )
+    baseline_windows = index.get("baseline_windows") or (
+        scorecards[0].get("baseline_windows") if scorecards else None
+    )
+    if not (current_window and baseline_windows):
+        return None
+    return {"current": current_window, "baseline": baseline_windows[0]}
+
+
+def _build_method_block(artifact: dict, index: dict) -> dict:
+    return {
+        "schema_version": artifact.get("schema_version"),
+        "comparison_type": index.get("comparison_type"),
+        "producer_limit": (
+            index.get("producer_limit") or artifact.get("producer_limit")
+        ),
+        "result_row_count": artifact.get("result_row_count"),
+        "result_truncated": artifact.get("result_truncated"),
+        "interpretation_constraints": index.get("interpretation_constraints") or [],
+    }
+
+
+def _build_confidence_block(scorecards: list[dict]) -> dict:
+    counts = Counter(sc.get("confidence") or "low" for sc in scorecards)
+    reasons: set[str] = set()
+    for sc in scorecards:
+        reasons.update(sc.get("confidence_reasons") or [])
+    return {"counts": dict(counts), "reasons": sorted(reasons)}
+
+
+def _build_orientation_block() -> dict:
+    return {
+        "measures": PURPOSE["measures"],
+        "score_legend": PURPOSE["score_legend"],
+        "cant_say": PURPOSE["cant_say"],
+    }
+
+
+def prepare(artifact: dict) -> dict:
+    index = artifact["index"]
+    ranked_entities = index.get("ranked_entities") or []
+    scorecards, degraded = _resolve_scorecards(artifact, ranked_entities)
+    scope, scope_host, cluster, cluster_label, table_used = _resolve_scope_context(
+        scorecards, index
+    )
+
+    entity_type = _resolve_entity_type(ranked_entities, scorecards)
+    entity_type_label = humanize_entity_type(entity_type)
+    entity_type_label_plural = humanize_entity_type_plural(entity_type)
+    entity_type_label_title = title_case_label(entity_type_label)
+    n_total = len(scorecards)
+    rank_lookup = {e.get("entity"): e.get("rank") for e in ranked_entities}
+
+    verdicts_by_entity = _build_verdicts_by_entity(scorecards, degraded)
+    entities = [_entity_row(sc, rank_lookup) for sc in scorecards]
+    for e in entities:
+        _annotate_entity_row(e, verdicts_by_entity, entity_type, entity_type_label)
+
+    queue_rows = _queue_rows(entities)
+    triage_strip = _triage_strip(
+        verdicts_by_entity, n_total, entity_type_label, entity_type_label_plural
+    )
+    coverage = _aggregate_coverage(scorecards)
+    actions = _aggregate_actions(scorecards)
+    security_cards, domain_matrix = _build_security_views(
+        scorecards, verdicts_by_entity, rank_lookup, entity_type, degraded
+    )
+    actionable = _actionable_summary(
+        scorecards, queue_rows, triage_strip, actions, coverage,
+        n_total, entity_type_label, entity_type_label_plural,
+    )
+    headline_scope = cluster_label or scope_host or "fleet"
+
+    return {
+        "title": "SOC Triage",
+        "kicker": PURPOSE["kicker"],
+        "headline": f"SOC Triage — {headline_scope}, {entity_type_label} risk queue",
+        "dek": (
+            "Top entities ranked by mechanical risk indicators "
+            "for the current window."
+        ),
+        "purpose": None,
+        "orientation": _build_orientation_block(),
+        "scope": {
+            "cluster": cluster,
+            "database": scope.get("database") or "",
+            "table_used": table_used,
+            "request_host": scope_host,
+        },
+        "windows": _build_windows_block(index, scorecards),
+        "entity_type": entity_type,
+        "entity_type_label": entity_type_label,
+        "entity_type_label_plural": entity_type_label_plural,
+        "entity_type_label_title": entity_type_label_title,
+        "degraded": degraded,
+        "triage_strip": triage_strip,
+        "queue_rows": queue_rows,
+        "security_cards": security_cards,
+        "domain_matrix": domain_matrix,
+        "actions": _entity_actions(scorecards, entity_type),
+        "aggregated_actions": actions,
+        "coverage_rows": _coverage_rows(coverage),
+        "findings": [actionable],
+        "method": _build_method_block(artifact, index),
+        "confidence": _build_confidence_block(scorecards),
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+    }

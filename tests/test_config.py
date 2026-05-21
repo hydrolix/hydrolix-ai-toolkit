@@ -103,7 +103,7 @@ def test_default_browser_version_history_config_uses_packaged_snapshot() -> None
     assert DEFAULT_THRESHOLDS.browser_version_history.enabled is True
     snapshot_path = DEFAULT_THRESHOLDS.browser_version_history.snapshot_path
     assert snapshot_path is not None
-    assert snapshot_path.endswith("skills/bot-insights/data/browser-version-history.json")
+    assert snapshot_path.endswith("bot_insights/data/browser-version-history.json")
     assert Path(snapshot_path).exists()
     assert DEFAULT_THRESHOLDS.browser_version_history.stale_months == 18
 

@@ -1,0 +1,11 @@
+/* ──────────────────────────────────────────────────────────────────
+   Semantic severity tokens. Independent of brand.
+   ────────────────────────────────────────────────────────────────── */
+:root {
+  --sev-observe:   #4E79A7;
+  --sev-monitor:   #d97706;
+  --sev-elevated:  #ea580c;
+  --sev-escalate:  #dc2626;
+  --sev-critical:  #9F2C2D;
+  --sev-ok:        #15803d;
+}

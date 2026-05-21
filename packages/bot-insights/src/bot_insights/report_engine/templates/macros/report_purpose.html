@@ -1,0 +1,25 @@
+{% macro report_purpose(purpose, palette, bands=None) %}
+{% set _default_bands = [
+    {"label": "escalate · 0–40", "tone": "escalate"},
+    {"label": "monitor · 40–70", "tone": "monitor"},
+    {"label": "observe · 70–100", "tone": "observe"},
+] %}
+{% set _bands = bands if bands else _default_bands %}
+<section class="purpose-strip" aria-label="Report orientation">
+  <div class="purpose-cell">
+    <div class="purpose-label">What this measures</div>
+    <p>{{ purpose.measures }}</p>
+  </div>
+  <div class="purpose-cell">
+    <div class="purpose-label">How to read the score</div>
+    <p>{{ purpose.score_legend }}</p>
+    <ul class="purpose-key">
+{% for band in _bands %}      <li><span class="key-dot" style="background: {{ palette[band.tone] }}"></span>{{ band.label }}</li>
+{% endfor %}    </ul>
+  </div>
+  <div class="purpose-cell">
+    <div class="purpose-label">What this can't say</div>
+    <p>{{ purpose.cant_say }}</p>
+  </div>
+</section>
+{% endmacro %}

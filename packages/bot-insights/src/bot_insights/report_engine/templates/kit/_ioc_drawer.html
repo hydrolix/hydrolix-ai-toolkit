@@ -1,0 +1,119 @@
+{# ─────────────────────────────────────────────────────────────────
+   ioc_drawer / ioc_rail — pinned right-rail with searchable indicators.
+   The drawer renders the full surface; the rail is the collapsed
+   replacement. The host page chooses which to emit based on a state
+   flag (?drawer=collapsed for example) or both — the JS shim hides
+   the inactive one and provides the collapse/expand toggle.
+
+   Args (ioc_drawer):
+     tabs        list of {id, label, items: list[str], filename,
+                          empty_text (opt)}
+     extras      optional list of {label, filename, body} → buttons in
+                 the foot row (e.g. SIEM JSON, WAF rule)
+     stats       optional list of {value, label, flag (opt)} for the
+                 summary strip under the head
+     title       drawer header (default "IOC drawer")
+     footer_slot caller block rendered at the bottom of the foot
+                 (e.g. a brand mark) — use the `call(footer_slot)`
+                 pattern if dynamic, or pass as a string
+     initial     id of the first-active tab
+
+   Args (ioc_rail):
+     stats       list of {value, label}
+     label       vertical text on the rail (default "IOC drawer")
+   ────────────────────────────────────────────────────────────────── #}
+{%- from 'kit/_copy_btn.html' import copy_btn -%}
+
+{% macro ioc_drawer(tabs, extras=[], stats=none, title='IOC drawer', initial=none, hidden=false) -%}
+{% set _initial = initial or tabs[0].id %}
+<aside class="hx-drawer" data-hx-drawer{% if hidden %} hidden{% endif %}>
+  <div class="hx-drawer-head">
+    <div><span class="hx-drawer-pin">⌖</span> {{ title }}</div>
+    <div class="hx-drawer-head-right">
+      <span class="hx-drawer-meta">pinned</span>
+      <button type="button" class="hx-drawer-collapse"
+              data-hx-drawer-collapse aria-label="Collapse drawer">⯈</button>
+    </div>
+  </div>
+
+  {% if stats %}
+  <div class="hx-drawer-summary">
+    {% for s in stats -%}
+    <div class="hx-drawer-stat">
+      <span class="hx-drawer-stat-num hx-tnum">{{ s.value }}</span>
+      <span class="hx-drawer-stat-label">{{ s.label }}</span>
+      {% if s.get('flag') %}<span class="hx-drawer-stat-flag">{{ s.flag }}</span>{% endif %}
+    </div>
+    {%- endfor %}
+  </div>
+  {% endif %}
+
+  <div class="hx-drawer-tabs">
+    {% for t in tabs -%}
+    <button type="button"
+            class="hx-drawer-tab{% if t.id == _initial %} is-active{% endif %}"
+            data-hx-drawer-tab="{{ t.id }}">
+      {{ t.label }}
+      <span class="hx-drawer-tab-count hx-tnum">{{ t['items'] | length }}</span>
+    </button>
+    {%- endfor %}
+  </div>
+
+  <div class="hx-drawer-search">
+    <input type="text" class="hx-drawer-input"
+           placeholder="Filter…"
+           data-hx-drawer-filter />
+  </div>
+
+  {% for t in tabs %}
+  <div class="hx-drawer-list" data-hx-drawer-panel="{{ t.id }}"
+       data-hx-filename="{{ t.filename }}"
+       {% if t.id != _initial %}hidden{% endif %}>
+    {% if t['items'] %}
+      {% for s in t['items'] -%}
+      <div class="hx-drawer-item" data-hx-item="{{ s | lower | e }}">
+        <code>{{ s }}</code>
+        {{ copy_btn(s, size='xs') }}
+      </div>
+      {%- endfor %}
+    {% else %}
+      <div class="hx-drawer-empty">{{ t.get('empty_text') or 'No matches.' }}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  <div class="hx-drawer-foot">
+    <button type="button" class="hx-drawer-btn" data-hx-drawer-copy>⧉ Copy all</button>
+    <button type="button" class="hx-drawer-btn" data-hx-drawer-download>↓ Download list</button>
+    {% if extras %}
+    <div class="hx-drawer-foot-row">
+      {% for x in extras -%}
+      <button type="button" class="hx-drawer-btn"
+              data-hx-extra-download="{{ x.filename }}"
+              data-hx-extra-body-id="hx-extra-{{ loop.index }}">↓ {{ x.label }}</button>
+      <script type="text/plain" id="hx-extra-{{ loop.index }}">{{ x.body }}</script>
+      {%- endfor %}
+    </div>
+    {% endif %}
+    {% if caller is defined and caller %}{{ caller() }}{% endif %}
+  </div>
+</aside>
+{%- endmacro %}
+
+{% macro ioc_rail(stats=[], label='IOC drawer', icon='⌖', hidden=false) -%}
+<aside class="hx-rail" role="button" tabindex="0"
+       aria-label="Expand {{ label }}"
+       data-hx-rail-expand{% if hidden %} hidden{% endif %}>
+  <div class="hx-rail-icon">{{ icon }}</div>
+  <div class="hx-rail-stack">
+    {% for s in stats -%}
+    <div class="hx-rail-stat">
+      <span class="hx-rail-num hx-tnum">{{ s.value }}</span>
+      <span class="hx-rail-label">{{ s.label }}</span>
+    </div>
+    {%- endfor %}
+  </div>
+  <div class="hx-rail-label-vert">{{ label }}</div>
+  <div class="hx-rail-chevron">❮</div>
+</aside>
+{%- endmacro %}

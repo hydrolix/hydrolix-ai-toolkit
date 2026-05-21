@@ -1,0 +1,88 @@
+[project]
+name = "bot-insights"
+version = "1.1.0"
+description = "Bot Insights capture, deterministic analysis, and report rendering tools."
+requires-python = ">=3.11"
+dependencies = [
+  "bleach>=6.1",
+  "jinja2>=3.1",
+  "markdown-it-py>=3.0",
+  "pydantic>=2.0",
+  "pyyaml>=6.0",
+  "reportkit",
+]
+
+[project.scripts]
+bot-insights-capture = "bot_insights.bot_insights_capture:main"
+bot-insights-report = "bot_insights.bot_insights_report:main"
+bot-insights-render = "bot_insights.render_report:main"
+bot-insights-scorecard = "bot_insights.scorecard:main"
+bot-insights-compare-delta = "bot_insights.compare_delta:main"
+bot-insights-compare-posture = "bot_insights.compare_posture:main"
+bot-insights-attribution = "bot_insights.attribution:main"
+bot-insights-cache-origin-impact = "bot_insights.cache_origin_impact:main"
+bot-insights-as-reputation-snapshot = "bot_insights.as_reputation_snapshot:main"
+bot-insights-threat-hunt-cooccurrence-export = "bot_insights.threat_hunt_cooccurrence_export:main"
+bot-insights-threat-hunt-iat-sample-export = "bot_insights.threat_hunt_iat_sample_export:main"
+bot-insights-threat-hunt-scraper-drilldown-export = "bot_insights.threat_hunt_scraper_drilldown_export:main"
+bot-insights-threat-hunt-scraper-hourly-export = "bot_insights.threat_hunt_scraper_hourly_export:main"
+bot-insights-build-editorial-fonts = "bot_insights.build_editorial_fonts:main"
+
+[dependency-groups]
+dev = [
+  "pyright>=1.1.390",
+  "pytest>=8.0",
+  "ruff>=0.8.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bot_insights"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/bot_insights/data" = "bot_insights/data"
+"src/bot_insights/config" = "bot_insights/config"
+"src/bot_insights/report_engine/templates" = "bot_insights/report_engine/templates"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["C901"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
+
+[tool.ruff.lint.per-file-ignores]
+"src/bot_insights/attribution.py" = ["C901"]
+"src/bot_insights/baselines.py" = ["C901"]
+"src/bot_insights/cache_origin_impact.py" = ["C901"]
+"src/bot_insights/compare_posture.py" = ["C901"]
+"src/bot_insights/_render_report/cli.py" = ["C901"]
+"src/bot_insights/_render_report/legacy_html.py" = ["C901"]
+"src/bot_insights/_render_report/legacy_markdown.py" = ["C901"]
+"src/bot_insights/_render_report/validators.py" = ["C901"]
+"src/bot_insights/scorecard.py" = ["C901"]
+"src/bot_insights/producers/cli.py" = ["C901"]
+"src/bot_insights/producers/evidence/incident.py" = ["C901"]
+"src/bot_insights/producers/evidence/labeling.py" = ["C901"]
+"src/bot_insights/producers/evidence/scorecard.py" = ["C901"]
+"src/bot_insights/producers/orchestrators/incident_report.py" = ["C901"]
+"src/bot_insights/producers/suspicious_targets/ladder.py" = ["C901"]
+"src/bot_insights/producers/threat_hunt.py" = ["C901"]
+"src/bot_insights/producers/threat_hunt_campaigns.py" = ["C901"]
+"src/bot_insights/producers/threat_hunt_ua_plausibility.py" = ["C901"]
+"src/bot_insights/report_engine/contexts/incident/module.py" = ["C901"]
+"src/bot_insights/report_engine/contexts/incident/print_adapter.py" = ["C901"]
+"src/bot_insights/report_engine/contexts/threat_hunt.py" = ["C901"]
+"src/bot_insights/report_engine/volume_impact.py" = ["C901"]
+
+[tool.pyright]
+include = ["src/bot_insights"]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+reportMissingImports = "none"

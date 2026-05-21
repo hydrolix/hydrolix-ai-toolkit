@@ -1,0 +1,21 @@
+{# ─────────────────────────────────────────────────────────────────
+   severity_ladder — 5-bar observe → critical visualization.
+   Args:
+     steps   list of {id, label, on, current}; id ∈
+             "observe" | "monitor" | "elevated" | "high" | "critical"
+     aria_label  optional accessible label
+   ────────────────────────────────────────────────────────────────── #}
+{% macro severity_ladder(steps, aria_label='Severity ladder') -%}
+<div class="hx-ladder" role="img" aria-label="{{ aria_label }}">
+  <div class="hx-ladder-bars">
+    {% for s in steps -%}
+    <div class="hx-ladder-bar hx-ladder-bar-{{ s.id }}{% if s.on %} is-on{% endif %}{% if s.current %} is-current{% endif %}"></div>
+    {%- endfor %}
+  </div>
+  <div class="hx-ladder-labels">
+    {% for s in steps -%}
+    <span{% if s.current %} class="is-current"{% endif %}>{{ s.label }}</span>
+    {%- endfor %}
+  </div>
+</div>
+{%- endmacro %}

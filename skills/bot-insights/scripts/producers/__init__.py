@@ -1,13 +1,18 @@
-"""Producer-side helpers for the Bot Insights orchestrator.
+"""Compatibility package for ``bot_insights.producers``."""
 
-Submodules:
-  - ``formatting``: stateless number / string / time / SQL-literal
-    formatters used by every report type.
+from __future__ import annotations
 
-Reserved (built up across phases of the producer refactor):
-  - ``sql``: per-report SQL builders.
-  - ``evidence``: per-report evidence-packet builders.
-  - ``orchestrators``: per-report ``run(args, capture) -> wrapper``
-    entry points.
-  - ``cli``: argparse setup and report-type dispatch.
-"""
+from _package_bootstrap import bootstrap
+
+bootstrap()
+
+from bot_insights import producers as _pkg_producers  # noqa: E402
+
+__path__ = list(_pkg_producers.__path__)
+globals().update(
+    {
+        name: value
+        for name, value in _pkg_producers.__dict__.items()
+        if name not in {"__name__", "__package__", "__loader__", "__spec__"}
+    }
+)
