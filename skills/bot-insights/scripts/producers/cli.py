@@ -55,6 +55,13 @@ from producers.runtime import (
     run,
 )
 from producers.rendering import render_report_command
+from producers.threat_hunt import (
+    build_threat_hunt_artifact,
+    export_background_ua_sample,
+    export_baseline_ua_timeseries,
+    export_fanout_enrichment,
+    export_raw_actor_fixtures,
+)
 from producers.sql.control_review import (
     control_review_sql,
     control_review_timeseries_sql,
@@ -103,6 +110,7 @@ def parse_args() -> argparse.Namespace:
             "crawler_governance",
             "edge_ops_impact",
             "incident_report",
+            "threat_hunt",
         ),
         default="executive_posture",
         help="Report type to generate.",
@@ -264,7 +272,121 @@ def parse_args() -> argparse.Namespace:
         "--top-n",
         type=int,
         default=10,
-        help="Top-N row cap for incident_report dimension and actor queries.",
+        help="Top-N row cap for incident_report queries or threat_hunt tables.",
+    )
+    parser.add_argument(
+        "--summary-parquet-glob",
+        help="Local summary parquet glob for threat_hunt. JSON/CSV rows are also accepted for fixtures.",
+    )
+    parser.add_argument(
+        "--raw-actor-dir",
+        help="Directory containing threat_hunt raw actor JSON exports.",
+    )
+    parser.add_argument(
+        "--geoip-asn-v4",
+        help="Optional threat_hunt IPv4 GeoIP/ASN JSON or CSV enrichment file.",
+    )
+    parser.add_argument(
+        "--geoip-asn-v6",
+        help="Optional threat_hunt IPv6 GeoIP/ASN JSON or CSV enrichment file.",
+    )
+    parser.add_argument(
+        "--cooccurrence-in",
+        help="Optional threat_hunt UA/IP cooccurrence JSON or CSV artifact.",
+    )
+    parser.add_argument(
+        "--cooccurrence-path-in",
+        help="Optional threat_hunt UA/IP/path cooccurrence JSON or CSV artifact.",
+    )
+    parser.add_argument(
+        "--scraper-drilldown-in",
+        help=(
+            "Optional bounded threat_hunt scraper drilldown JSON or CSV artifact "
+            "(user_agent, client_ip, request_path, hour, country, status_429, status_5xx, requests)."
+        ),
+    )
+    parser.add_argument(
+        "--scraper-hourly-in",
+        help=(
+            "Optional complete threat_hunt scraper hourly JSON or CSV artifact "
+            "(user_agent, hour, requests). Used for coverage-aware hourly timing."
+        ),
+    )
+    parser.add_argument(
+        "--fanout-in",
+        help=(
+            "Optional source-aware threat_hunt per-UA fan-out artifact "
+            "(user_agent, unique_ips, hits, bytes, source, probe_window_hours)."
+        ),
+    )
+    parser.add_argument(
+        "--fanout-strategy",
+        choices=("auto", "summary_hour", "logs_probe", "skip"),
+        default="auto",
+        help=(
+            "Threat-hunt fan-out enrichment strategy. auto tries summary_hour, "
+            "then logs_probe, then cooccurrence lower-bound fallback."
+        ),
+    )
+    parser.add_argument(
+        "--ua-fanout-in",
+        dest="ua_fanout_in",
+        help=(
+            "Backward-compatible alias for --fanout-in. Accepts legacy "
+            "(user_agent, unique_client_ips, requests) rows."
+        ),
+    )
+    parser.add_argument(
+        "--ua-fanout-query",
+        choices=("auto", "off", "required", "summary_hour", "logs_probe", "skip"),
+        default="auto",
+        help=(
+            "Backward-compatible alias for --fanout-strategy. off maps to skip; "
+            "required keeps legacy fail-if-missing behavior."
+        ),
+    )
+    parser.add_argument(
+        "--iat-sample-in",
+        help=(
+            "Optional bounded threat_hunt request-level timing sample JSON or CSV artifact "
+            "(user_agent, client_ip, timestamp or reqTimeSec; optional request_path, status_code, response_time_ms)."
+        ),
+    )
+    parser.add_argument(
+        "--background-ua-sample-in",
+        help=(
+            "Optional threat_hunt mid-volume organic UA background sample JSON or CSV artifact "
+            "used to estimate evidence-family background rates."
+        ),
+    )
+    parser.add_argument(
+        "--background-query",
+        choices=("auto", "off", "required"),
+        default="auto",
+        help=(
+            "Threat-hunt background UA sample behavior. auto exports a bounded "
+            "sample when possible, off skips it, required fails if unavailable."
+        ),
+    )
+    parser.add_argument(
+        "--baseline-ua-timeseries-in",
+        help=(
+            "Optional threat_hunt per-UA baseline bucket JSON or CSV artifact "
+            "(user_agent, bucket, requests) for z-score significance."
+        ),
+    )
+    parser.add_argument(
+        "--baseline-significance-query",
+        choices=("auto", "off", "required"),
+        default="auto",
+        help=(
+            "Threat-hunt per-UA baseline bucket query behavior. auto exports "
+            "selected-lead buckets when possible, off skips it, required fails if unavailable."
+        ),
+    )
+    parser.add_argument(
+        "--edge-response-in",
+        help="Optional threat_hunt edge/Bot/SIEM coverage JSON or CSV artifact.",
     )
     parser.add_argument(
         "--analyst-notes",
@@ -323,8 +445,8 @@ def main() -> int:
         raise SystemExit("--baseline-end must be earlier than or equal to --start")
     if baseline_end - baseline_start != window:
         raise SystemExit("--baseline window must match the current window duration")
-    if args.baseline_end and args.report != "incident_report":
-        raise SystemExit("--baseline-end is only supported with --report incident_report.")
+    if args.baseline_end and args.report not in {"incident_report", "threat_hunt"}:
+        raise SystemExit("--baseline-end is only supported with --report incident_report or --report threat_hunt.")
     if args.scorecard_limit < 0:
         raise SystemExit("--scorecard-limit must be zero or a positive integer.")
     scorecard_reports = {
@@ -398,6 +520,30 @@ def main() -> int:
         args.domains = "cache_busting,origin_impact"
     if args.report != "incident_report" and args.incident_view != "analyst":
         raise SystemExit("--incident-view is only supported with --report incident_report.")
+    if args.report == "threat_hunt" and not args.summary_parquet_glob:
+        raise SystemExit("--report threat_hunt requires --summary-parquet-glob.")
+    if args.report != "threat_hunt":
+        local_flags = {
+            "--summary-parquet-glob": args.summary_parquet_glob,
+            "--raw-actor-dir": args.raw_actor_dir,
+            "--geoip-asn-v4": args.geoip_asn_v4,
+            "--geoip-asn-v6": args.geoip_asn_v6,
+            "--cooccurrence-in": args.cooccurrence_in,
+            "--cooccurrence-path-in": args.cooccurrence_path_in,
+            "--scraper-drilldown-in": args.scraper_drilldown_in,
+            "--scraper-hourly-in": args.scraper_hourly_in,
+            "--fanout-in": args.fanout_in,
+            "--ua-fanout-in": args.ua_fanout_in,
+            "--iat-sample-in": args.iat_sample_in,
+            "--background-ua-sample-in": args.background_ua_sample_in,
+            "--baseline-ua-timeseries-in": args.baseline_ua_timeseries_in,
+            "--edge-response-in": args.edge_response_in,
+        }
+        supplied = [flag for flag, value in local_flags.items() if value]
+        if supplied:
+            raise SystemExit(
+                ", ".join(supplied) + " are only supported with --report threat_hunt."
+            )
 
     sample_dir = (
         Path(args.sample_dir).expanduser().resolve()
@@ -426,6 +572,205 @@ def main() -> int:
             sample_dir,
             output_path,
         )
+
+    if args.report == "threat_hunt":
+        output_path = Path(args.output).expanduser().resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        artifact_path = sample_dir / "threat_hunt-artifact.json"
+        wrapper_path = sample_dir / "threat_hunt-wrapper.json"
+        raw_actor_dir = args.raw_actor_dir
+        if raw_actor_dir is None:
+            raw_actor_dir = str(sample_dir / "threat_hunt-actors")
+            export_raw_actor_fixtures(
+                actor_dir=raw_actor_dir,
+                start=args.start,
+                end=args.end,
+                baseline_start=baseline_start.isoformat().replace("+00:00", "Z"),
+                baseline_end=baseline_end.isoformat().replace("+00:00", "Z"),
+                cluster=args.cluster,
+                database=args.database,
+                top_n=args.top_n,
+            )
+        fanout_strategy = args.fanout_strategy
+        if args.ua_fanout_query in {"summary_hour", "logs_probe", "skip"}:
+            fanout_strategy = args.ua_fanout_query
+        elif args.ua_fanout_query == "off":
+            fanout_strategy = "skip"
+        fanout_in = args.fanout_in or args.ua_fanout_in
+        if fanout_in is None and fanout_strategy != "skip":
+            fanout_path = sample_dir / "threat_hunt-fanout.json"
+            try:
+                export_fanout_enrichment(
+                    actor_dir=raw_actor_dir,
+                    start=args.start,
+                    end=args.end,
+                    cluster=args.cluster,
+                    database=args.database,
+                    top_leads=args.top_n,
+                    output=str(fanout_path),
+                    strategy=fanout_strategy,
+                    scraper_hourly_in=args.scraper_hourly_in,
+                    cooccurrence_in=args.cooccurrence_in,
+                )
+                fanout_in = str(fanout_path)
+            except SystemExit:
+                if args.ua_fanout_query == "required":
+                    raise
+                print(
+                    "WARNING: source-aware fanout enrichment unavailable; falling back to supplied cooccurrence lower-bound counts.",
+                    file=sys.stderr,
+                )
+        elif fanout_in is None and fanout_strategy == "skip" and args.cooccurrence_in:
+            fanout_path = sample_dir / "threat_hunt-fanout.json"
+            export_fanout_enrichment(
+                actor_dir=raw_actor_dir,
+                start=args.start,
+                end=args.end,
+                cluster=args.cluster,
+                database=args.database,
+                top_leads=args.top_n,
+                output=str(fanout_path),
+                strategy="skip",
+                cooccurrence_in=args.cooccurrence_in,
+            )
+            fanout_in = str(fanout_path)
+        selected_user_agents: list[str] = []
+        current_ua_path = Path(raw_actor_dir) / "expedia-actors-current-user_agent.json"
+        if current_ua_path.exists():
+            try:
+                rows = json.loads(current_ua_path.read_text(encoding="utf-8"))
+                if isinstance(rows, list):
+                    rows = sorted(
+                        [row for row in rows if isinstance(row, dict)],
+                        key=lambda row: (-float(row.get("requests") or 0), str(row.get("user_agent") or row.get("value") or "")),
+                    )
+                    selected_user_agents = [
+                        str(row.get("user_agent") or row.get("value"))
+                        for row in rows[: args.top_n]
+                        if row.get("user_agent") or row.get("value")
+                    ]
+            except (OSError, ValueError, TypeError):
+                selected_user_agents = []
+        background_ua_sample_in = args.background_ua_sample_in
+        if background_ua_sample_in is None and args.background_query in {"auto", "required"}:
+            background_path = sample_dir / "threat_hunt-background-ua-sample.json"
+            try:
+                export_background_ua_sample(
+                    start=args.start,
+                    end=args.end,
+                    cluster=args.cluster,
+                    database=args.database,
+                    excluded_user_agents=selected_user_agents,
+                    output=str(background_path),
+                )
+                background_ua_sample_in = str(background_path)
+            except SystemExit:
+                if args.background_query == "required":
+                    raise
+                print(
+                    "WARNING: background UA sample query unavailable; confidence background rates marked unavailable.",
+                    file=sys.stderr,
+                )
+        baseline_ua_timeseries_in = args.baseline_ua_timeseries_in
+        if baseline_ua_timeseries_in is None and args.baseline_significance_query in {"auto", "required"}:
+            baseline_ua_path = sample_dir / "threat_hunt-baseline-ua-timeseries.json"
+            try:
+                export_baseline_ua_timeseries(
+                    baseline_start=baseline_start.isoformat().replace("+00:00", "Z"),
+                    baseline_end=baseline_end.isoformat().replace("+00:00", "Z"),
+                    user_agents=selected_user_agents,
+                    cluster=args.cluster,
+                    database=args.database,
+                    output=str(baseline_ua_path),
+                    granularity="hour" if (end - baseline_start).total_seconds() <= 172800 else "day",
+                )
+                baseline_ua_timeseries_in = str(baseline_ua_path)
+            except SystemExit:
+                if args.baseline_significance_query == "required":
+                    raise
+                print(
+                    "WARNING: baseline UA timeseries query unavailable; baseline z-scores marked unavailable.",
+                    file=sys.stderr,
+                )
+        artifact = build_threat_hunt_artifact(
+            cluster=args.cluster,
+            database=args.database,
+            summary_parquet_glob=args.summary_parquet_glob,
+            start=args.start,
+            end=args.end,
+            baseline_start=baseline_start.isoformat().replace("+00:00", "Z"),
+            baseline_end=baseline_end.isoformat().replace("+00:00", "Z"),
+            raw_actor_dir=raw_actor_dir,
+            top_n=args.top_n,
+            geoip_asn_v4=args.geoip_asn_v4,
+            geoip_asn_v6=args.geoip_asn_v6,
+            cooccurrence_in=args.cooccurrence_in,
+            cooccurrence_path_in=args.cooccurrence_path_in,
+            scraper_drilldown_in=args.scraper_drilldown_in,
+            scraper_hourly_in=args.scraper_hourly_in,
+            fanout_in=fanout_in,
+            fanout_strategy=fanout_strategy,
+            ua_fanout_in=args.ua_fanout_in,
+            ua_fanout_query=args.ua_fanout_query,
+            iat_sample_in=args.iat_sample_in,
+            background_ua_sample_in=background_ua_sample_in,
+            background_query=args.background_query,
+            baseline_ua_timeseries_in=baseline_ua_timeseries_in,
+            baseline_significance_query=args.baseline_significance_query,
+            edge_response_in=args.edge_response_in,
+        )
+        artifact_path.write_text(
+            json.dumps(artifact, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        if args.mode == "evidence":
+            output_path.write_text(
+                json.dumps(artifact, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        elif args.mode == "template":
+            output_path.write_text(
+                "# Threat Hunt Interpretation\n\n"
+                "Summarize only the deterministic evidence in this artifact. "
+                "Do not claim malicious intent, operator identity, or cross-customer reuse.\n",
+                encoding="utf-8",
+            )
+        else:
+            wrapper = build_report_wrapper(
+                args=args,
+                artifacts=[artifact],
+                analyst_note=analyst_note_from_args(args),
+            )
+            wrapper_path.write_text(
+                json.dumps(wrapper, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            run(
+                render_report_command(
+                    wrapper_path=wrapper_path,
+                    output_path=output_path,
+                    output_format=args.format,
+                    config_path=args.config,
+                    title=args.title,
+                ),
+                cwd=PUBLIC_SKILLS,
+            )
+        print(
+            json.dumps(
+                {
+                    "artifact": str(artifact_path),
+                    "cluster": args.cluster,
+                    "database": args.database,
+                    "mode": args.mode,
+                    "output": str(output_path),
+                    "raw_actor_dir": raw_actor_dir,
+                    "rows": len(artifact.get("endpoints") or []),
+                    "table_used": "local_summary_parquet",
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
 
     raw_path = sample_dir / f"{args.report}-raw.json"
     artifact_path = sample_dir / f"{args.report}-artifact.json"

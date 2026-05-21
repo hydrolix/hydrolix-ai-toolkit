@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 import urllib.error
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -2277,6 +2278,3161 @@ class BotInsightsScriptTests(unittest.TestCase):
             self.assertIn("bot_insights_capture.py", str(first_cmd[1]))
             self.assertNotIn("capture-hydrolix-query", " ".join(map(str, first_cmd)))
             self.assertEqual(output_doc["schema_version"], "bot_report_evidence.v1")
+
+    def test_threat_hunt_producer_partial_without_raw_actors(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            summary = Path(tmpdir) / "summary.json"
+            summary.write_text(
+                json.dumps(
+                    [
+                        {
+                            "period": "current",
+                            "request_path": "/api/products/search",
+                            "country": "US",
+                            "trafficCohort": "unknown",
+                            "requests": 2500,
+                            "bytes": 100000,
+                            "status_429": 50,
+                        },
+                        {
+                            "period": "baseline",
+                            "request_path": "/api/products/search",
+                            "country": "US",
+                            "trafficCohort": "unknown",
+                            "requests": 1000,
+                            "bytes": 50000,
+                            "status_429": 5,
+                        },
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(summary),
+                start="2026-05-01T00:00:00Z",
+                end="2026-05-02T00:00:00Z",
+                baseline_start="2026-04-30T00:00:00Z",
+                baseline_end="2026-05-01T00:00:00Z",
+            )
+
+        self.assertEqual(artifact["schema_version"], "bot_threat_hunt.v3")
+        ua_card = next(c for c in artifact["module_scorecards"] if c["module"] == "ua_fanout")
+        self.assertEqual(ua_card["verdict"], "not_enough_data")
+        self.assertEqual(artifact["endpoints"][0]["markers"], ["api", "catalog"])
+        raw_limit = next(l for l in artifact["limitations"] if l["module"] == "raw_actor_exports")
+        self.assertEqual(raw_limit["availability"], "not_available")
+
+    def test_threat_hunt_ua_taxonomy_preserves_browsers_and_classifies_native_clients(self) -> None:
+        from producers.threat_hunt_ua_plausibility import parse_user_agent
+
+        for ua, family in [
+            ("Expedia/2026.19 CFNetwork/3826.400.120 Darwin/24.3.0", "Expedia"),
+            ("Vrbo/2026.18 CFNetwork/3826.400.120 Darwin/24.3.0", "Vrbo"),
+            ("Hotels.com/2026.17 CFNetwork/3826.400.120 Darwin/24.3.0", "Hotels.com"),
+        ]:
+            parsed = parse_user_agent(ua)
+            self.assertEqual(parsed["ua_class"], "first_party_native_app")
+            self.assertEqual(parsed["client_family"], family)
+
+        self.assertEqual(parse_user_agent("okhttp/4.12.0")["ua_class"], "http_client_library")
+        self.assertEqual(
+            parse_user_agent("Dalvik/2.1.0 (Linux; U; Android 14; Pixel 8 Build/AP1A)")["ua_class"],
+            "http_client_library",
+        )
+
+    def test_threat_classifier_maps_ua_family_rate_limit_evasion(self) -> None:
+        from producers.threat_classifier import classify_entity, conservative_modifier
+        from producers.threat_hunt import _action_for_case
+
+        family = {
+            "family_id": "ua-family-1",
+            "member_count": 4,
+            "request_volume_cv": 0.02,
+            "structural_checks": ["zero_point_version"],
+            "evidence_flags": ["ua_family_version_rotation"],
+            "total_requests": 9000,
+        }
+
+        classification = classify_entity(family, entity_type="ua_family")
+
+        self.assertEqual(classification["primary"]["category"], "rate_limit_evasion")
+        self.assertIn("T1036.012", classification["primary"]["attack_mapping"]["mitre_techniques"])
+        self.assertIn("HDX-T002", classification["primary"]["attack_mapping"]["hdx_techniques"])
+        self.assertIn("UA-family", conservative_modifier(classification))
+        action = _action_for_case(
+            {**family, "family_id": "ua-family-1", "template": "Chrome/{ver}", "threat_classification": classification},
+            scope="ua_family",
+        )
+        self.assertEqual(action["threat_category"], "rate_limit_evasion")
+        self.assertIn("UA-family pattern", action["threat_action_modifier"])
+
+    def test_threat_classifier_covers_endpoint_taxonomy(self) -> None:
+        from producers.threat_classifier import classify_entity
+        from producers.threat_hunt import _endpoint_targeting_rows, _path_markers
+
+        catalog = classify_entity(
+            {
+                "user_agent": "CatalogScraper/1.0",
+                "requests": 1000,
+                "endpoint_targets": [
+                    {"request_path": "/api/catalog/search", "requests": 900, "endpoint_category": "catalog_search_product_content"},
+                    {"request_path": "/home", "requests": 100, "endpoint_category": "general_site"},
+                ],
+            },
+            entity_type="lead",
+        )
+        self.assertEqual(catalog["primary"]["category"], "scraper_catalog")
+
+        transaction_markers = _path_markers("/checkout/cart/hold")
+        self.assertIn("transaction", transaction_markers)
+        self.assertEqual(
+            _endpoint_targeting_rows(
+                [{"request_path": "/checkout/cart/hold", "markers": transaction_markers}]
+            ),
+            [],
+        )
+        inventory = classify_entity(
+            {
+                "user_agent": "InventoryWorker/1.0",
+                "requests": 800,
+                "endpoint_targets": [
+                    {"request_path": "/checkout/cart/hold", "requests": 800, "endpoint_category": "transaction"}
+                ],
+            },
+            entity_type="lead",
+        )
+        self.assertEqual(inventory["primary"]["category"], "inventory_abuse")
+
+    def test_threat_classifier_auth_diffuse_ddos_and_recon(self) -> None:
+        from producers.threat_classifier import classify_entity
+        from producers.threat_hunt_ua_plausibility import parse_user_agent
+
+        credential = classify_entity(
+            {
+                "user_agent": "LoginWorker/1.0",
+                "requests": 2000,
+                "unique_client_ips": 50,
+                "status_429": 300,
+                "endpoint_targets": [
+                    {"request_path": "/login", "requests": 1200, "endpoint_category": "auth"},
+                    {"request_path": "/api/session", "requests": 800, "endpoint_category": "auth"},
+                ],
+            },
+            entity_type="lead",
+        )
+        self.assertEqual(credential["primary"]["category"], "credential_stuffing")
+        self.assertIn("T1110.004", credential["primary"]["attack_mapping"]["mitre_techniques"])
+
+        training = classify_entity(
+            {
+                "user_agent": "Collector/1.0",
+                "requests": 5000,
+                "drilldown_coverage": {"coverage_pct": 2.0},
+                "endpoint_targets": [
+                    {"request_path": "/static/app.js", "requests": 3000, "endpoint_category": "static_asset"},
+                    {"request_path": "/api/content", "requests": 2000, "endpoint_category": "api"},
+                ],
+            },
+            entity_type="lead",
+        )
+        self.assertEqual(training["primary"]["category"], "training_collection")
+
+        ddos = classify_entity(
+            {
+                "campaign_id": "campaign-1",
+                "total_requests": 50000,
+                "status_5xx": 3000,
+                "evidence_flags": ["coordinated_activity", "rate_limit_or_error_pressure"],
+                "endpoint_targets": [
+                    {"endpoint_prefix": "/api/search", "requests": 50000, "endpoint_category": "api"}
+                ],
+            },
+            entity_type="campaign",
+        )
+        self.assertEqual(ddos["primary"]["category"], "application_ddos")
+        self.assertIn("T1499.003", ddos["primary"]["attack_mapping"]["mitre_techniques"])
+
+        recon = classify_entity(
+            {
+                "user_agent": "Mapper/1.0",
+                "requests": 200,
+                "unique_path_count": 40,
+                "drilldown_coverage": {"coverage_pct": 1.0},
+                "endpoint_targets": [
+                    {"request_path": f"/api/page/{idx}", "requests": 5, "endpoint_category": "api"}
+                    for idx in range(40)
+                ],
+            },
+            entity_type="lead",
+        )
+        self.assertEqual(recon["primary"]["category"], "reconnaissance")
+        self.assertIn("T1595.003", recon["primary"]["attack_mapping"]["mitre_techniques"])
+        self.assertEqual(
+            parse_user_agent("CustomApp/1.0 CFNetwork/3826.400.120 Darwin/24.3.0")["ua_class"],
+            "native_sdk",
+        )
+
+        browser_uas = [
+            (
+                "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/147.0.7727.24 Mobile Safari/537.36",
+                "Chrome",
+            ),
+            (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/147.0.7727.24 Safari/537.36",
+                "Chrome",
+            ),
+            (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_5) AppleWebKit/605.1.15 "
+                "(KHTML, like Gecko) Version/26.3 Safari/605.1.15",
+                "Safari",
+            ),
+            (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0",
+                "Edge",
+            ),
+        ]
+        for ua, family in browser_uas:
+            parsed = parse_user_agent(ua)
+            self.assertEqual(parsed["ua_class"], "browser")
+            self.assertEqual(parsed["browser_family"], family)
+
+    def test_threat_classifier_requires_positive_standalone_evidence(self) -> None:
+        from producers.threat_classifier import classify_entity
+
+        zero = classify_entity({"user_agent": "Unknown/1.0", "requests": 1000}, entity_type="lead")
+        self.assertIsNone(zero["primary"])
+
+        diffuse_only = classify_entity(
+            {
+                "user_agent": "DiffuseOnly/1.0",
+                "requests": 5000,
+                "drilldown_coverage": {"coverage_pct": 2.0},
+                "unique_path_count": 200,
+            },
+            entity_type="lead",
+        )
+        self.assertIsNone(diffuse_only["primary"])
+
+        weak_catalog = classify_entity(
+            {
+                "user_agent": "WeakCatalog/1.0",
+                "requests": 1000,
+                "endpoint_targets": [
+                    {"request_path": "/api/catalog", "requests": 40, "endpoint_category": "catalog_search_product_content"},
+                    {"request_path": "/home", "requests": 60, "endpoint_category": "general_site"},
+                ],
+            },
+            entity_type="lead",
+        )
+        self.assertIsNone(weak_catalog["primary"])
+
+        campaign_training = classify_entity(
+            {
+                "campaign_id": "campaign-1",
+                "total_requests": 5000,
+                "evidence_flags": ["coordinated_activity"],
+                "drilldown_coverage_summary": {"coverage_pct": 2.0, "surface_label": "diffuse_surface"},
+                "endpoint_targets": [
+                    {"endpoint_prefix": "/static/app.js", "requests": 3000, "endpoint_category": "static_asset"},
+                    {"endpoint_prefix": "/api/content", "requests": 2000, "endpoint_category": "api"},
+                ],
+            },
+            entity_type="campaign",
+        )
+        self.assertEqual(campaign_training["primary"]["category"], "training_collection")
+
+    def test_threat_hunt_known_crawlers_are_informational(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        known_uas = [
+            "AkamaiImageServer/1.0",
+            "AkamaiImageUploader/2.0",
+            "VelocitudeMP/1.0",
+            "GSA/1.0",
+            "Googlebot/2.1",
+            "adidxbot/2.0",
+            "bingbot/2.0",
+            "AdsBot-Google (+http://www.google.com/adsbot.html)",
+            "Mediapartners-Google",
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps([{"period": "current", "request_path": "/api/catalog", "requests": 9000}]),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": ua, "requests": 1000} for ua in known_uas]),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-04-17T00:00:00Z",
+                end="2026-04-18T00:00:00Z",
+                baseline_start="2026-04-16T00:00:00Z",
+                baseline_end="2026-04-17T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                top_n=20,
+            )
+
+        self.assertEqual(artifact["scraper_cases"], [])
+        self.assertEqual(artifact["recommended_actions"], [])
+        self.assertEqual({row["user_agent"] for row in artifact["known_traffic"]}, set(known_uas))
+        dispositions = {row["user_agent"]: row["disposition"] for row in artifact["known_traffic"]}
+        self.assertEqual(dispositions["AkamaiImageServer/1.0"], "known_infrastructure")
+        self.assertEqual(dispositions["Googlebot/2.1"], "known_crawler")
+
+    def test_threat_hunt_campaign_confidence_uses_aggregate_ua_support(self) -> None:
+        from producers.threat_hunt import _attach_confidence_assessments
+
+        cases = []
+        leads = []
+        for idx in range(14):
+            ua = f"CampaignMember/{idx}"
+            leads.append(ua)
+            cases.append(
+                {
+                    "user_agent": ua,
+                    "requests": 1000,
+                    "evidence_flags": ["ua_ip_fanout"],
+                    "ua_plausibility": {
+                        "counts_for_verdict": idx < 4,
+                        "verdict": "confirmed" if idx < 4 else "elevated" if idx < 8 else "normal",
+                    },
+                }
+            )
+        campaigns = [
+            {
+                "campaign_id": "campaign-1",
+                "leads": leads,
+                "ua_plausibility_summary": {
+                    "anomalous_member_count": 4,
+                    "weak_member_count": 4,
+                },
+            }
+        ]
+
+        _attach_confidence_assessments(
+            cases,
+            campaigns,
+            background={"families": {}},
+            baseline_by_ua={},
+        )
+
+        summary = campaigns[0]["confidence_summary"]
+        self.assertEqual(summary["raw_dominant_qualifier"], "low")
+        self.assertEqual(summary["dominant_qualifier"], "partial")
+        self.assertEqual(summary["aggregate_support"]["confirmed_or_elevated_ua_members"], 8)
+
+    def test_threat_hunt_exact_ua_fanout_can_confirm_with_cooccurrence(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/api/catalog", "requests": 5000},
+                        {"period": "baseline", "request_path": "/api/catalog", "requests": 1000},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Scraper/1.0", "requests": 5000}]),
+                encoding="utf-8",
+            )
+            (actor_dir / "expedia-actors-baseline-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Scraper/1.0", "requests": 5}]),
+                encoding="utf-8",
+            )
+            co_rows = []
+            geo_rows = []
+            for i in range(21):
+                third = i % 3
+                ip = f"192.0.{third}.{i + 1}"
+                country = ["US", "DE", "FR"][third]
+                co_rows.append(
+                    {
+                        "user_agent": "Scraper/1.0",
+                        "client_ip": ip,
+                        "country": country,
+                        "requests": 10,
+                    }
+                )
+                geo_rows.append(
+                    {
+                        "ip": ip,
+                        "asn": 64500 + third,
+                        "asn_org": f"AS {third}",
+                        "country": country,
+                    }
+                )
+            (base / "co.json").write_text(json.dumps(co_rows), encoding="utf-8")
+            (base / "geo.json").write_text(json.dumps(geo_rows), encoding="utf-8")
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-05-01T00:00:00Z",
+                end="2026-05-02T00:00:00Z",
+                baseline_start="2026-04-30T00:00:00Z",
+                baseline_end="2026-05-01T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                cooccurrence_in=str(base / "co.json"),
+                geoip_asn_v4=str(base / "geo.json"),
+            )
+
+        ua_card = next(c for c in artifact["module_scorecards"] if c["module"] == "ua_fanout")
+        self.assertEqual(ua_card["verdict"], "confirmed")
+        self.assertEqual(artifact["fingerprints"][0]["unique_client_ips"], 21)
+        self.assertEqual(artifact["fingerprints"][0]["unique_asns"], 3)
+
+    def test_threat_hunt_ua_plausibility_future_dated_adds_anomaly_family(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        ua = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/149.0.7777.1 Safari/537.36"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/home", "requests": 1000},
+                        {"period": "baseline", "request_path": "/home", "requests": 1000},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": ua, "requests": 1000}]),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-04-17T00:00:00Z",
+                end="2026-04-18T00:00:00Z",
+                baseline_start="2026-04-16T00:00:00Z",
+                baseline_end="2026-04-17T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertIn("ua_anomaly", case["evidence_flags"])
+        self.assertEqual(case["ua_plausibility"]["signals"]["version_currency"]["status"], "future_dated")
+        self.assertEqual(case["ua_plausibility"]["composite_score"], 1.0)
+        self.assertTrue(case["ua_plausibility"]["counts_for_verdict"])
+
+    def test_threat_hunt_confidence_and_recommendations_are_additive(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        ua = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/149.0.7777.1 Safari/537.36"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/api/catalog", "requests": 2000, "bytes": 4000},
+                        {"period": "baseline", "request_path": "/api/catalog", "requests": 100, "bytes": 200},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": ua, "requests": 2000, "bytes": 4000, "status_429": 80}]),
+                encoding="utf-8",
+            )
+            (actor_dir / "expedia-actors-baseline-user_agent.json").write_text(
+                json.dumps([{"user_agent": ua, "requests": 100}]),
+                encoding="utf-8",
+            )
+            (base / "co.json").write_text(
+                json.dumps(
+                    [
+                        {"user_agent": ua, "client_ip": f"8.8.4.{i}", "requests": 10}
+                        for i in range(1, 13)
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (base / "drill.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "user_agent": ua,
+                            "client_ip": "8.8.4.1",
+                            "request_path": "/api/catalog",
+                            "hour": "2026-05-01T00:00:00Z",
+                            "requests": 2000,
+                            "status_429": 80,
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (base / "iat.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "user_agent": ua,
+                            "client_ip": "8.8.4.1",
+                            "timestamp": f"2026-04-17T00:{i:02d}:00Z",
+                            "request_path": "/api/catalog",
+                        }
+                        for i in range(60)
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (base / "background.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "user_agent": f"Organic/{i}",
+                            "requests": 500,
+                            "evidence_flags": ["temporal_regularity"],
+                        }
+                        for i in range(25)
+                    ]
+                    + [
+                        {"user_agent": f"Browser/{i}", "requests": 500, "evidence_flags": []}
+                        for i in range(75)
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (base / "baseline.json").write_text(
+                json.dumps(
+                    [
+                        {"user_agent": ua, "bucket": f"2026-04-{day:02d}", "requests": value}
+                        for day, value in enumerate([90, 100, 110, 95, 105], start=1)
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-04-17T00:00:00Z",
+                end="2026-04-18T00:00:00Z",
+                baseline_start="2026-04-16T00:00:00Z",
+                baseline_end="2026-04-17T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                cooccurrence_in=str(base / "co.json"),
+                scraper_drilldown_in=str(base / "drill.json"),
+                iat_sample_in=str(base / "iat.json"),
+                background_ua_sample_in=str(base / "background.json"),
+                baseline_ua_timeseries_in=str(base / "baseline.json"),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertEqual(artifact["schema_version"], "bot_threat_hunt.v3")
+        self.assertIn("confidence_assessment", case)
+        self.assertEqual(
+            case["confidence_assessment"]["background_rates"]["temporal_regularity"]["concern"],
+            "high",
+        )
+        self.assertEqual(
+            case["confidence_assessment"]["baseline_significance"]["status"],
+            "available",
+        )
+        self.assertGreater(
+            case["confidence_assessment"]["baseline_significance"]["z_score"], 3
+        )
+        self.assertEqual(artifact["recommended_actions"][0]["tier"], "tier_1")
+        self.assertEqual(
+            artifact["recommended_actions"][0]["enforcement_wording"],
+            "block_candidate",
+        )
+        self.assertIn("ua_anomaly", case["evidence_flags"])
+
+    def test_threat_hunt_ua_plausibility_current_chrome_is_not_anomaly(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        ua = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/147.0.7727.24 Safari/537.36"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/home", "requests": 1000},
+                        {"period": "baseline", "request_path": "/home", "requests": 1000},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": ua, "requests": 1000}]),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-04-17T00:00:00Z",
+                end="2026-04-18T00:00:00Z",
+                baseline_start="2026-04-16T00:00:00Z",
+                baseline_end="2026-04-17T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertNotIn("ua_anomaly", case["evidence_flags"])
+        self.assertEqual(case["ua_plausibility"]["signals"]["version_currency"]["status"], "current_or_recent")
+
+    def test_threat_hunt_ua_plausibility_zero_point_is_elevated_only(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        ua = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps([{"period": "current", "request_path": "/home", "requests": 1000}]),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": ua, "requests": 1000}]),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-04-17T00:00:00Z",
+                end="2026-04-18T00:00:00Z",
+                baseline_start="2026-04-16T00:00:00Z",
+                baseline_end="2026-04-17T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertNotIn("ua_anomaly", case["evidence_flags"])
+        self.assertIn("zero_point_version", case["ua_plausibility"]["fired_structural_checks"])
+        self.assertFalse(case["ua_plausibility"]["counts_for_verdict"])
+
+    def test_threat_hunt_groups_parametric_chrome_versions_into_ua_family(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        def chrome(major: int) -> str:
+            return (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                f"(KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
+            )
+
+        def edge(major: int) -> str:
+            return (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                f"(KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36 Edg/{major}.0.0.0"
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps([{"period": "current", "request_path": "/home", "requests": 33_000}]),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            chrome_rows = [
+                {"user_agent": chrome(major), "requests": 1000}
+                for major in range(120, 150)
+            ]
+            edge_rows = [
+                {"user_agent": edge(major), "requests": 1000}
+                for major in range(140, 143)
+            ]
+            actor_rows = chrome_rows + edge_rows
+            # Make one Chrome member independently tier-2 eligible; the
+            # family recommendation must still suppress its standalone action.
+            actor_rows[0]["requests"] = 1020
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps(actor_rows),
+                encoding="utf-8",
+            )
+            (base / "co.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "user_agent": chrome(120),
+                            "client_ip": f"203.0.113.{i}",
+                            "requests": 1,
+                        }
+                        for i in range(1, 22)
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-04-17T00:00:00Z",
+                end="2026-04-18T00:00:00Z",
+                baseline_start="2026-04-16T00:00:00Z",
+                baseline_end="2026-04-17T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                cooccurrence_in=str(base / "co.json"),
+                top_n=50,
+            )
+
+        families = artifact["ua_families"]
+        plain = next(family for family in families if " Edg/" not in family["template"])
+        self.assertEqual(artifact["schema_version"], "bot_threat_hunt.v3")
+        self.assertEqual(plain["family_id"], "ua-family-1")
+        self.assertEqual(plain["member_count"], 30)
+        self.assertEqual(plain["version_count"], 30)
+        self.assertEqual(plain["version_range"], {"min": 120, "max": 149})
+        self.assertLess(plain["request_volume_cv"], 0.5)
+        self.assertEqual(len(plain["recommended_actions"]), 1)
+        self.assertEqual(plain["recommended_actions"][0]["scope"], "ua_family")
+        self.assertEqual(plain["recommended_actions"][0]["tier"], "tier_3")
+        self.assertEqual(
+            plain["recommended_actions"][0]["action_type"],
+            "campaign_watchlist_or_challenge",
+        )
+        self.assertTrue(all("Edg/" not in member for member in plain["members"]))
+        self.assertTrue(any(" Edg/" in family["template"] for family in families))
+
+        member = next(case for case in artifact["scraper_cases"] if case["user_agent"] == chrome(120))
+        self.assertEqual(member["ua_family_id"], plain["family_id"])
+        self.assertTrue(member["nested_under_family"])
+        self.assertEqual(member["recommended_actions"], [])
+        self.assertIn("ua_ip_fanout", member["evidence_flags"])
+        self.assertNotIn("endpoint_targeting", member["evidence_flags"])
+        family_actions = [
+            action for action in artifact["recommended_actions"] if action["scope"] == "ua_family"
+        ]
+        self.assertIn(plain["recommended_actions"][0], family_actions)
+        self.assertEqual(len(family_actions), len(families))
+
+    def test_threat_hunt_rejects_high_cv_and_small_ua_family_candidates(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        def chrome(major: int, os_token: str = "Windows NT 10.0; Win64; x64") -> str:
+            return (
+                f"Mozilla/5.0 ({os_token}) AppleWebKit/537.36 "
+                f"(KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
+            )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps([{"period": "current", "request_path": "/home", "requests": 1300}]),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            rows = [
+                {"user_agent": chrome(120), "requests": 100},
+                {"user_agent": chrome(121), "requests": 100},
+                {"user_agent": chrome(122), "requests": 1000},
+                {"user_agent": chrome(130, "X11; Linux x86_64"), "requests": 100},
+                {"user_agent": chrome(131, "X11; Linux x86_64"), "requests": 100},
+            ]
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps(rows),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-04-17T00:00:00Z",
+                end="2026-04-18T00:00:00Z",
+                baseline_start="2026-04-16T00:00:00Z",
+                baseline_end="2026-04-17T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                top_n=10,
+            )
+
+        self.assertEqual(artifact["ua_families"], [])
+
+    def test_threat_hunt_ua_family_records_campaign_overlap(self) -> None:
+        from producers.threat_hunt import _build_ua_families, _action_for_case
+
+        def case(major: int, campaign_id: str | None = None) -> dict[str, object]:
+            ua = (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                f"(KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
+            )
+            row: dict[str, object] = {
+                "user_agent": ua,
+                "requests": 1000,
+                "baseline_requests": 100,
+                "evidence_flags": ["ua_ip_fanout"],
+                "ua_plausibility": {
+                    "parsed": {
+                        "ua_class": "browser",
+                        "browser_family": "Chrome",
+                        "browser_major": major,
+                        "browser_version": f"{major}.0.0.0",
+                    },
+                    "fired_structural_checks": ["zero_point_version"],
+                },
+            }
+            if campaign_id:
+                row["campaign_id"] = campaign_id
+            return row
+
+        cases = [case(120, "campaign-1"), case(121, "campaign-1"), case(122)]
+        campaigns = [{"campaign_id": "campaign-1", "leads": [cases[0]["user_agent"], cases[1]["user_agent"]]}]
+        families = _build_ua_families(cases, campaigns)
+        actions = [family["recommended_actions"][0] for family in families]
+
+        self.assertEqual(len(families), 1)
+        self.assertEqual(families[0]["campaign_overlaps"][0]["member_count"], 2)
+        self.assertEqual(families[0]["campaign_overlaps"][0]["campaign_id"], "campaign-1")
+        self.assertEqual(actions[0], _action_for_case(families[0], scope="ua_family"))
+        self.assertFalse(cases[0].get("nested_under_family"))
+        self.assertTrue(cases[2].get("nested_under_family"))
+
+    def test_threat_hunt_first_party_native_apps_do_not_form_ua_families(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        rows = [
+            {"user_agent": "Expedia/2026.19 CFNetwork/3826.400.120 Darwin/24.3.0", "requests": 1000},
+            {"user_agent": "Expedia/2026.20 CFNetwork/3826.400.120 Darwin/24.3.0", "requests": 1000},
+            {"user_agent": "Expedia/2026.21 CFNetwork/3826.400.120 Darwin/24.3.0", "requests": 1000},
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps([{"period": "current", "request_path": "/home", "requests": 3000}]),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps(rows),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-04-17T00:00:00Z",
+                end="2026-04-18T00:00:00Z",
+                baseline_start="2026-04-16T00:00:00Z",
+                baseline_end="2026-04-17T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+            )
+
+        self.assertEqual(artifact["ua_families"], [])
+        self.assertTrue(
+            all(
+                case["ua_plausibility"]["parsed"]["ua_class"] == "first_party_native_app"
+                for case in artifact["scraper_cases"]
+            )
+        )
+
+    def test_threat_hunt_ua_plausibility_fanout_artifact_can_drive_anomaly(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        ua = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/147.0.7727.24 Safari/537.36"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps([{"period": "current", "request_path": "/home", "requests": 1000}]),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": ua, "requests": 1000}]),
+                encoding="utf-8",
+            )
+            (base / "fanout.json").write_text(
+                json.dumps([{"user_agent": ua, "unique_client_ips": 50000, "requests": 800000}]),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-04-17T00:00:00Z",
+                end="2026-04-18T00:00:00Z",
+                baseline_start="2026-04-16T00:00:00Z",
+                baseline_end="2026-04-17T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                ua_fanout_in=str(base / "fanout.json"),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertIn("ua_anomaly", case["evidence_flags"])
+        self.assertEqual(case["ua_plausibility"]["signals"]["fanout"]["status"], "strong_shared_exact_ua")
+
+    def test_threat_hunt_native_app_fanout_does_not_confirm_ua_anomaly(self) -> None:
+        from producers.threat_hunt_ua_plausibility import score_ua_plausibility
+
+        for ua, unique_ips in [
+            ("Expedia/2026.19 CFNetwork/3826.400.120 Darwin/24.3.0", 421_000),
+            ("Vrbo/2026.18 CFNetwork/3826.400.120 Darwin/24.3.0", 552_000),
+            ("Hotels.com/2026.17 CFNetwork/3826.400.120 Darwin/24.3.0", 815_000),
+            ("Expedia/2026.20 CFNetwork/3826.400.120 Darwin/24.3.0", 1_700_000),
+        ]:
+            result = score_ua_plausibility(
+                user_agent=ua,
+                window_end=datetime.fromisoformat("2026-04-18T00:00:00+00:00"),
+                fanout_by_ua={ua: {"user_agent": ua, "unique_ips": unique_ips, "source": "summary_hour"}},
+                fallback_unique_ips=None,
+                family_request_totals=Counter(),
+                total_family_requests=0,
+                browser_fingerprint_count=0,
+                source="fanout_enrichment",
+            )
+            self.assertEqual(result["parsed"]["ua_class"], "first_party_native_app")
+            self.assertFalse(result["counts_for_verdict"])
+            self.assertNotEqual(result["verdict"], "confirmed")
+            self.assertEqual(result["signals"]["fanout"]["threshold_class"], "elevated")
+
+    def test_threat_hunt_first_party_app_fanout_only_stays_monitor_tier(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        ua = "Expedia/2026.20 CFNetwork/3826.400.120 Darwin/24.3.0"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps([{"period": "current", "request_path": "/home", "requests": 1000}]),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": ua, "requests": 1000}]),
+                encoding="utf-8",
+            )
+            (base / "fanout.json").write_text(
+                json.dumps([{"user_agent": ua, "unique_ips": 1_700_000, "source": "summary_hour"}]),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-04-17T00:00:00Z",
+                end="2026-04-18T00:00:00Z",
+                baseline_start="2026-04-16T00:00:00Z",
+                baseline_end="2026-04-17T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                fanout_in=str(base / "fanout.json"),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertIn("ua_ip_fanout", case["evidence_flags"])
+        self.assertIn("baseline_novelty_or_growth", case["evidence_flags"])
+        self.assertNotIn("ua_anomaly", case["evidence_flags"])
+        self.assertEqual(case["ua_plausibility"]["parsed"]["ua_class"], "first_party_native_app")
+        self.assertEqual(artifact["recommended_actions"][0]["tier"], "tier_4")
+
+    def test_threat_hunt_first_party_app_distribution_signals_stay_monitor_tier(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        ua = "Hotels.com/1105 CFNetwork/3860.400.51 Darwin/25.3.0"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps([{"period": "current", "request_path": "/home", "requests": 1000}]),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": ua, "requests": 1000, "status_429": 50}]),
+                encoding="utf-8",
+            )
+            (base / "fanout.json").write_text(
+                json.dumps([{"user_agent": ua, "unique_ips": 500_000, "source": "summary_hour"}]),
+                encoding="utf-8",
+            )
+            (base / "hourly.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "user_agent": ua,
+                            "hour": f"2026-04-17 {hour:02d}:00:00",
+                            "requests": 50,
+                        }
+                        for hour in range(24)
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-04-17T00:00:00Z",
+                end="2026-04-18T00:00:00Z",
+                baseline_start="2026-04-16T00:00:00Z",
+                baseline_end="2026-04-17T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                fanout_in=str(base / "fanout.json"),
+                scraper_hourly_in=str(base / "hourly.json"),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertEqual(case["ua_plausibility"]["parsed"]["ua_class"], "first_party_native_app")
+        self.assertIn("ua_ip_fanout", case["evidence_flags"])
+        self.assertIn("temporal_regularity", case["evidence_flags"])
+        self.assertIn("rate_limit_or_error_pressure", case["evidence_flags"])
+        self.assertNotIn("ua_anomaly", case["evidence_flags"])
+        self.assertEqual(artifact["recommended_actions"][0]["tier"], "tier_4")
+
+    def test_threat_hunt_browser_forged_ua_with_temporal_regular_fanout_is_challenge_tier(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        ua = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/142.0.7444.52 Safari/537.36"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps([{"period": "current", "request_path": "/home", "requests": 1000}]),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": ua, "requests": 1000}]),
+                encoding="utf-8",
+            )
+            (base / "fanout.json").write_text(
+                json.dumps([{"user_agent": ua, "unique_ips": 150_000, "source": "summary_hour"}]),
+                encoding="utf-8",
+            )
+            (base / "iat.json").write_text(
+                json.dumps(
+                    [
+                        {"user_agent": ua, "client_ip": "8.8.8.8", "reqTimeSec": i * 2}
+                        for i in range(61)
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-04-17T00:00:00Z",
+                end="2026-04-18T00:00:00Z",
+                baseline_start="2026-04-16T00:00:00Z",
+                baseline_end="2026-04-17T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                fanout_in=str(base / "fanout.json"),
+                iat_sample_in=str(base / "iat.json"),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertEqual(case["ua_plausibility"]["parsed"]["ua_class"], "browser")
+        self.assertIn("ua_ip_fanout", case["evidence_flags"])
+        self.assertIn("ua_anomaly", case["evidence_flags"])
+        self.assertIn("temporal_regularity", case["evidence_flags"])
+        self.assertNotIn("endpoint_targeting", case["evidence_flags"])
+        self.assertNotIn("rate_limit_or_error_pressure", case["evidence_flags"])
+        self.assertEqual(artifact["recommended_actions"][0]["tier"], "tier_2")
+        self.assertEqual(artifact["recommended_actions"][0]["action_type"], "challenge_and_rate_limit")
+
+    def test_threat_hunt_browser_forged_ua_without_temporal_regular_fanout_stays_monitor_tier(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        ua = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/142.0.7444.52 Safari/537.36"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps([{"period": "current", "request_path": "/home", "requests": 1000}]),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": ua, "requests": 1000}]),
+                encoding="utf-8",
+            )
+            (base / "fanout.json").write_text(
+                json.dumps([{"user_agent": ua, "unique_ips": 150_000, "source": "summary_hour"}]),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-04-17T00:00:00Z",
+                end="2026-04-18T00:00:00Z",
+                baseline_start="2026-04-16T00:00:00Z",
+                baseline_end="2026-04-17T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                fanout_in=str(base / "fanout.json"),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertEqual(case["ua_plausibility"]["parsed"]["ua_class"], "browser")
+        self.assertIn("ua_ip_fanout", case["evidence_flags"])
+        self.assertIn("ua_anomaly", case["evidence_flags"])
+        self.assertNotIn("temporal_regularity", case["evidence_flags"])
+        self.assertEqual(artifact["recommended_actions"][0]["tier"], "tier_4")
+
+    def test_threat_hunt_okhttp_remains_block_candidate_from_automation_signature(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        ua = "okhttp/4.12.0"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps([{"period": "current", "request_path": "/home", "requests": 1000}]),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": ua, "requests": 1000}]),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-04-17T00:00:00Z",
+                end="2026-04-18T00:00:00Z",
+                baseline_start="2026-04-16T00:00:00Z",
+                baseline_end="2026-04-17T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertIn("automation_signature", case["evidence_flags"])
+        self.assertNotIn("ua_anomaly", case["evidence_flags"])
+        self.assertEqual(artifact["recommended_actions"][0]["tier"], "tier_1")
+        self.assertEqual(artifact["recommended_actions"][0]["enforcement_wording"], "block_candidate")
+
+    def test_threat_hunt_browser_fanout_remains_strong(self) -> None:
+        from producers.threat_hunt_ua_plausibility import score_ua_plausibility
+
+        cases = [
+            (
+                "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/147.0.7727.24 Mobile Safari/537.36",
+                1_590_000,
+            ),
+            (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/147.0.7727.24 Safari/537.36",
+                1_240_000,
+            ),
+            (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_5) AppleWebKit/605.1.15 "
+                "(KHTML, like Gecko) Version/26.3 Safari/605.1.15",
+                2_910_000,
+            ),
+            (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0",
+                553_000,
+            ),
+        ]
+        for ua, unique_ips in cases:
+            result = score_ua_plausibility(
+                user_agent=ua,
+                window_end=datetime.fromisoformat("2026-04-18T00:00:00+00:00"),
+                fanout_by_ua={ua: {"user_agent": ua, "unique_ips": unique_ips, "source": "summary_hour"}},
+                fallback_unique_ips=None,
+                family_request_totals=Counter(),
+                total_family_requests=0,
+                browser_fingerprint_count=0,
+                source="fanout_enrichment",
+            )
+            self.assertEqual(result["parsed"]["ua_class"], "browser")
+            self.assertTrue(result["counts_for_verdict"])
+            self.assertEqual(result["verdict"], "confirmed")
+            self.assertEqual(result["signals"]["fanout"]["status"], "strong_shared_exact_ua")
+
+    def test_threat_hunt_okhttp_fanout_is_client_library_not_forged_desktop_browser(self) -> None:
+        from producers.threat_hunt_ua_plausibility import score_ua_plausibility
+
+        ua = "okhttp/4.12.0"
+        result = score_ua_plausibility(
+            user_agent=ua,
+            window_end=datetime.fromisoformat("2026-04-18T00:00:00+00:00"),
+            fanout_by_ua={ua: {"user_agent": ua, "unique_ips": 1_200_000, "source": "summary_hour"}},
+            fallback_unique_ips=None,
+            family_request_totals=Counter(),
+            total_family_requests=0,
+            browser_fingerprint_count=0,
+            source="fanout_enrichment",
+        )
+
+        self.assertEqual(result["parsed"]["ua_class"], "http_client_library")
+        self.assertFalse(result["counts_for_verdict"])
+        self.assertNotIn("desktop Unknown", result["trigger_reason"])
+
+    def test_threat_hunt_fanout_in_normalizes_new_fields_and_fires_fanout(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps([{"period": "current", "request_path": "/home", "requests": 1000}]),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": ua, "requests": 1000}]),
+                encoding="utf-8",
+            )
+            (base / "fanout.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "user_agent": ua,
+                            "unique_ips": 20000,
+                            "hits": 750000,
+                            "bytes": 1234,
+                            "source": "summary_hour",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-04-17T00:00:00Z",
+                end="2026-04-18T00:00:00Z",
+                baseline_start="2026-04-16T00:00:00Z",
+                baseline_end="2026-04-17T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                fanout_in=str(base / "fanout.json"),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertIn("ua_ip_fanout", case["evidence_flags"])
+        self.assertEqual(case["fanout_enrichment"]["source"], "summary_hour")
+        self.assertEqual(case["fanout_enrichment"]["threshold_class"], "elevated")
+        self.assertIn("fanout_enrichment", {row["module"] for row in artifact["limitations"]})
+
+    def test_threat_hunt_logs_probe_fanout_uses_conservative_effective_ips(self) -> None:
+        from producers.threat_hunt_ua_plausibility import score_ua_plausibility
+
+        ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
+        result = score_ua_plausibility(
+            user_agent=ua,
+            window_end=datetime.fromisoformat("2026-04-18T00:00:00+00:00"),
+            fanout_by_ua={
+                ua: {
+                    "user_agent": ua,
+                    "unique_ips": 4000,
+                    "hits": 50000,
+                    "source": "logs_probe",
+                    "probe_window_hours": 1,
+                }
+            },
+            fallback_unique_ips=None,
+            family_request_totals=Counter(),
+            total_family_requests=0,
+            browser_fingerprint_count=0,
+            source="fanout_enrichment",
+        )
+
+        fanout = result["signals"]["fanout"]
+        self.assertEqual(fanout["source"], "logs_probe")
+        self.assertEqual(fanout["effective_ips"], 12000)
+        self.assertEqual(fanout["threshold_class"], "elevated")
+
+    def test_threat_hunt_cooccurrence_lower_bound_fanout_does_not_extrapolate(self) -> None:
+        from producers.threat_hunt import cooccurrence_fanout_lower_bound_rows
+
+        rows = cooccurrence_fanout_lower_bound_rows(
+            [
+                {"user_agent": "UA", "client_ip": "203.0.113.1", "requests": 10},
+                {"user_agent": "UA", "client_ip": "203.0.113.2", "requests": 20},
+                {"user_agent": "UA", "client_ip": "203.0.113.1", "requests": 5},
+            ]
+        )
+
+        self.assertEqual(rows[0]["source"], "cooccurrence_lower_bound")
+        self.assertEqual(rows[0]["unique_ips"], 2)
+        self.assertEqual(rows[0]["effective_ips"], 2)
+        self.assertIn("true full-window fan-out is unknown", rows[0]["caveat"])
+
+    def test_threat_hunt_ua_fanout_required_fails_without_artifact(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps([{"period": "current", "request_path": "/home", "requests": 10}]),
+                encoding="utf-8",
+            )
+            with self.assertRaises(SystemExit):
+                build_threat_hunt_artifact(
+                    cluster="local",
+                    database="akamai",
+                    summary_parquet_glob=str(base / "summary.json"),
+                    start="2026-04-17T00:00:00Z",
+                    end="2026-04-18T00:00:00Z",
+                    baseline_start="2026-04-16T00:00:00Z",
+                    baseline_end="2026-04-17T00:00:00Z",
+                    ua_fanout_query="required",
+                )
+
+    def test_threat_hunt_scraper_case_requires_two_independent_families_for_lead(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/home", "requests": 50},
+                        {"period": "baseline", "request_path": "/home", "requests": 50},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "python-requests/2.31", "requests": 50}]),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-05-01T00:00:00Z",
+                end="2026-05-02T00:00:00Z",
+                baseline_start="2026-04-30T00:00:00Z",
+                baseline_end="2026-05-01T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertEqual(case["verdict"], "weak_lead")
+        self.assertEqual(case["evidence_flags"], ["automation_signature"])
+
+    def test_threat_hunt_ua_fanout_with_site_endpoint_context_stays_weak(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/api/catalog", "requests": 500},
+                        {"period": "baseline", "request_path": "/api/catalog", "requests": 500},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Mozilla/5.0 Example", "requests": 500}]),
+                encoding="utf-8",
+            )
+            (actor_dir / "expedia-actors-baseline-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Mozilla/5.0 Example", "requests": 500}]),
+                encoding="utf-8",
+            )
+            (actor_dir / "expedia-actors-baseline-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Mozilla/5.0 Example", "requests": 500}]),
+                encoding="utf-8",
+            )
+            co_rows = [
+                {
+                    "user_agent": "Mozilla/5.0 Example",
+                    "client_ip": f"203.0.113.{i}",
+                    "requests": 10,
+                }
+                for i in range(1, 11)
+            ]
+            (base / "co.json").write_text(json.dumps(co_rows), encoding="utf-8")
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-05-01T00:00:00Z",
+                end="2026-05-02T00:00:00Z",
+                baseline_start="2026-04-30T00:00:00Z",
+                baseline_end="2026-05-01T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                cooccurrence_in=str(base / "co.json"),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertEqual(case["verdict"], "weak_lead")
+        self.assertEqual(
+            case["evidence_flags"],
+            ["ua_ip_fanout"],
+        )
+        self.assertEqual(case["endpoint_evidence"]["tier"], "inferred_site_context")
+        self.assertFalse(case["endpoint_evidence"]["counts_for_verdict"])
+
+    def test_threat_hunt_scoped_endpoint_targeting_produces_lead(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/api/catalog", "requests": 500},
+                        {"period": "baseline", "request_path": "/api/catalog", "requests": 500},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Mozilla/5.0 Example", "requests": 500}]),
+                encoding="utf-8",
+            )
+            (actor_dir / "expedia-actors-baseline-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Mozilla/5.0 Example", "requests": 500}]),
+                encoding="utf-8",
+            )
+            co_rows = [
+                {
+                    "user_agent": "Mozilla/5.0 Example",
+                    "client_ip": f"203.0.113.{i}",
+                    "requests": 10,
+                }
+                for i in range(1, 11)
+            ]
+            drill_rows = [
+                {
+                    "user_agent": "Mozilla/5.0 Example",
+                    "client_ip": "203.0.113.1",
+                    "request_path": "/api/catalog",
+                    "hour": "2026-05-01 00:00:00",
+                    "requests": 50,
+                }
+            ]
+            (base / "co.json").write_text(json.dumps(co_rows), encoding="utf-8")
+            (base / "drill.json").write_text(json.dumps(drill_rows), encoding="utf-8")
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-05-01T00:00:00Z",
+                end="2026-05-02T00:00:00Z",
+                baseline_start="2026-04-30T00:00:00Z",
+                baseline_end="2026-05-01T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                cooccurrence_in=str(base / "co.json"),
+                scraper_drilldown_in=str(base / "drill.json"),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertEqual(case["verdict"], "lead")
+        self.assertEqual(case["evidence_flags"], ["ua_ip_fanout", "endpoint_targeting"])
+        self.assertEqual(case["endpoint_evidence"]["tier"], "confirmed")
+        self.assertTrue(case["endpoint_evidence"]["counts_for_verdict"])
+
+    def test_threat_hunt_baseline_growth_at_one_point_five_x_adds_family(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/api/catalog", "requests": 1500},
+                        {"period": "baseline", "request_path": "/api/catalog", "requests": 1000},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Growth/1.0", "requests": 1500}]),
+                encoding="utf-8",
+            )
+            (actor_dir / "expedia-actors-baseline-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Growth/1.0", "requests": 1000}]),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-05-01T00:00:00Z",
+                end="2026-05-02T00:00:00Z",
+                baseline_start="2026-04-30T00:00:00Z",
+                baseline_end="2026-05-01T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertIn("baseline_novelty_or_growth", case["evidence_flags"])
+        family = next(
+            row for row in case["evidence_families"]
+            if row["family"] == "baseline_novelty_or_growth"
+        )
+        self.assertEqual(family["rows"][0]["tier"], "elevated_growth")
+        self.assertEqual(family["rows"][0]["current_to_baseline_ratio"], 1.5)
+
+    def test_threat_hunt_scraper_case_with_error_topology_and_burst_is_strong(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/api/search", "requests": 5000},
+                        {"period": "baseline", "request_path": "/api/search", "requests": 2000},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "user_agent": "CatalogScraper/1.0",
+                            "requests": 5000,
+                            "status_429": 250,
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            co_rows = []
+            geo_rows = []
+            drill_rows = []
+            for i in range(1, 13):
+                asn_index = i % 3
+                ip = f"198.51.{asn_index}.{i}"
+                country = ["US", "DE", "FR"][asn_index]
+                co_rows.append(
+                    {
+                        "user_agent": "CatalogScraper/1.0",
+                        "client_ip": ip,
+                        "country": country,
+                        "requests": 20,
+                    }
+                )
+                geo_rows.append(
+                    {"ip": ip, "asn": 64500 + asn_index, "country": country}
+                )
+                drill_rows.append(
+                    {
+                        "user_agent": "CatalogScraper/1.0",
+                        "client_ip": ip,
+                        "request_path": "/api/search",
+                        "hour": "2026-05-01 03:00:00",
+                        "country": country,
+                        "status_429": 5,
+                        "status_5xx": 0,
+                        "requests": 100,
+                    }
+                )
+            (base / "co.json").write_text(json.dumps(co_rows), encoding="utf-8")
+            (base / "geo.json").write_text(json.dumps(geo_rows), encoding="utf-8")
+            (base / "drill.json").write_text(json.dumps(drill_rows), encoding="utf-8")
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-05-01T00:00:00Z",
+                end="2026-05-02T00:00:00Z",
+                baseline_start="2026-04-30T00:00:00Z",
+                baseline_end="2026-05-01T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                cooccurrence_in=str(base / "co.json"),
+                geoip_asn_v4=str(base / "geo.json"),
+                scraper_drilldown_in=str(base / "drill.json"),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertEqual(case["verdict"], "strong_lead")
+        self.assertIn("rate_limit_or_error_pressure", case["evidence_flags"])
+        self.assertIn("infrastructure_topology", case["evidence_flags"])
+        self.assertEqual(case["hourly_bursts"][0]["hour"], "2026-05-01 03:00:00")
+
+    def test_threat_hunt_missing_scraper_drilldown_keeps_artifact_valid(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/api/catalog", "requests": 1000},
+                        {"period": "baseline", "request_path": "/api/catalog", "requests": 900},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Mozilla/5.0 Example", "requests": 1000}]),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-05-01T00:00:00Z",
+                end="2026-05-02T00:00:00Z",
+                baseline_start="2026-04-30T00:00:00Z",
+                baseline_end="2026-05-01T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertFalse(case["drilldown_available"])
+        self.assertTrue(
+            any("Scoped raw scraper drilldown was unavailable" in item for item in case["case_against"])
+        )
+        drilldown_limit = next(l for l in artifact["limitations"] if l["module"] == "scraper_drilldown")
+        self.assertEqual(drilldown_limit["availability"], "not_available")
+
+    def test_threat_hunt_drilldown_coverage_uses_exact_ua_rows(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/api/catalog", "requests": 716_000_000},
+                        {"period": "baseline", "request_path": "/api/catalog", "requests": 716_000_000},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Mozilla/5.0 Thin", "requests": 716_000_000}]),
+                encoding="utf-8",
+            )
+            (base / "drill.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "user_agent": "Mozilla/5.0 Thin",
+                            "client_ip": "8.8.8.8",
+                            "request_path": "/api/catalog",
+                            "hour": "2026-05-01 00:00:00",
+                            "requests": 462,
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-05-01T00:00:00Z",
+                end="2026-05-02T00:00:00Z",
+                baseline_start="2026-04-30T00:00:00Z",
+                baseline_end="2026-05-01T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                scraper_drilldown_in=str(base / "drill.json"),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertTrue(case["drilldown_available"])
+        self.assertNotIn("endpoint_targeting", case["evidence_flags"])
+        self.assertEqual(case["endpoint_evidence"]["tier"], "unconfirmed_scoped")
+        self.assertFalse(case["endpoint_evidence"]["counts_for_verdict"])
+        self.assertEqual(case["drilldown_coverage"]["drilldown_requests"], 462)
+        self.assertEqual(case["drilldown_coverage"]["total_requests"], 716_000_000)
+        self.assertLess(case["drilldown_coverage"]["coverage_pct"], 0.01)
+        self.assertEqual(case["drilldown_coverage"]["status"], "uncharacterized")
+        self.assertTrue(any("primary request surface remains uncharacterized" in item for item in case["case_against"]))
+
+    def test_threat_hunt_drilldown_availability_requires_exact_ua_rows(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/api/catalog", "requests": 1000},
+                        {"period": "baseline", "request_path": "/api/catalog", "requests": 1000},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Mozilla/5.0 Exact", "requests": 1000}]),
+                encoding="utf-8",
+            )
+            (base / "drill.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "user_agent": "Different UA",
+                            "client_ip": "8.8.8.8",
+                            "request_path": "/api/catalog",
+                            "hour": "2026-05-01 00:00:00",
+                            "requests": 1000,
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-05-01T00:00:00Z",
+                end="2026-05-02T00:00:00Z",
+                baseline_start="2026-04-30T00:00:00Z",
+                baseline_end="2026-05-01T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                scraper_drilldown_in=str(base / "drill.json"),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertFalse(case["drilldown_available"])
+        self.assertEqual(case["drilldown_coverage"]["status"], "unavailable")
+        self.assertNotIn("endpoint_targeting", case["evidence_flags"])
+        self.assertEqual(case["endpoint_evidence"]["tier"], "inferred_site_context")
+        self.assertFalse(case["endpoint_evidence"]["counts_for_verdict"])
+        self.assertEqual(case["endpoint_targets"][0]["value"], "/api/catalog")
+
+    def test_threat_hunt_focused_drilldown_coverage(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/api/catalog", "requests": 1000},
+                        {"period": "baseline", "request_path": "/api/catalog", "requests": 1000},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Mozilla/5.0 Focused", "requests": 1000}]),
+                encoding="utf-8",
+            )
+            (base / "drill.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "user_agent": "Mozilla/5.0 Focused",
+                            "client_ip": "8.8.8.8",
+                            "request_path": "/api/catalog",
+                            "hour": "2026-05-01 00:00:00",
+                            "requests": 800,
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-05-01T00:00:00Z",
+                end="2026-05-02T00:00:00Z",
+                baseline_start="2026-04-30T00:00:00Z",
+                baseline_end="2026-05-01T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                scraper_drilldown_in=str(base / "drill.json"),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertEqual(case["drilldown_coverage"]["coverage_pct"], 80.0)
+        self.assertEqual(case["drilldown_coverage"]["status"], "focused")
+        self.assertEqual(case["endpoint_evidence"]["tier"], "confirmed")
+        self.assertIn("endpoint_targeting", case["evidence_flags"])
+        self.assertTrue(any("scoped endpoint targeting is confirmed" in item.lower() for item in case["case_for"]))
+
+    def test_threat_hunt_static_tracking_paths_do_not_count_as_endpoint_targeting(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            asset_paths = ["/cl/2x2.json", "/egds/fonts", "/favicon.ico", "/travel-pixel-js", "/landing-pwa/css"]
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [{"period": "current", "request_path": path, "requests": 100} for path in asset_paths]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Mozilla/5.0 Assets", "requests": 500}]),
+                encoding="utf-8",
+            )
+            drill_rows = [
+                {
+                    "user_agent": "Mozilla/5.0 Assets",
+                    "client_ip": "203.0.113.8",
+                    "request_path": path,
+                    "hour": "2026-05-01 00:00:00",
+                    "requests": 100,
+                }
+                for path in asset_paths
+            ]
+            (base / "drill.json").write_text(json.dumps(drill_rows), encoding="utf-8")
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-05-01T00:00:00Z",
+                end="2026-05-02T00:00:00Z",
+                baseline_start="2026-04-30T00:00:00Z",
+                baseline_end="2026-05-01T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                scraper_drilldown_in=str(base / "drill.json"),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertNotIn("endpoint_targeting", case["evidence_flags"])
+        self.assertEqual(case["endpoint_evidence"]["tier"], "unconfirmed_scoped")
+        self.assertEqual(set(case["endpoint_evidence"]["categories"]), {"tracking_static_asset"})
+        self.assertTrue(all(not row.get("markers") for row in case["endpoint_targets"]))
+
+    def test_threat_hunt_iat_fixed_intervals_classify_as_metronome(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/api/catalog", "requests": 100},
+                        {"period": "baseline", "request_path": "/api/catalog", "requests": 100},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Mozilla/5.0 Timing", "requests": 100}]),
+                encoding="utf-8",
+            )
+            (base / "iat.json").write_text(
+                json.dumps(
+                    [
+                        {"user_agent": "Mozilla/5.0 Timing", "client_ip": "8.8.8.8", "reqTimeSec": i * 2}
+                        for i in range(61)
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-05-01T00:00:00Z",
+                end="2026-05-02T00:00:00Z",
+                baseline_start="2026-04-30T00:00:00Z",
+                baseline_end="2026-05-01T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                iat_sample_in=str(base / "iat.json"),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertEqual(case["temporal_regularity"]["archetype"], "metronome")
+        self.assertIn("temporal_regularity", case["evidence_flags"])
+        iat_limit = next(l for l in artifact["limitations"] if l["module"] == "iat_samples")
+        self.assertEqual(iat_limit["availability"], "evidence_backed")
+
+    def test_threat_hunt_iat_jitter_and_burst_archetypes(self) -> None:
+        from producers import threat_hunt
+
+        jitter = []
+        timestamp = 0.0
+        for step in ([1.2, 2.0, 2.8] * 25):
+            timestamp += step
+            jitter.append({"user_agent": "Jitter", "client_ip": "8.8.8.8", "reqTimeSec": timestamp})
+        burst = []
+        timestamp = 0.0
+        for step in ([1, 1, 1, 20] * 20):
+            timestamp += step
+            burst.append({"user_agent": "Burst", "client_ip": "8.8.4.4", "reqTimeSec": timestamp})
+
+        jitter_timing = threat_hunt._temporal_regularity("Jitter", threat_hunt.merge_iat_sample_rows(jitter), [])
+        burst_timing = threat_hunt._temporal_regularity("Burst", threat_hunt.merge_iat_sample_rows(burst), [])
+
+        self.assertEqual(jitter_timing["archetype"], "jittered_metronome")
+        self.assertEqual(burst_timing["archetype"], "burst_pause")
+
+    def test_threat_hunt_iat_rotation_mask_and_minimum_sample(self) -> None:
+        from producers import threat_hunt
+
+        rows = []
+        for ip, offset in (("8.8.8.8", 0), ("8.8.4.4", 1)):
+            rows.extend(
+                {
+                    "user_agent": "Rotating",
+                    "client_ip": ip,
+                    "reqTimeSec": offset + i * 10,
+                }
+                for i in range(61)
+            )
+        short_rows = [
+            {"user_agent": "Short", "client_ip": "1.1.1.1", "reqTimeSec": i * 2}
+            for i in range(20)
+        ]
+
+        timing = threat_hunt._temporal_regularity("Rotating", threat_hunt.merge_iat_sample_rows(rows), [])
+        short_timing = threat_hunt._temporal_regularity("Short", threat_hunt.merge_iat_sample_rows(short_rows), [])
+
+        self.assertEqual(timing["archetype"], "rotation_mask")
+        self.assertIsNone(short_timing)
+
+    def test_threat_hunt_complete_hourly_profile_can_use_hourly_coarse_timing(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/api/catalog", "requests": 600},
+                        {"period": "baseline", "request_path": "/api/catalog", "requests": 600},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Mozilla/5.0 Hourly", "requests": 600}]),
+                encoding="utf-8",
+            )
+            hourly_rows = [
+                {
+                    "user_agent": "Mozilla/5.0 Hourly",
+                    "hour": f"2026-05-01 {hour:02d}:00:00",
+                    "requests": 100,
+                }
+                for hour in range(24)
+            ]
+            (base / "hourly.json").write_text(json.dumps(hourly_rows), encoding="utf-8")
+            (base / "co.json").write_text(
+                json.dumps(
+                    [
+                        {"user_agent": "Mozilla/5.0 Hourly", "client_ip": f"8.8.8.{idx}", "requests": 10}
+                        for idx in range(1, 11)
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-05-01T00:00:00Z",
+                end="2026-05-02T00:00:00Z",
+                baseline_start="2026-04-30T00:00:00Z",
+                baseline_end="2026-05-01T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                cooccurrence_in=str(base / "co.json"),
+                scraper_hourly_in=str(base / "hourly.json"),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertEqual(case["temporal_regularity"]["resolution"], "hourly_coarse")
+        self.assertEqual(case["temporal_regularity"]["archetype"], "hourly_regular")
+        self.assertEqual(case["temporal_regularity"]["active_hour_count"], 24)
+        self.assertEqual(case["temporal_regularity"]["window_hour_count"], 24)
+        self.assertEqual(case["timing_status"]["status"], "regular")
+        self.assertIn("temporal_regularity", case["evidence_flags"])
+        self.assertEqual(case["verdict"], "strong_lead")
+        iat_limit = next(l for l in artifact["limitations"] if l["module"] == "iat_samples")
+        self.assertEqual(iat_limit["availability"], "not_available")
+        hourly_limit = next(l for l in artifact["limitations"] if l["module"] == "scraper_hourly")
+        self.assertEqual(hourly_limit["availability"], "evidence_backed")
+
+    def test_threat_hunt_partial_hourly_profile_records_insufficient_coverage(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/api/catalog", "requests": 600},
+                        {"period": "baseline", "request_path": "/api/catalog", "requests": 600},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Mozilla/5.0 Hourly", "requests": 600}]),
+                encoding="utf-8",
+            )
+            drill_rows = [
+                {
+                    "user_agent": "Mozilla/5.0 Hourly",
+                    "client_ip": "8.8.8.8",
+                    "request_path": "/api/catalog",
+                    "hour": f"2026-05-01 {hour:02d}:00:00",
+                    "requests": 100,
+                }
+                for hour in range(6)
+            ]
+            (base / "drill.json").write_text(json.dumps(drill_rows), encoding="utf-8")
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-05-01T00:00:00Z",
+                end="2026-05-02T00:00:00Z",
+                baseline_start="2026-04-30T00:00:00Z",
+                baseline_end="2026-05-01T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                scraper_drilldown_in=str(base / "drill.json"),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertIsNone(case["temporal_regularity"])
+        self.assertEqual(case["timing_status"]["status"], "insufficient_coverage")
+        self.assertEqual(case["timing_status"]["active_hour_count"], 6)
+        self.assertNotIn("temporal_regularity", case["evidence_flags"])
+
+    def test_threat_hunt_bursty_hourly_profile_is_irregular(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/api/catalog", "requests": 10000},
+                        {"period": "baseline", "request_path": "/api/catalog", "requests": 10000},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Mozilla/5.0 Bursty", "requests": 10000}]),
+                encoding="utf-8",
+            )
+            hourly_rows = [
+                {
+                    "user_agent": "Mozilla/5.0 Bursty",
+                    "hour": f"2026-05-01 {hour:02d}:00:00",
+                    "requests": 10 if hour % 2 else 1000,
+                }
+                for hour in range(24)
+            ]
+            (base / "hourly.json").write_text(json.dumps(hourly_rows), encoding="utf-8")
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-05-01T00:00:00Z",
+                end="2026-05-02T00:00:00Z",
+                baseline_start="2026-04-30T00:00:00Z",
+                baseline_end="2026-05-01T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                scraper_hourly_in=str(base / "hourly.json"),
+            )
+
+        case = artifact["scraper_cases"][0]
+        self.assertIsNone(case["temporal_regularity"])
+        self.assertEqual(case["timing_status"]["status"], "irregular")
+
+    def test_threat_hunt_shared_ips_create_campaign_and_upgrade_members(self) -> None:
+        from producers.threat_hunt_campaigns import attach_campaigns
+
+        cases = [
+            {
+                "user_agent": "Mozilla/5.0 A",
+                "verdict": "weak_lead",
+                "requests": 100,
+                "baseline_requests": 100,
+                "evidence_flags": ["endpoint_targeting"],
+                "evidence_families": [],
+                "case_for": ["Endpoint targeting."],
+                "case_against": [],
+                "missing_evidence": ["coordinated_activity"],
+            },
+            {
+                "user_agent": "Mozilla/5.0 B",
+                "verdict": "weak_lead",
+                "requests": 90,
+                "baseline_requests": 90,
+                "evidence_flags": ["endpoint_targeting"],
+                "evidence_families": [],
+                "case_for": ["Endpoint targeting."],
+                "case_against": [],
+                "missing_evidence": ["coordinated_activity"],
+            },
+        ]
+        co_rows = [
+            {"user_agent": ua, "client_ip": f"203.0.113.{i}", "country": "US", "requests": 10}
+            for ua in ("Mozilla/5.0 A", "Mozilla/5.0 B")
+            for i in range(1, 4)
+        ]
+
+        campaigns, enriched = attach_campaigns(
+            scraper_cases=cases,
+            cooccurrence_rows=co_rows,
+            drilldown_rows=[],
+            geo={},
+        )
+
+        self.assertEqual(len(campaigns), 1)
+        self.assertEqual(campaigns[0]["linking_evidence"][0]["link_types"], ["shared_ips"])
+        self.assertEqual(campaigns[0]["unique_client_ips"], 3)
+        self.assertTrue(all(case["campaign_id"] == "campaign-1" for case in enriched))
+        self.assertTrue(all("coordinated_activity" in case["evidence_flags"] for case in enriched))
+        self.assertTrue(all(case["verdict"] == "lead" for case in enriched))
+
+    def test_threat_hunt_campaign_drilldown_coverage_labels(self) -> None:
+        from producers.threat_hunt_campaigns import attach_campaigns
+
+        def linked_campaign(cases: list[dict[str, object]]) -> dict[str, object]:
+            co_rows = [
+                {"user_agent": str(case["user_agent"]), "client_ip": f"8.8.8.{ip}", "country": "US", "requests": 10}
+                for case in cases
+                for ip in range(1, 4)
+            ]
+            campaigns, _enriched = attach_campaigns(
+                scraper_cases=cases,  # type: ignore[arg-type]
+                cooccurrence_rows=co_rows,
+                drilldown_rows=[],
+                geo={},
+            )
+            self.assertEqual(len(campaigns), 1)
+            return campaigns[0]
+
+        diffuse = linked_campaign(
+            [
+                {
+                    "user_agent": "UA A",
+                    "requests": 1000,
+                    "evidence_flags": [],
+                    "drilldown_coverage": {"status": "uncharacterized", "drilldown_requests": 0.05, "total_requests": 1000},
+                },
+                {
+                    "user_agent": "UA B",
+                    "requests": 1000,
+                    "evidence_flags": [],
+                    "drilldown_coverage": {"status": "uncharacterized", "drilldown_requests": 0.05, "total_requests": 1000},
+                },
+                {
+                    "user_agent": "UA C",
+                    "requests": 1000,
+                    "evidence_flags": [],
+                    "drilldown_coverage": {"status": "partial", "drilldown_requests": 100, "total_requests": 1000},
+                },
+            ]
+        )
+        self.assertEqual(diffuse["drilldown_coverage_summary"]["surface_label"], "diffuse_surface")
+
+        focused = linked_campaign(
+            [
+                {
+                    "user_agent": "UA D",
+                    "requests": 1000,
+                    "evidence_flags": [],
+                    "drilldown_coverage": {"status": "focused", "drilldown_requests": 800, "total_requests": 1000},
+                },
+                {
+                    "user_agent": "UA E",
+                    "requests": 1000,
+                    "evidence_flags": [],
+                    "drilldown_coverage": {"status": "focused", "drilldown_requests": 900, "total_requests": 1000},
+                },
+            ]
+        )
+        self.assertEqual(focused["drilldown_coverage_summary"]["surface_label"], "focused_api_surface")
+        self.assertGreaterEqual(focused["drilldown_coverage_summary"]["weighted_coverage_pct"], 75.0)
+
+        mixed = linked_campaign(
+            [
+                {
+                    "user_agent": "UA F",
+                    "requests": 1000,
+                    "evidence_flags": [],
+                    "drilldown_coverage": {"status": "partial", "drilldown_requests": 200, "total_requests": 1000},
+                },
+                {
+                    "user_agent": "UA G",
+                    "requests": 1000,
+                    "evidence_flags": [],
+                    "drilldown_coverage": {"status": "substantial", "drilldown_requests": 500, "total_requests": 1000},
+                },
+            ]
+        )
+        self.assertEqual(mixed["drilldown_coverage_summary"]["surface_label"], "mixed_surface")
+
+    def test_threat_hunt_campaign_asset_surface_does_not_credit_endpoint_targeting(self) -> None:
+        from producers.threat_hunt_campaigns import attach_campaigns
+
+        cases = [
+            {
+                "user_agent": "Browser UA A",
+                "requests": 1000,
+                "evidence_flags": [],
+                "endpoint_evidence": {
+                    "tier": "unconfirmed_scoped",
+                    "source": "scoped_drilldown",
+                    "counts_for_verdict": False,
+                    "categories": ["tracking_static_asset"],
+                },
+                "drilldown_coverage": {"status": "focused", "drilldown_requests": 900, "total_requests": 1000},
+            },
+            {
+                "user_agent": "Browser UA B",
+                "requests": 900,
+                "evidence_flags": [],
+                "endpoint_evidence": {
+                    "tier": "unconfirmed_scoped",
+                    "source": "scoped_drilldown",
+                    "counts_for_verdict": False,
+                    "categories": ["tracking_static_asset"],
+                },
+                "drilldown_coverage": {"status": "focused", "drilldown_requests": 850, "total_requests": 900},
+            },
+        ]
+        co_rows = [
+            {"user_agent": str(case["user_agent"]), "client_ip": f"8.8.4.{ip}", "country": "US", "requests": 10}
+            for case in cases
+            for ip in range(1, 4)
+        ]
+        drill_rows = [
+            {
+                "user_agent": str(case["user_agent"]),
+                "client_ip": "8.8.4.1",
+                "request_path": path,
+                "hour": "h1",
+                "requests": 100,
+            }
+            for case in cases
+            for path in ("/cl/2x2.json", "/egds/fonts", "/travel-pixel-js")
+        ]
+
+        campaigns, _enriched = attach_campaigns(
+            scraper_cases=cases,  # type: ignore[arg-type]
+            cooccurrence_rows=co_rows,
+            drilldown_rows=drill_rows,
+            geo={},
+        )
+
+        self.assertEqual(len(campaigns), 1)
+        campaign = campaigns[0]
+        self.assertNotIn("endpoint_targeting", campaign["evidence_flags"])
+        self.assertFalse(campaign["endpoint_evidence_summary"]["counts_for_verdict"])
+        self.assertEqual(campaign["endpoint_evidence_summary"]["unconfirmed_member_count"], 2)
+        self.assertEqual(campaign["endpoint_targets"][0]["endpoint_category"], "tracking_static_asset")
+
+    def test_threat_hunt_path_cosine_requires_shared_path_buckets(self) -> None:
+        from producers.threat_hunt_campaigns import attach_campaigns
+
+        cases = [
+            {"user_agent": "UA A", "verdict": "not_enough_data", "requests": 10, "evidence_flags": []},
+            {"user_agent": "UA B", "verdict": "not_enough_data", "requests": 10, "evidence_flags": []},
+            {"user_agent": "UA C", "verdict": "not_enough_data", "requests": 10, "evidence_flags": []},
+        ]
+        enough_paths = [
+            {"user_agent": ua, "client_ip": f"198.51.100.{idx}", "request_path": path, "hour": "h1", "requests": 10}
+            for ua, idx in (("UA A", 1), ("UA B", 2))
+            for path in ("/api/search/a", "/api/catalog/b", "/products/detail/c")
+        ]
+        too_few_paths = [
+            {"user_agent": "UA C", "client_ip": "198.51.100.3", "request_path": path, "hour": "h1", "requests": 10}
+            for path in ("/api/search/a", "/api/catalog/b")
+        ]
+
+        campaigns, _enriched = attach_campaigns(
+            scraper_cases=cases,
+            cooccurrence_rows=[],
+            drilldown_rows=[*enough_paths, *too_few_paths],
+            geo={},
+        )
+
+        self.assertEqual(len(campaigns), 1)
+        self.assertEqual(campaigns[0]["leads"], ["UA A", "UA B"])
+        edge = campaigns[0]["linking_evidence"][0]
+        self.assertIn("shared_endpoint_profile", edge["link_types"])
+        self.assertGreaterEqual(edge["shared_path_count"], 3)
+
+    def test_threat_hunt_temporal_rotation_plus_asn_similarity_links(self) -> None:
+        from producers.threat_hunt_campaigns import attach_campaigns
+
+        cases = [
+            {"user_agent": "UA A", "verdict": "not_enough_data", "requests": 100, "evidence_flags": []},
+            {"user_agent": "UA B", "verdict": "not_enough_data", "requests": 100, "evidence_flags": []},
+        ]
+        drill_rows = []
+        for hour, a_requests, b_requests in (("h1", 100, 0), ("h2", 0, 100), ("h3", 100, 0), ("h4", 0, 100)):
+            drill_rows.append(
+                {
+                    "user_agent": "UA A",
+                    "client_ip": "198.51.100.1",
+                    "request_path": "/api/a",
+                    "hour": hour,
+                    "requests": a_requests,
+                }
+            )
+            drill_rows.append(
+                {
+                    "user_agent": "UA B",
+                    "client_ip": "198.51.100.2",
+                    "request_path": "/api/b",
+                    "hour": hour,
+                    "requests": b_requests,
+                }
+            )
+
+        campaigns, _enriched = attach_campaigns(
+            scraper_cases=cases,
+            cooccurrence_rows=[],
+            drilldown_rows=drill_rows,
+            geo={
+                "198.51.100.1": {"asn": 64500, "country": "US"},
+                "198.51.100.2": {"asn": 64500, "country": "US"},
+            },
+        )
+
+        self.assertEqual(len(campaigns), 1)
+        edge = campaigns[0]["linking_evidence"][0]
+        self.assertIn("temporal_rotation_asn_similarity", edge["link_types"])
+        self.assertLessEqual(edge["temporal_correlation"], -0.6)
+        self.assertEqual(campaigns[0]["temporal_pattern"], "rotating")
+
+    def test_threat_hunt_shared_ip_regular_uncorrelated_campaign_is_parallel_independent(self) -> None:
+        from producers.threat_hunt_campaigns import attach_campaigns
+
+        patterns = [
+            [1, -1] * 12,
+            [1, 1, -1, -1] * 6,
+            [1, 1, 1, 1, -1, -1, -1, -1] * 3,
+            [1, -1, -1, 1] * 6,
+        ]
+
+        def timing(ua: str, offset: int) -> dict[str, object]:
+            profile = [
+                {
+                    "hour": f"2026-05-01 {hour:02d}:00:00",
+                    "requests": 100 + patterns[offset][hour],
+                }
+                for hour in range(24)
+            ]
+            return {
+                "resolution": "hourly_coarse",
+                "archetype": "hourly_regular",
+                "sample_size": 24,
+                "hourly_profile": profile,
+                "metrics": {"active_hour_count": 24, "window_hour_count": 24},
+            }
+
+        cases = [
+            {
+                "user_agent": f"UA {idx}",
+                "verdict": "lead",
+                "requests": 1000,
+                "evidence_flags": ["ua_ip_fanout", "temporal_regularity"],
+                "temporal_regularity": timing(f"UA {idx}", idx),
+            }
+            for idx in range(4)
+        ]
+        co_rows = [
+            {"user_agent": f"UA {idx}", "client_ip": f"8.8.8.{ip}", "country": "US", "requests": 10}
+            for idx in range(4)
+            for ip in range(1, 4)
+        ]
+
+        campaigns, _enriched = attach_campaigns(
+            scraper_cases=cases,
+            cooccurrence_rows=co_rows,
+            drilldown_rows=[],
+            geo={},
+        )
+
+        self.assertEqual(len(campaigns), 1)
+        self.assertEqual(campaigns[0]["temporal_pattern"], "parallel_independent")
+        self.assertTrue(campaigns[0]["timing_summary"]["parallel_independent"])
+        self.assertIn("parallel scraper workers", campaigns[0]["timing_summary"]["evidence_text"])
+
+    def test_threat_hunt_unrelated_leads_remain_independent(self) -> None:
+        from producers.threat_hunt_campaigns import attach_campaigns
+
+        cases = [
+            {"user_agent": "UA A", "verdict": "weak_lead", "requests": 50, "evidence_flags": ["automation_signature"]},
+            {"user_agent": "UA B", "verdict": "weak_lead", "requests": 40, "evidence_flags": ["automation_signature"]},
+        ]
+        co_rows = [
+            {"user_agent": "UA A", "client_ip": "198.51.100.1", "country": "US", "requests": 10},
+            {"user_agent": "UA B", "client_ip": "203.0.113.1", "country": "DE", "requests": 10},
+        ]
+
+        campaigns, enriched = attach_campaigns(
+            scraper_cases=cases,
+            cooccurrence_rows=co_rows,
+            drilldown_rows=[],
+            geo={},
+        )
+
+        self.assertEqual(campaigns, [])
+        self.assertFalse(any(case.get("campaign_id") for case in enriched))
+        self.assertTrue(all(case["verdict"] == "weak_lead" for case in enriched))
+
+    def test_threat_hunt_missing_drilldown_still_allows_ip_campaign(self) -> None:
+        from producers.threat_hunt_campaigns import attach_campaigns
+
+        cases = [
+            {
+                "user_agent": "UA A",
+                "verdict": "not_enough_data",
+                "requests": 50,
+                "evidence_flags": [],
+                "drilldown_available": False,
+                "endpoint_targets": [
+                    {"request_path": "/api/catalog/a", "requests": 10},
+                    {"request_path": "/api/search/b", "requests": 10},
+                    {"request_path": "/products/detail/c", "requests": 10},
+                ],
+            },
+            {
+                "user_agent": "UA B",
+                "verdict": "not_enough_data",
+                "requests": 40,
+                "evidence_flags": [],
+                "drilldown_available": False,
+                "endpoint_targets": [
+                    {"request_path": "/api/catalog/a", "requests": 10},
+                    {"request_path": "/api/search/b", "requests": 10},
+                    {"request_path": "/products/detail/c", "requests": 10},
+                ],
+            },
+        ]
+        co_rows = [
+            {"user_agent": ua, "client_ip": f"198.51.100.{i}", "country": "US", "requests": 10}
+            for ua in ("UA A", "UA B")
+            for i in range(1, 4)
+        ]
+
+        campaigns, _enriched = attach_campaigns(
+            scraper_cases=cases,
+            cooccurrence_rows=co_rows,
+            drilldown_rows=[],
+            geo={},
+        )
+
+        edge = campaigns[0]["linking_evidence"][0]
+        self.assertFalse(edge["path_similarity_available"])
+        self.assertFalse(edge["temporal_similarity_available"])
+        self.assertIsNone(edge["path_cosine"])
+        self.assertIn("shared_ips", edge["link_types"])
+
+    def test_threat_hunt_cooccurrence_splits_full_day_into_six_hour_chunks(self) -> None:
+        from producers.threat_hunt import split_raw_cooccurrence_window
+
+        chunks = split_raw_cooccurrence_window(
+            datetime(2026, 4, 18, tzinfo=timezone.utc),
+            datetime(2026, 4, 19, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(len(chunks), 4)
+        self.assertTrue(
+            all((chunk_end - chunk_start).total_seconds() <= 21600 for chunk_start, chunk_end in chunks)
+        )
+        self.assertEqual(chunks[0][0], datetime(2026, 4, 18, tzinfo=timezone.utc))
+        self.assertEqual(chunks[-1][1], datetime(2026, 4, 19, tzinfo=timezone.utc))
+
+    def test_threat_hunt_cooccurrence_preserves_partial_boundaries(self) -> None:
+        from producers.threat_hunt import split_raw_cooccurrence_window
+
+        start = datetime(2026, 4, 18, 1, 15, tzinfo=timezone.utc)
+        end = datetime(2026, 4, 18, 8, 45, tzinfo=timezone.utc)
+        chunks = split_raw_cooccurrence_window(start, end)
+
+        self.assertEqual(chunks[0][0], start)
+        self.assertEqual(chunks[-1][1], end)
+        self.assertEqual(len(chunks), 2)
+
+    def test_threat_hunt_cooccurrence_merge_sums_and_sorts_cells(self) -> None:
+        from producers.threat_hunt import merge_cooccurrence_rows
+
+        rows = merge_cooccurrence_rows(
+            [
+                {"client_ip": "203.0.113.2", "user_agent": "B", "country": "US", "requests": 5},
+                {"client_ip": "203.0.113.1", "user_agent": "A", "country": "DE", "requests": 7},
+                {"client_ip": "203.0.113.2", "user_agent": "B", "country": "US", "requests": 11},
+                {"client_ip": "", "user_agent": "drop", "requests": 99},
+                {"client_ip": "203.0.113.3", "user_agent": "", "requests": 99},
+            ]
+        )
+
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "client_ip": "203.0.113.2",
+                    "user_agent": "B",
+                    "country": "US",
+                    "requests": 16,
+                },
+                {
+                    "client_ip": "203.0.113.1",
+                    "user_agent": "A",
+                    "country": "DE",
+                    "requests": 7,
+                },
+            ],
+        )
+
+    def test_threat_hunt_actor_fixture_export_writes_current_and_baseline_files(self) -> None:
+        from producers import threat_hunt
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            actor_dir = Path(tmpdir) / "actors"
+            calls = []
+
+            def fake_export(_cluster: str, sql: str, chunk_output: Path) -> None:
+                calls.append(sql)
+                if " AS client_ip" in sql:
+                    row = {
+                        "client_ip": "203.0.113.1",
+                        "requests": 10,
+                        "bytes": 100,
+                        "status_429": 1,
+                    }
+                else:
+                    row = {
+                        "user_agent": "Scraper/1.0",
+                        "requests": 20,
+                        "bytes": 200,
+                        "status_5xx": 2,
+                    }
+                chunk_output.write_text(json.dumps({"data": [row]}), encoding="utf-8")
+
+            with mock.patch.object(threat_hunt, "_run_mux_export", side_effect=fake_export):
+                threat_hunt.export_raw_actor_fixtures(
+                    actor_dir=str(actor_dir),
+                    start="2026-04-18T00:00:00Z",
+                    end="2026-04-18T01:00:00Z",
+                    baseline_start="2026-04-17T00:00:00Z",
+                    baseline_end="2026-04-17T01:00:00Z",
+                    cluster="demo",
+                    database="akamai",
+                    top_n=50,
+                )
+
+            current_ip = json.loads(
+                (actor_dir / "expedia-actors-current-client_ip.json").read_text()
+            )
+            baseline_ua = json.loads(
+                (actor_dir / "expedia-actors-baseline-user_agent.json").read_text()
+            )
+
+        self.assertEqual(len(calls), 4)
+        self.assertTrue((actor_dir / "expedia-actors-baseline-client_ip.json").name)
+        self.assertEqual(current_ip[0]["client_ip"], "203.0.113.1")
+        self.assertEqual(current_ip[0]["period"], "current")
+        self.assertEqual(baseline_ua[0]["user_agent"], "Scraper/1.0")
+        self.assertEqual(baseline_ua[0]["period"], "baseline")
+
+    def test_threat_hunt_cooccurrence_export_chunks_and_writes_merged_rows(self) -> None:
+        from producers import threat_hunt
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-client_ip.json").write_text(
+                json.dumps(
+                    [
+                        {"client_ip": "203.0.113.2", "requests": 50},
+                        {"client_ip": "203.0.113.1", "requests": 100},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps(
+                    [
+                        {"user_agent": "B", "requests": 50},
+                        {"user_agent": "A", "requests": 100},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            output = base / "cooccurrence.json"
+            captured_sql = []
+
+            def fake_export(_cluster: str, sql: str, chunk_output: Path) -> None:
+                captured_sql.append(sql)
+                requests = 10 if len(captured_sql) == 1 else 15
+                chunk_output.write_text(
+                    json.dumps(
+                        {
+                            "data": [
+                                {
+                                    "client_ip": "203.0.113.1",
+                                    "user_agent": "A",
+                                    "country": "US",
+                                    "requests": requests,
+                                }
+                            ]
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            with mock.patch.object(threat_hunt, "_run_mux_export", side_effect=fake_export):
+                rows = threat_hunt.export_raw_ua_cooccurrence(
+                    actor_dir=str(actor_dir),
+                    start="2026-04-18T00:00:00Z",
+                    end="2026-04-18T07:00:00Z",
+                    cluster="demo",
+                    database="akamai",
+                    top_n=50,
+                    output=str(output),
+                )
+            written_rows = json.loads(output.read_text())
+
+        self.assertEqual(len(captured_sql), 2)
+        self.assertIn("FROM akamai.logs", captured_sql[0])
+        self.assertIn("cliIP IN ('203.0.113.1', '203.0.113.2')", captured_sql[0])
+        self.assertIn("UA IN ('A', 'B')", captured_sql[0])
+        self.assertEqual(rows[0]["requests"], 25)
+        self.assertEqual(written_rows, rows)
+
+    def test_threat_hunt_scraper_drilldown_export_is_scoped_and_normalized(self) -> None:
+        from producers import threat_hunt
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps(
+                    [
+                        {"user_agent": "A", "requests": 100},
+                        {"user_agent": "B", "requests": 50},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            cooccurrence = base / "co.json"
+            cooccurrence.write_text(
+                json.dumps(
+                    [
+                        {"user_agent": "A", "client_ip": "8.8.8.8", "requests": 20},
+                        {"user_agent": "B", "client_ip": "1.1.1.1", "requests": 10},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            output = base / "drilldown.json"
+            captured_sql = []
+
+            def fake_export(_cluster: str, sql: str, chunk_output: Path) -> None:
+                captured_sql.append(sql)
+                chunk_output.write_text(
+                    json.dumps(
+                        {
+                            "data": [
+                                {
+                                    "user_agent": "A",
+                                    "client_ip": "8.8.8.8",
+                                    "request_path": "/api/catalog",
+                                    "hour": "2026-04-18 00:00:00",
+                                    "country": "US",
+                                    "status_429": 2,
+                                    "status_5xx": 1,
+                                    "requests": 11,
+                                }
+                            ]
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            with mock.patch.object(threat_hunt, "_run_mux_export", side_effect=fake_export):
+                rows = threat_hunt.export_scraper_drilldowns(
+                    actor_dir=str(actor_dir),
+                    cooccurrence_in=str(cooccurrence),
+                    start="2026-04-18T00:00:00Z",
+                    end="2026-04-18T02:00:00Z",
+                    cluster="demo",
+                    database="akamai",
+                    top_leads=1,
+                    output=str(output),
+                )
+            written_rows = json.loads(output.read_text())
+
+        self.assertEqual(len(captured_sql), 2)
+        self.assertIn("UA IN ('A')", captured_sql[0])
+        self.assertIn("cliIP IN ('8.8.8.8')", captured_sql[0])
+        self.assertIn("toStartOfHour(reqTimeSec) AS hour", captured_sql[0])
+        self.assertIn("ORDER BY requests DESC\nLIMIT 100000", captured_sql[0])
+        self.assertEqual(rows[0]["request_path"], "/api/catalog")
+        self.assertEqual(written_rows, rows)
+
+    def test_threat_hunt_scraper_drilldown_filters_non_public_ips_by_default(self) -> None:
+        from producers import threat_hunt
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "A", "requests": 100}]),
+                encoding="utf-8",
+            )
+            cooccurrence = base / "co.json"
+            cooccurrence.write_text(
+                json.dumps(
+                    [
+                        {"user_agent": "A", "client_ip": "8.8.8.8", "requests": 20},
+                        {"user_agent": "A", "client_ip": "127.0.0.1", "requests": 10},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            scope = threat_hunt.scraper_drilldown_scope(
+                actor_dir=str(actor_dir),
+                cooccurrence_in=str(cooccurrence),
+                start="2026-04-18T00:00:00Z",
+                end="2026-04-18T02:00:00Z",
+                database="akamai",
+                top_leads=1,
+            )
+            scope_with_loopback = threat_hunt.scraper_drilldown_scope(
+                actor_dir=str(actor_dir),
+                cooccurrence_in=str(cooccurrence),
+                start="2026-04-18T00:00:00Z",
+                end="2026-04-18T02:00:00Z",
+                database="akamai",
+                top_leads=1,
+                include_non_public_ips=True,
+            )
+
+        self.assertEqual(scope["selected_client_ips"], ["8.8.8.8"])
+        self.assertEqual(scope["excluded_non_public_client_ips"], ["127.0.0.1"])
+        self.assertEqual(scope_with_loopback["selected_client_ips"], ["127.0.0.1", "8.8.8.8"])
+
+    def test_threat_hunt_scraper_drilldown_sql_row_limit_is_optional(self) -> None:
+        from producers import threat_hunt
+
+        start = threat_hunt.parse_time("2026-04-18T00:00:00Z", "start")
+        end = threat_hunt.parse_time("2026-04-18T01:00:00Z", "end")
+
+        limited = threat_hunt._raw_scraper_drilldown_sql(
+            database="akamai",
+            start=start,
+            end=end,
+            client_ips=["8.8.8.8"],
+            user_agents=["A"],
+            row_limit=100,
+        )
+        unlimited = threat_hunt._raw_scraper_drilldown_sql(
+            database="akamai",
+            start=start,
+            end=end,
+            client_ips=["8.8.8.8"],
+            user_agents=["A"],
+            row_limit=None,
+        )
+
+        self.assertTrue(limited.endswith("ORDER BY requests DESC\nLIMIT 100"))
+        self.assertTrue(unlimited.endswith("ORDER BY requests DESC"))
+
+    def test_threat_hunt_scraper_drilldown_cli_dry_run_skips_export(self) -> None:
+        module = load_module(
+            "threat_hunt_scraper_drilldown_export",
+            ROOT / "skills/bot-insights/scripts/threat_hunt_scraper_drilldown_export.py",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "A", "requests": 100}]),
+                encoding="utf-8",
+            )
+            cooccurrence = base / "co.json"
+            cooccurrence.write_text(
+                json.dumps([{"user_agent": "A", "client_ip": "8.8.8.8", "requests": 20}]),
+                encoding="utf-8",
+            )
+            argv = [
+                "threat_hunt_scraper_drilldown_export.py",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--actor-dir",
+                str(actor_dir),
+                "--cooccurrence-in",
+                str(cooccurrence),
+                "--start",
+                "2026-04-18T00:00:00Z",
+                "--end",
+                "2026-04-18T02:00:00Z",
+                "--top-leads",
+                "1",
+                "--chunk-seconds",
+                "1800",
+                "--row-limit-per-chunk",
+                "42",
+                "--dry-run",
+            ]
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(module, "export_scraper_drilldowns") as export_mock,
+                mock.patch("sys.stdout", stdout),
+            ):
+                self.assertEqual(module.main(), 0)
+
+        export_mock.assert_not_called()
+        printed = json.loads(stdout.getvalue())
+        self.assertEqual(printed["chunks"], 4)
+        self.assertEqual(printed["selected_user_agents"], ["A"])
+        self.assertEqual(printed["selected_client_ips"], ["8.8.8.8"])
+        self.assertIn("LIMIT 42", printed["first_sql"])
+
+    def test_threat_hunt_scraper_drilldown_cli_passes_chunk_and_limit(self) -> None:
+        module = load_module(
+            "threat_hunt_scraper_drilldown_export_cli_real",
+            ROOT / "skills/bot-insights/scripts/threat_hunt_scraper_drilldown_export.py",
+        )
+
+        argv = [
+            "threat_hunt_scraper_drilldown_export.py",
+            "--cluster",
+            "demo",
+            "--database",
+            "akamai",
+            "--actor-dir",
+            "/tmp/actors",
+            "--cooccurrence-in",
+            "/tmp/co.json",
+            "--start",
+            "2026-04-18T00:00:00Z",
+            "--end",
+            "2026-04-18T02:00:00Z",
+            "--top-leads",
+            "7",
+            "--chunk-seconds",
+            "900",
+            "--row-limit-per-chunk",
+            "77",
+            "--include-non-public-ips",
+            "--output",
+            "/tmp/out.json",
+        ]
+        stdout = io.StringIO()
+        with (
+            mock.patch.object(sys, "argv", argv),
+            mock.patch.object(module, "export_scraper_drilldowns", return_value=[]) as export_mock,
+            mock.patch("sys.stdout", stdout),
+        ):
+            self.assertEqual(module.main(), 0)
+
+        _, kwargs = export_mock.call_args
+        self.assertEqual(kwargs["chunk_seconds"], 900)
+        self.assertEqual(kwargs["row_limit_per_chunk"], 77)
+        self.assertTrue(kwargs["include_non_public_ips"])
+
+    def test_threat_hunt_iat_sample_export_dry_run_skips_export(self) -> None:
+        module = load_module(
+            "threat_hunt_iat_sample_export",
+            ROOT / "skills/bot-insights/scripts/threat_hunt_iat_sample_export.py",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "A", "requests": 100}]),
+                encoding="utf-8",
+            )
+            cooccurrence = base / "co.json"
+            cooccurrence.write_text(
+                json.dumps(
+                    [
+                        {"user_agent": "A", "client_ip": "8.8.8.8", "requests": 20},
+                        {"user_agent": "A", "client_ip": "127.0.0.1", "requests": 5},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            argv = [
+                "threat_hunt_iat_sample_export.py",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--actor-dir",
+                str(actor_dir),
+                "--cooccurrence-in",
+                str(cooccurrence),
+                "--start",
+                "2026-04-18T00:00:00Z",
+                "--end",
+                "2026-04-18T02:00:00Z",
+                "--top-leads",
+                "1",
+                "--sample-limit-per-ua",
+                "42",
+                "--dry-run",
+            ]
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(module, "export_iat_samples") as export_mock,
+                mock.patch("sys.stdout", stdout),
+            ):
+                self.assertEqual(module.main(), 0)
+
+        export_mock.assert_not_called()
+        printed = json.loads(stdout.getvalue())
+        self.assertEqual(printed["selected_user_agents"], ["A"])
+        self.assertEqual(printed["selected_client_ips"], ["8.8.8.8"])
+        self.assertEqual(printed["excluded_non_public_client_ips"], ["127.0.0.1"])
+        self.assertIn("ua_sample_rank <= 42", printed["sample_sql"])
+        self.assertIn("ORDER BY user_agent, client_ip, reqTimeSec", printed["sample_sql"])
+
+    def test_threat_hunt_iat_sample_export_preserves_non_public_ips_when_requested(self) -> None:
+        from producers import threat_hunt
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "A", "requests": 100}]),
+                encoding="utf-8",
+            )
+            cooccurrence = base / "co.json"
+            cooccurrence.write_text(
+                json.dumps(
+                    [
+                        {"user_agent": "A", "client_ip": "8.8.8.8", "requests": 20},
+                        {"user_agent": "A", "client_ip": "127.0.0.1", "requests": 5},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            scope = threat_hunt.iat_sample_scope(
+                actor_dir=str(actor_dir),
+                cooccurrence_in=str(cooccurrence),
+                start="2026-04-18T00:00:00Z",
+                end="2026-04-18T02:00:00Z",
+                include_non_public_ips=True,
+            )
+
+        self.assertEqual(scope["selected_client_ips"], ["127.0.0.1", "8.8.8.8"])
+
+    def test_threat_hunt_scraper_hourly_export_query_groups_only_ua_and_hour(self) -> None:
+        module = load_module(
+            "threat_hunt_scraper_hourly_export",
+            ROOT / "skills/bot-insights/scripts/threat_hunt_scraper_hourly_export.py",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "A", "requests": 100}]),
+                encoding="utf-8",
+            )
+            argv = [
+                "threat_hunt_scraper_hourly_export.py",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--actor-dir",
+                str(actor_dir),
+                "--start",
+                "2026-04-18T00:00:00Z",
+                "--end",
+                "2026-04-18T02:00:00Z",
+                "--top-leads",
+                "1",
+                "--dry-run",
+            ]
+            stdout = io.StringIO()
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(module, "export_scraper_hourly_profiles") as export_mock,
+                mock.patch("sys.stdout", stdout),
+            ):
+                self.assertEqual(module.main(), 0)
+
+        export_mock.assert_not_called()
+        printed = json.loads(stdout.getvalue())
+        self.assertEqual(printed["selected_user_agents"], ["A"])
+        self.assertIn("GROUP BY user_agent, hour", printed["hourly_sql"])
+        self.assertNotIn("client_ip", printed["hourly_sql"])
+        self.assertNotIn("request_path", printed["hourly_sql"])
+
+    def test_bot_insights_report_threat_hunt_creates_actor_fixtures_by_default(self) -> None:
+        from producers import cli as producers_cli
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            summary = base / "summary.json"
+            summary.write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/api/catalog", "requests": 10},
+                        {"period": "baseline", "request_path": "/api/catalog", "requests": 5},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            output = base / "evidence.json"
+            sample_dir = base / "sample"
+            generated_actor_dir = sample_dir / "threat_hunt-actors"
+            generated_actor_dir.mkdir(parents=True)
+            (generated_actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Scraper/1.0", "requests": 10}]),
+                encoding="utf-8",
+            )
+            (generated_actor_dir / "expedia-actors-baseline-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Scraper/1.0", "requests": 1}]),
+                encoding="utf-8",
+            )
+            (generated_actor_dir / "expedia-actors-current-client_ip.json").write_text(
+                json.dumps([{"client_ip": "203.0.113.1", "requests": 10}]),
+                encoding="utf-8",
+            )
+            argv = [
+                "bot_insights_report.py",
+                "--cluster",
+                "demo",
+                "--database",
+                "akamai",
+                "--report",
+                "threat_hunt",
+                "--mode",
+                "evidence",
+                "--start",
+                "2026-04-18T00:00:00Z",
+                "--end",
+                "2026-04-19T00:00:00Z",
+                "--baseline-start",
+                "2026-04-17T00:00:00Z",
+                "--baseline-end",
+                "2026-04-18T00:00:00Z",
+                "--summary-parquet-glob",
+                str(summary),
+                "--sample-dir",
+                str(sample_dir),
+                "--output",
+                str(output),
+            ]
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(producers_cli, "export_raw_actor_fixtures") as export,
+                mock.patch("sys.stdout", io.StringIO()),
+            ):
+                self.assertEqual(self.bot_insights_report.main(), 0)
+            artifact = json.loads(output.read_text())
+
+        export.assert_called_once()
+        self.assertEqual(
+            Path(export.call_args.kwargs["actor_dir"]),
+            generated_actor_dir.resolve(),
+        )
+        self.assertEqual(artifact["schema_version"], "bot_threat_hunt.v3")
+        self.assertEqual(artifact["fingerprints"][0]["user_agent"], "Scraper/1.0")
+
+    def test_bot_insights_report_threat_hunt_requires_summary_glob(self) -> None:
+        argv = [
+            "bot_insights_report.py",
+            "--cluster",
+            "local",
+            "--database",
+            "akamai",
+            "--report",
+            "threat_hunt",
+            "--start",
+            "2026-05-01T00:00:00Z",
+            "--end",
+            "2026-05-02T00:00:00Z",
+            "--baseline-start",
+            "2026-04-30T00:00:00Z",
+            "--baseline-end",
+            "2026-05-01T00:00:00Z",
+            "--output",
+            "out.json",
+        ]
+        with mock.patch.object(sys, "argv", argv):
+            with self.assertRaisesRegex(SystemExit, "requires --summary-parquet-glob"):
+                self.bot_insights_report.main()
 
     def test_bot_insights_report_handoff_exits_with_needs_mcp_code(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
