@@ -3581,6 +3581,21 @@ def test_threat_hunt_registered_and_renders_markdown(tmp_path):
                         ],
                         "total_requests": 2400,
                         "baseline_requests": 20,
+                        "bytes": 500000000,
+                        "baseline_bytes": 600000000,
+                        "impact_assessment": {
+                            "requests": 2400,
+                            "baseline_requests": 20,
+                            "request_share": 0.24,
+                            "baseline_request_share": 0.30,
+                            "bytes": 500000000,
+                            "baseline_bytes": 600000000,
+                            "byte_share": 0.50,
+                            "baseline_byte_share": 0.60,
+                            "trend_severity": "shrinking",
+                            "share_severity": "dominant",
+                            "share_direction": "shrinking_share",
+                        },
                         "drilldown_coverage_summary": {
                             "status_counts": {"focused": 2},
                             "drilldown_requests": 2400,
@@ -3605,13 +3620,33 @@ def test_threat_hunt_registered_and_renders_markdown(tmp_path):
                                     "user_agents": ["CatalogScraper/1.0", "CatalogScraper/2.0"],
                                 },
                                 "supporting_evidence": ["coordinated_activity"],
-                                "estimated_observed_window_impact": {"requests": 2400},
+                                "estimated_observed_window_impact": {
+                                    "requests": 2400,
+                                    "bytes": 500000000,
+                                    "request_share": 0.24,
+                                    "byte_share": 0.50,
+                                },
                                 "validation_notes": ["Validate campaign membership."],
                                 "false_positive_caveat": "Challenge first.",
                                 "rollback_monitoring": ["Track post-change traffic."],
                                 "enforcement_wording": "challenge_first",
+                                "threat_category": "rate_limit_evasion",
+                                "threat_confidence": 0.78,
+                                "threat_action_modifier": "Challenge campaign members and watch for displacement.",
                             }
                         ],
+                        "threat_classification": {
+                            "primary": {
+                                "category": "rate_limit_evasion",
+                                "confidence": 0.78,
+                                "trigger_evidence": ["coordinated activity", "endpoint focus"],
+                                "attack_mapping": {
+                                    "mitre_techniques": ["T1498", "T1190"],
+                                    "mitre_tactics": ["Impact"],
+                                    "hdx_techniques": ["HDX-BOT-03"],
+                                },
+                            }
+                        },
                     }
                 ],
                 "ua_families": [
@@ -3632,6 +3667,21 @@ def test_threat_hunt_registered_and_renders_markdown(tmp_path):
                         "versions": [147, 148, 149],
                         "total_requests": 3600,
                         "total_baseline": 30,
+                        "bytes": 900000000,
+                        "baseline_bytes": 10000000,
+                        "impact_assessment": {
+                            "requests": 3600,
+                            "baseline_requests": 30,
+                            "request_share": 0.36,
+                            "baseline_request_share": 0.003,
+                            "bytes": 900000000,
+                            "baseline_bytes": 10000000,
+                            "byte_share": 0.90,
+                            "baseline_byte_share": 0.01,
+                            "trend_severity": "accelerating",
+                            "share_severity": "dominant",
+                            "share_direction": "growing_share",
+                        },
                         "request_volume_cv": 0.0,
                         "common_evidence": [
                             "Browser user-agent strings share the same template after replacing browser major versions.",
@@ -3663,11 +3713,19 @@ def test_threat_hunt_registered_and_renders_markdown(tmp_path):
                                     ],
                                 },
                                 "supporting_evidence": ["ua_family_version_rotation"],
-                                "estimated_observed_window_impact": {"requests": 3600},
+                                "estimated_observed_window_impact": {
+                                    "requests": 3600,
+                                    "bytes": 900000000,
+                                    "request_share": 0.36,
+                                    "byte_share": 0.90,
+                                },
                                 "validation_notes": ["Validate current family membership."],
                                 "false_positive_caveat": "Challenge-first handling is recommended.",
                                 "rollback_monitoring": ["Track family traffic."],
                                 "enforcement_wording": "challenge_first",
+                                "threat_category": "rate_limit_evasion",
+                                "threat_confidence": 0.72,
+                                "threat_action_modifier": "Challenge UA-family pattern and monitor family churn.",
                             }
                         ],
                     }
@@ -3683,6 +3741,21 @@ def test_threat_hunt_registered_and_renders_markdown(tmp_path):
                         "nested_under_family": False,
                         "requests": 1200,
                         "baseline_requests": 10,
+                        "bytes": 250000000,
+                        "baseline_bytes": 10000000,
+                        "impact_assessment": {
+                            "requests": 1200,
+                            "baseline_requests": 10,
+                            "request_share": 0.12,
+                            "baseline_request_share": 0.001,
+                            "bytes": 250000000,
+                            "baseline_bytes": 10000000,
+                            "byte_share": 0.25,
+                            "baseline_byte_share": 0.01,
+                            "trend_severity": "accelerating",
+                            "share_severity": "significant",
+                            "share_direction": "growing_share",
+                        },
                         "unique_client_ips": 12,
                         "unique_asns": 2,
                         "unique_countries": 2,
@@ -3777,6 +3850,33 @@ def test_threat_hunt_registered_and_renders_markdown(tmp_path):
                                 }
                             ],
                         },
+                        "bot_manager_context": {
+                            "availability": "evidence_backed",
+                            "source": "exact_ua_export",
+                            "window": {
+                                "start": "2026-05-01T00:00:00Z",
+                                "end": "2026-05-02T00:00:00Z",
+                            },
+                            "total_requests": 900,
+                            "average_bot_score": 87.5,
+                            "action_class_mix": [
+                                {"rank": 1, "value": "monitor", "requests": 900, "share_pct": 100.0}
+                            ],
+                            "bot_type_mix": [],
+                            "policy_mix": [],
+                        },
+                        "threat_classification": {
+                            "primary": {
+                                "category": "rate_limit_evasion",
+                                "confidence": 0.78,
+                                "trigger_evidence": ["UA/IP fan-out", "endpoint targeting"],
+                                "attack_mapping": {
+                                    "mitre_techniques": ["T1498"],
+                                    "mitre_tactics": ["Impact"],
+                                    "hdx_techniques": ["HDX-BOT-03"],
+                                },
+                            }
+                        },
                     }
                 ],
                 "baseline_movement": {"metric_deltas": []},
@@ -3786,6 +3886,79 @@ def test_threat_hunt_registered_and_renders_markdown(tmp_path):
                 "classification_gap": {
                     "summary": "Bot/SIEM/edge classification artifacts were not supplied."
                 },
+                "impact_assessment": {
+                    "totals": {
+                        "current": {"requests": 10000, "bytes": 1000000000},
+                        "baseline": {"requests": 10000, "bytes": 1000000000},
+                    },
+                    "hunt": {
+                        "requests": 6000,
+                        "baseline_requests": 50,
+                        "request_share": 0.60,
+                        "baseline_request_share": 0.005,
+                        "bytes": 950000000,
+                        "baseline_bytes": 20000000,
+                        "byte_share": 0.95,
+                        "baseline_byte_share": 0.02,
+                        "trend_severity": "accelerating",
+                        "share_severity": "dominant",
+                        "share_direction": "growing_share",
+                    },
+                    "tiers": {
+                        "tier_3": {
+                            "requests": 6000,
+                            "baseline_requests": 50,
+                            "request_share": 0.60,
+                            "baseline_request_share": 0.005,
+                            "bytes": 950000000,
+                            "baseline_bytes": 20000000,
+                            "byte_share": 0.95,
+                            "baseline_byte_share": 0.02,
+                            "trend_severity": "accelerating",
+                            "share_severity": "dominant",
+                            "share_direction": "growing_share",
+                        }
+                    },
+                },
+                "bot_manager_context": {
+                    "module": "bot_manager_context",
+                    "availability": "evidence_backed",
+                    "summary": "Bot Manager operational context is supplied for display only.",
+                    "caveat": (
+                        "Bot Manager context is operational enrichment, not threat-hunt "
+                        "attribution or independent evidence for classification."
+                    ),
+                    "aggregate": {
+                        "availability": "evidence_backed",
+                        "source": "aggregate_siem_policy_summary",
+                        "source_tables": ["akamai.bi_siem_policy_summary_hour"],
+                        "window": {
+                            "start": "2026-05-01T00:00:00Z",
+                            "end": "2026-05-02T00:00:00Z",
+                        },
+                        "total_requests": 2400,
+                        "average_bot_score": 74.25,
+                        "action_class_mix": [
+                            {"rank": 1, "value": "deny", "requests": 1600, "share_pct": 66.6667},
+                            {"rank": 2, "value": "allow", "requests": 800, "share_pct": 33.3333},
+                        ],
+                        "bot_type_mix": [
+                            {"rank": 1, "value": "scraper", "requests": 2400, "share_pct": 100.0}
+                        ],
+                        "policy_mix": [
+                            {"rank": 1, "value": "policy-a", "requests": 1800, "share_pct": 75.0}
+                        ],
+                    },
+                    "exact_ua": {
+                        "availability": "evidence_backed",
+                        "source": "exact_ua_export",
+                        "total_requests": 900,
+                        "action_class_mix": [],
+                        "bot_type_mix": [],
+                        "policy_mix": [],
+                    },
+                    "lead_context_available": True,
+                },
                 "recommended_actions": [
                     {
                         "tier": "tier_3",
@@ -3793,11 +3966,19 @@ def test_threat_hunt_registered_and_renders_markdown(tmp_path):
                         "action_type": "campaign_watchlist_or_challenge",
                         "target_values": {"campaign_id": "campaign-1"},
                         "supporting_evidence": ["coordinated_activity"],
-                        "estimated_observed_window_impact": {"requests": 2400},
+                        "estimated_observed_window_impact": {
+                            "requests": 2400,
+                            "bytes": 500000000,
+                            "request_share": 0.24,
+                            "byte_share": 0.50,
+                        },
                         "validation_notes": ["Validate campaign membership."],
                         "false_positive_caveat": "Challenge first.",
                         "rollback_monitoring": ["Track post-change traffic."],
                         "enforcement_wording": "challenge_first",
+                        "threat_category": "rate_limit_evasion",
+                        "threat_confidence": 0.78,
+                        "threat_action_modifier": "Challenge campaign members and watch for displacement.",
                     },
                     {
                         "tier": "tier_3",
@@ -3805,23 +3986,59 @@ def test_threat_hunt_registered_and_renders_markdown(tmp_path):
                         "action_type": "campaign_watchlist_or_challenge",
                         "target_values": {"ua_family_id": "ua-family-1"},
                         "supporting_evidence": ["ua_family_version_rotation"],
-                        "estimated_observed_window_impact": {"requests": 3600},
+                        "estimated_observed_window_impact": {
+                            "requests": 3600,
+                            "bytes": 900000000,
+                            "request_share": 0.36,
+                            "byte_share": 0.90,
+                        },
                         "validation_notes": ["Validate current family membership."],
                         "false_positive_caveat": "Challenge first.",
                         "rollback_monitoring": ["Track family traffic."],
                         "enforcement_wording": "challenge_first",
+                        "threat_category": "rate_limit_evasion",
+                        "threat_confidence": 0.72,
+                        "threat_action_modifier": "Challenge UA-family pattern and monitor family churn.",
                     },
                     {
                         "tier": "tier_4",
                         "scope": "lead",
-                        "action_type": "monitor_and_revalidate",
-                        "target_values": {"user_agents": ["Unclassified/1.0"]},
-                        "supporting_evidence": [],
-                        "estimated_observed_window_impact": {"requests": 100},
-                        "validation_notes": ["Monitor only."],
-                        "false_positive_caveat": "No enforcement.",
-                        "rollback_monitoring": ["No action taken."],
-                        "enforcement_wording": "challenge_first",
+                        "action_type": "challenge_or_block_ua",
+                        "target_values": {
+                            "user_agents": ["ApiProbe/1.0"],
+                            "endpoint_prefixes": ["/api/:slug"],
+                        },
+                        "supporting_evidence": ["temporal_regularity"],
+                        "estimated_observed_window_impact": {
+                            "requests": 100,
+                            "bytes": 10000000,
+                            "request_share": 0.01,
+                            "byte_share": 0.01,
+                        },
+                        "validation_notes": ["Validate UA."],
+                        "false_positive_caveat": "Challenge first.",
+                        "rollback_monitoring": ["Track target."],
+                        "enforcement_wording": "block_candidate",
+                    },
+                    {
+                        "tier": "tier_4",
+                        "scope": "lead",
+                        "action_type": "challenge_or_block_ua",
+                        "target_values": {
+                            "user_agents": ["ApiProbe/2.0"],
+                            "endpoint_prefixes": ["/api/:slug"],
+                        },
+                        "supporting_evidence": ["automation_signature"],
+                        "estimated_observed_window_impact": {
+                            "requests": 200,
+                            "bytes": 20000000,
+                            "request_share": 0.02,
+                            "byte_share": 0.02,
+                        },
+                        "validation_notes": ["Validate UA."],
+                        "false_positive_caveat": "Challenge first.",
+                        "rollback_monitoring": ["Track target."],
+                        "enforcement_wording": "block_candidate",
                     },
                 ],
                 "known_traffic": [
@@ -3855,6 +4072,11 @@ def test_threat_hunt_registered_and_renders_markdown(tmp_path):
     assert md.count("Recommendation: **Tier 3** - Campaign Watchlist Or Challenge") == 1
     assert "## Known Crawler And Infrastructure Traffic" in md
     assert "Googlebot/2\\.1" in md
+    assert "## Bot Manager Context" in md
+    assert "Bot Manager context is operational enrichment" in md
+    assert "Action class mix:" in md
+    assert "deny" in md
+    assert "Bot Manager exact-UA context: 900 requests" in md
     assert "Evidence: \n" not in md
     assert "Evidence: \r\n" not in md
     assert "Part of UA family ua\\-family\\-1" in md
@@ -3864,6 +4086,9 @@ def test_threat_hunt_registered_and_renders_markdown(tmp_path):
     assert "path similarity 0\\.91" in md
     assert "Part of campaign\\-1" in md
     assert "Campaign surface: **Focused Api Surface**" in md
+    assert "Impact: Share of total 24.0%; response body unavailable (unavailable of response bytes)" in md
+    assert "Share of total bytes" not in md
+    assert "IMPACT: 2.4K requests (24.0% of window total) · 500.0M response body (50.0% of response bytes)" in md
     assert "Campaign endpoint evidence" in md
     assert "## Scraper Leads" in md
     assert "CatalogScraper" in md
@@ -3886,64 +4111,232 @@ def test_threat_hunt_registered_and_renders_markdown(tmp_path):
 
     html = _render(path)
     assert 'class="report-header"' not in html
-    assert 'class="brief-incident threat-hunt-brief"' in html
-    assert '<header class="brief-mast">' in html
-    assert "Public Sans" in html
-    assert 'href="#verdict">Verdict</a>' in html
-    assert 'href="#ua-families">UA Families</a>' in html
-    assert 'class="verdict-print-top-row"' in html
-    assert 'class="severity-ladder"' in html
-    assert 'class="analyst-assessment"' in html
-    assert 'class="primary-concern"' in html
-    assert 'id="impact"' in html
-    assert 'class="kpis"' in html
-    assert 'id="findings" class="verdict-findings"' in html
-    assert 'id="campaigns"' in html
-    assert 'id="ua-families"' in html
+    assert '<div class="thr">' in html
+    assert '<header class="thr-header">' in html
+    assert "Hydrolix" in html
+    assert "2026-05-01T00:00:00Z to 2026-05-02T00:00:00Z" in html
+    assert 'data-hx-export-all' in html
+    assert 'data-hx-drawer-toggle' in html
+    assert "data:image/svg+xml;base64" in html
+    assert 'static/reports/threat-hunt.css' not in html
+    assert '<script src="static/kit.js"></script>' not in html
+    assert "[hidden] { display: none !important; }" in html
+    assert ".hx-drawer[hidden]," in html
+    assert ".hx-rail[hidden] { display: none !important; }" in html
+    assert 'body[data-hx-drawer-state="collapsed"] .thr-body' in html
+    assert 'id="verdict" class="thr-verdict"' in html
+    assert 'class="hx-ladder"' in html
+    assert 'class="thr-hunt-impact"' in html
+    assert 'class="thr-impact-strip"' not in html
+    assert 'id="actions" class="thr-section"' in html
+    assert "Response queue" in html
+    assert "Impact-backed response candidates" in html
+    assert "Monitor / validate before enforcement" in html
+    assert "Actions are grouped by confidence boundary" in html
+    assert "Do not treat them as part of the Hunt impact total." in html
+    assert 'id="leads" class="thr-section"' in html
+    assert 'id="campaign" class="thr-section"' in html
+    assert 'id="infra" class="thr-section"' in html
+    assert 'id="evidence" class="thr-section"' in html
+    assert 'class="hx-drawer"' in html
+    assert 'class="hx-rail"' in html
+    assert "data-hx-drawer-collapse" in html
+    assert "data-hx-rail-expand" in html
+    assert re.search(
+        r'<div class="hx-drawer-list" data-hx-drawer-panel="ua"[^>]*>',
+        html,
+    )
+    assert re.search(
+        r'<div class="hx-drawer-list" data-hx-drawer-panel="ep"[^>]*hidden',
+        html,
+    )
+    assert re.search(
+        r'<div class="hx-drawer-list" data-hx-drawer-panel="ip"[^>]*hidden',
+        html,
+    )
     assert 'id="leads"' in html
-    assert html.index('id="ua-families"') < html.index('id="leads"')
-    assert 'class="actors-table" data-state="populated"' in html
     assert "ua-family-1" in html
-    assert "Part of UA family ua-family-1" in html
-    assert "2 members also appear in campaign-1" in html
-    assert "Surface coverage" in html
-    assert "Endpoint evidence" in html
+    assert "campaign-1" in html
+    assert "CatalogScraper/1.0" in html
+    assert "ApiProbe/1.0" in html
+    assert "ApiProbe/2.0" in html
+    assert "/api/:slug" in html
+    assert "/api/catalog" in html
+    assert "24.0% of window" in html
+    assert "Hunt impact" in html
+    assert "Response body" in html
+    assert "Akamai-billed" in html
+    assert "Hydrolix log ingest" in html
+    assert "total bytes" not in html.lower()
     assert "UA plausibility" in html
-    assert "Future-dated Chrome/149" in html
-    assert "background Endpoint Targeting 12.0%" in html
+    assert "Confirmed" in html
     assert "Ua Ip Fanout unavailable" not in html
-    assert "re-query them in the next hunt window" in html
-    assert "Site-level endpoint context" in html
-    assert "Focused Api Surface" in html
-    assert "Delta vs baseline" in html
     assert "120.0x (+1.2K)" in html
-    assert "Evidence Boundaries" in html
-    assert 'id="known-traffic"' in html
-    assert "Known Crawler" in html
-    assert "Googlebot/2.1" in html
-    assert "Limitations" in html
-    assert "artifact bot_threat_hunt.v3" in html
+    assert "Observed" in html
+    assert "Not established" in html
+    assert "Operator identity" in html
+    assert "Malicious intent" in html
+    assert "Cross-customer reuse" in html
+    assert "user_agents" in html
+    assert "example.com" not in html.lower()
+    assert "origin-capacity" not in html
+    assert "cache-hit" not in html
+    assert "Bot Manager context is operational enrichment" not in html
+
+    bundle_out = tmp_path / "bundle" / "threat_hunt.html"
+    bundle_out.parent.mkdir()
+    subprocess.run(
+        [
+            "uv",
+            "run",
+            "--quiet",
+            str(RENDER_PY),
+            "--artifact",
+            str(path),
+            "--out",
+            str(bundle_out),
+            "--asset-mode",
+            "bundle",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    bundle_html = bundle_out.read_text()
+    assert '<link rel="stylesheet" href="static/tokens/brand.css" />' in bundle_html
+    assert '<script src="static/kit.js"></script>' in bundle_html
+    assert "data:image/svg+xml;base64" not in bundle_html
+    assert (bundle_out.parent / "static/reports/threat-hunt.css").exists()
+    assert (bundle_out.parent / "static/components/_kit.css").exists()
+    assert (bundle_out.parent / "static/kit.js").exists()
+    assert (bundle_out.parent / "assets/hydrolix-light.svg").exists()
+    assert (
+        "[hidden] { display: none !important; }"
+        in (bundle_out.parent / "static/components/_kit.css").read_text()
+    )
+    kit_css = (bundle_out.parent / "static/components/_kit.css").read_text()
+    assert ".hx-drawer[hidden]," in kit_css
+    assert ".hx-rail[hidden] { display: none !important; }" in kit_css
+    report_css = (bundle_out.parent / "static/reports/threat-hunt.css").read_text()
+    assert 'body[data-hx-drawer-state="collapsed"] .thr-body' in report_css
+
+    rejected = subprocess.run(
+        [
+            "uv",
+            "run",
+            "--quiet",
+            str(RENDER_PY),
+            "--artifact",
+            str(path),
+            "--out",
+            str(tmp_path / "bad.md"),
+            "--format",
+            "markdown",
+            "--asset-mode",
+            "bundle",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert rejected.returncode == 1
+    assert "--asset-mode bundle is only supported for screen HTML output" in rejected.stderr
 
     print_html = _render(path, "--profile", "print")
     assert 'data-pdf-layout="fixed-letter"' in print_html
     assert "HYDROLIX · BOTINSIGHTS" in print_html
     assert '<div class="hero pf-xl"' in print_html
     assert "Assessment summary" in print_html
-    assert "Evidence Coverage" in print_html
+    assert "Coordinated forged-UA operation consistent with Rate Limit Evasion" in print_html
+    assert "Hunt Impact" in print_html
+    assert "Finding share" in print_html
+    assert "60.0% of window traffic" in print_html
+    assert "campaign-1" in print_html
+    assert "24.0% · 2.4K requests · 500.0 MB" in print_html
+    assert "UA family" in print_html
+    assert "36.0% · 3.6K requests" in print_html
+    assert "Shares use total window traffic as the denominator" in print_html
     assert "Delta vs baseline" in print_html
     assert "120.0x (+1.2K)" in print_html
+    assert print_html.count('<section class="page') == 6
+    assert "01 Cover" in print_html
+    assert "02 Story" in print_html
+    assert "03 Recommended actions" in print_html
     assert "04 Evidence shape" in print_html
-    assert "surface Focused Api Surface" in print_html
     assert "05 Scraper leads" in print_html
     assert "06 ATT&amp;CK · Methodology" in print_html
-    assert "07 Score &amp; availability" in print_html
+    assert "Threat Hunt Story" in print_html
+    assert "Primary finding" in print_html
+    assert "campaign-1 represents 24.0% of all Local traffic in this window" not in print_html
+    assert "Secondary finding" in print_html
+    assert "Independent leads" in print_html
+    assert "What the hunt found" in print_html
+    assert "ua-family-1" in print_html
+    assert "147-149; 3 versions" in print_html
+    assert "No independent high-priority leads outside campaign or UA-family groupings." in print_html
+    assert "02 Analyst Assessment" not in print_html
+    assert "Analyst Assessment · High confidence" not in print_html
+    assert "Finding <b>01</b>" not in print_html
+    assert "03 Findings" not in print_html
+    assert "04 Evidence shape" in print_html
+    assert "Findings and evidence boundaries" in print_html
+    assert "Hunt Findings" in print_html
+    assert "Evidence Boundaries" in print_html
+    assert "Bottom line: the threat-hunt findings account for" in print_html
+    assert "Trajectory: traffic share" in print_html
+    assert "response-body bytes" in print_html
+    assert "No dollar, origin-capacity, or cache-hit impact is shown" in print_html
+    assert "campaign-1" in print_html
+    assert "2 members" in print_html
+    assert "Synchronized" in print_html
+    assert "Focused Api Surface" in print_html
+    assert "Campaigns</span><span class=\"value\">1 campaign" in print_html
+    assert "Scraper leads</span><span class=\"value\">1 lead" in print_html
+    assert "Campaign timing pattern</span><span class=\"value\">Synchronized" in print_html
+    assert "Campaign surface</span><span class=\"value\">Focused Api Surface" in print_html
+    assert "Temporal Regularity" in print_html
+    assert "UA Anomaly" in print_html
+    assert "Automation Signature" in print_html
+    assert "Coordinated Activity" in print_html
+    assert "Operator identity" in print_html
+    assert "Malicious intent" in print_html
+    assert "Cross-customer reuse" in print_html
+    assert "Not established" in print_html
+    assert "Partial" in print_html
+    assert "Campaigns</span></div>" not in print_html
+    assert "Leads</span></div>" not in print_html
+    assert "Campaigns → Leads → Timing → Boundaries" not in print_html
+    assert 'class="timeline"' not in print_html
+    assert "Where they aimed" not in print_html
+    assert "Score &amp; availability" not in print_html
     assert "Recommended Actions" in print_html
+    assert "Mozilla/5.0 (Linux; Android" not in print_html
+    assert "Evidence 1" not in print_html
+    assert "2 lead targets" in print_html
+    assert "IMPACT: 300 requests (3.0% of window total) · 30.0M response body (3.0% of response bytes)" in print_html
+    assert "of window total" in print_html
+    assert "of response bytes" in print_html
+    assert print_html.count("Challenge Or Block Ua") == 1
+    assert "Rate Limit Evasion · confidence 0.78" in print_html
+    assert "Challenge campaign members and watch for displacement." in print_html
+    assert "Bot Manager context:" in print_html
+    assert "top action deny" in print_html
     assert "Known crawler and infrastructure traffic" in print_html
     assert "Googlebot/2.1" in print_html
+    assert 'data-campaign-member="true" data-campaign-id="campaign-1"' in print_html
     assert "Classification &amp; edge" not in print_html
+    assert "Validate current Bot Manager/SIEM coverage before enforcement" not in print_html
     assert "Browser UA age" not in print_html
     assert "No browser-age enrichment supplied." not in print_html
+    assert "T1498, T1190, HDX-BOT-03" in print_html
     assert "ATT&amp;CK · Methodology" in print_html
+    assert "Analyses included" in print_html
+    assert "Traffic and byte-share impact" in print_html
+    assert "Identifies which findings consume the largest share of total requests and bytes" in print_html
+    assert "Baseline trajectory comparison" in print_html
+    assert "Campaign linkage and coordination" in print_html
+    assert "UA plausibility and family rotation" in print_html
+    assert "Endpoint, fan-out, and timing evidence" in print_html
+    assert "Evidence-boundary review" in print_html
     assert "bot_threat_hunt.v3" in print_html
     assert "Ua Ip Fanout unavailable" not in print_html
 
@@ -3982,6 +4375,22 @@ def test_threat_hunt_context_derives_editorial_readouts():
                 "linking_evidence": [{"shared_ip_count": 2}],
                 "total_requests": 2400,
                 "baseline_requests": 20,
+                "bytes": 500000000,
+                "baseline_bytes": 10000000,
+                "impact_assessment": {
+                    "requests": 2400,
+                    "baseline_requests": 20,
+                    "request_share": 0.24,
+                    "baseline_request_share": 0.002,
+                    "bytes": 500000000,
+                    "baseline_bytes": 10000000,
+                    "byte_share": 0.5,
+                    "trend_severity": "accelerating",
+                    "share_severity": "dominant",
+                    "share_direction": "growing_share",
+                    "interpretation": "Dominant traffic share that expanded sharply from baseline.",
+                    "cost_estimate": {"low": 0.025, "high": 0.05, "basis_label": "configured CDN egress", "disclaimer": "estimate only"},
+                },
                 "unique_client_ips": 3,
                 "unique_asns": 1,
                 "unique_countries": 1,
@@ -4000,6 +4409,21 @@ def test_threat_hunt_context_derives_editorial_readouts():
                 "verdict": "lead",
                 "requests": 1200,
                 "baseline_requests": 10,
+                "bytes": 250000000,
+                "baseline_bytes": 5000000,
+                "impact_assessment": {
+                    "requests": 1200,
+                    "baseline_requests": 10,
+                    "request_share": 0.12,
+                    "baseline_request_share": 0.001,
+                    "bytes": 250000000,
+                    "baseline_bytes": 5000000,
+                    "byte_share": 0.25,
+                    "trend_severity": "accelerating",
+                    "share_severity": "significant",
+                    "share_direction": "growing_share",
+                    "interpretation": "Significant traffic share with a sharp share increase versus baseline.",
+                },
                 "unique_client_ips": 12,
                 "unique_asns": 2,
                 "unique_countries": 2,
@@ -4030,6 +4454,45 @@ def test_threat_hunt_context_derives_editorial_readouts():
             }
         ],
         "baseline_movement": {"metric_deltas": []},
+        "impact_assessment": {
+            "totals": {
+                "current": {"requests": 10000, "bytes": 1000000000},
+                "baseline": {"requests": 10000, "bytes": 1000000000},
+            },
+            "hunt": {
+                "requests": 2400,
+                "baseline_requests": 20,
+                "request_share": 0.24,
+                "baseline_request_share": 0.002,
+                "bytes": 500000000,
+                "baseline_bytes": 10000000,
+                "byte_share": 0.5,
+                "trend_severity": "accelerating",
+                "share_severity": "dominant",
+                "share_direction": "growing_share",
+            },
+            "tiers": {
+                "tier_3": {
+                    "requests": 2400,
+                    "baseline_requests": 20,
+                    "request_share": 0.24,
+                    "baseline_request_share": 0.002,
+                    "bytes": 500000000,
+                    "baseline_bytes": 10000000,
+                    "byte_share": 0.5,
+                    "trend_severity": "accelerating",
+                    "share_severity": "dominant",
+                    "share_direction": "growing_share",
+                }
+            },
+            "cost_config": {
+                "enabled": True,
+                "basis_label": "configured CDN egress",
+                "disclaimer": "estimate only",
+                "egress_rate_low_per_gb": 0.05,
+                "egress_rate_high_per_gb": 0.1,
+            },
+        },
         "fingerprints": [],
         "endpoints": [],
         "infrastructure": {},
@@ -4046,10 +4509,23 @@ def test_threat_hunt_context_derives_editorial_readouts():
     assert ctx["campaign_readouts"][0]["baseline_delta_display"] == "120.0x (+2.4K)"
     assert ctx["lead_cards"][0]["user_agent"] == "CatalogScraper/1.0"
     assert ctx["lead_cards"][0]["baseline_delta_display"] == "120.0x (+1.2K)"
+    assert ctx["lead_cards"][0]["impact_assessment"]["request_share_display"] == "12.0%"
+    assert ctx["impact_assessment"]["hunt"]["request_share_display"] == "24.0%"
     assert ctx["lead_cards"][0]["drilldown_coverage"]["status_label"] == "Thin Slice"
     assert any("multi-lead campaign" in item for item in ctx["evidence_boundaries"]["observed"])
     assert any("Operator identity" in item for item in ctx["evidence_boundaries"]["not_established"])
     assert any("Primary request surface characterized is not established" in item for item in ctx["evidence_boundaries"]["not_established"])
+    print_ctx = deepcopy(ctx)
+    print_ctx["profile"] = "print"
+    threat_hunt.post_prepare(print_ctx)
+    assert "(24.0% of window traffic)" in print_ctx["verdict"]["prose_html"]
+    assert [row["label"] for row in print_ctx["attack_shape"]["impact_rows"][:4]] == [
+        "Hits",
+        "Hydrolix log ingest",
+        "Response body",
+        "Akamai-billed",
+    ]
+    assert print_ctx["story_primary_finding"]["impact"][1]["value"] == "24.0%"
 
     no_campaign = deepcopy(artifact)
     no_campaign["campaigns"] = []
@@ -4067,6 +4543,232 @@ def test_threat_hunt_context_derives_editorial_readouts():
     no_drilldown["scraper_cases"][0]["drilldown_coverage"] = {"status": "unavailable"}
     ctx = threat_hunt.prepare(no_drilldown)
     assert any("drilldown behavior is not established" in item for item in ctx["evidence_boundaries"]["not_established"])
+
+    weak_first_party = deepcopy(artifact)
+    weak_first_party["campaigns"] = []
+    weak_first_party["scraper_cases"] = [
+        {
+            "user_agent": "Expedia/2026.19 CFNetwork/3826.400.120 Darwin/24.3.0",
+            "verdict": "weak_lead",
+            "requests": 5000,
+            "baseline_requests": 4000,
+            "evidence_flags": ["endpoint_targeting"],
+            "ua_plausibility": {
+                "parsed": {
+                    "ua_class": "native_app",
+                    "browser_family": "Unknown",
+                    "platform": "iOS",
+                },
+                "verdict": "unavailable",
+            },
+            "confidence_assessment": {"qualifier": "partial"},
+        }
+    ]
+    ctx = threat_hunt.prepare(weak_first_party)
+    assert "lead scraper fingerprint" not in ctx["threat_findings"][1]["lead"]
+    assert "evidence-bounded lead" in ctx["threat_findings"][1]["lead"]
+
+
+def test_threat_hunt_impact_rows_render_explicit_byte_lanes():
+    from report_engine.contexts import threat_hunt
+
+    artifact = {
+        "schema_version": "bot_threat_hunt.v3",
+        "scope": {
+            "cluster": "local",
+            "database": "akamai",
+            "current_window": {
+                "start": "2026-05-01T00:00:00Z",
+                "end": "2026-05-02T00:00:00Z",
+            },
+            "baseline_window": {
+                "start": "2026-04-30T00:00:00Z",
+                "end": "2026-05-01T00:00:00Z",
+            },
+        },
+        "module_scorecards": [],
+        "campaigns": [],
+        "scraper_cases": [],
+        "baseline_movement": {"metric_deltas": []},
+        "impact_assessment": {
+            "totals": {
+                "current": {
+                    "requests": 10000,
+                    "bytes": 1000000000,
+                    "hydrolix_log_ingest_bytes": 400000000,
+                    "response_body_bytes": 1000000000,
+                    "akamai_billed_bytes": 1600000000,
+                },
+                "baseline": {"requests": 10000, "bytes": 1000000000},
+            },
+            "hydrolix_log_ingest_metadata": {
+                "availability": "available",
+                "source": "hydro.logs usagemeter",
+                "estimated": True,
+                "metric": "billing_bytes_per_row",
+            },
+            "hunt": {
+                "requests": 2500,
+                "request_share": 0.25,
+                "bytes": 200000000,
+                "byte_share": 0.20,
+                "hydrolix_log_ingest_bytes": 100000000,
+                "hydrolix_log_ingest_byte_share": 0.25,
+                "response_body_bytes": 200000000,
+                "response_body_byte_share": 0.20,
+                "akamai_billed_bytes": 500000000,
+                "akamai_billed_byte_share": 0.3125,
+            },
+        },
+        "fingerprints": [],
+        "endpoints": [],
+        "infrastructure": {},
+        "classification_gap": {},
+        "limitations": [],
+    }
+    ctx = threat_hunt.prepare(artifact)
+    assert ctx["threat_hunt_ui"]["impact_rows"] == [
+        {
+            "label": "Hits",
+            "value": "2.5K (25.0% of window)",
+            "detail": "HTTP requests attributed to this hunt scope.",
+        },
+        {
+            "label": "Hydrolix log ingest",
+            "value": "100.0M (25.0% of customer log volume)",
+            "detail": "TrafficPeak retention cost",
+        },
+        {
+            "label": "Response body",
+            "value": "200.0M (20.0% of response bytes)",
+            "detail": "response data copied to scrapers",
+        },
+        {
+            "label": "Akamai-billed",
+            "value": "500.0M (31.2% of CDN billed bandwidth)",
+            "detail": "CDN bandwidth Akamai billed",
+        },
+    ]
+    assert ctx["threat_hunt_ui"]["hunt_impact"] == {
+        "eyebrow": "Hunt impact",
+        "scope": "Local",
+        "rows": [
+            {
+                "label": "Hits",
+                "value": "2.5K",
+                "share": "25.0%",
+                "denom": "of window HTTP requests",
+            },
+            {
+                "label": "Hydrolix log ingest",
+                "value": "100.0 MB",
+                "share": "25.0%",
+                "denom": "of customer log volume - TrafficPeak retention cost",
+            },
+            {
+                "label": "Response body",
+                "value": "200.0 MB",
+                "share": "20.0%",
+                "denom": "response data copied to scrapers",
+            },
+            {
+                "label": "Akamai-billed",
+                "value": "500.0 MB",
+                "share": "31.2%",
+                "denom": "of CDN billed bandwidth",
+            },
+        ],
+        "footnote": "Hydrolix log ingest is estimated from Hydrolix usagemeter billing bytes per row for the Akamai logs table.",
+        "pattern_note": None,
+    }
+    assert (
+        ctx["impact_note"]
+        == "Hydrolix log ingest is estimated from Hydrolix usagemeter billing bytes per row for the Akamai logs table."
+    )
+    assert ctx["threat_hunt_ui"]["impact_note"] == ctx["impact_note"]
+
+
+def test_threat_hunt_impact_note_surfaces_light_payload_pattern():
+    from report_engine.contexts import threat_hunt
+
+    artifact = {
+        "schema_version": "bot_threat_hunt.v3",
+        "scope": {
+            "cluster": "local",
+            "database": "akamai",
+            "current_window": {"start": "2026-05-01T00:00:00Z", "end": "2026-05-02T00:00:00Z"},
+            "baseline_window": {"start": "2026-04-30T00:00:00Z", "end": "2026-05-01T00:00:00Z"},
+        },
+        "module_scorecards": [],
+        "campaigns": [],
+        "scraper_cases": [],
+        "baseline_movement": {"metric_deltas": []},
+        "impact_assessment": {
+            "hunt": {
+                "requests": 1000,
+                "request_share": 0.10,
+                "response_body_bytes": 500000000,
+                "response_body_byte_share": 0.05,
+            }
+        },
+        "fingerprints": [],
+        "endpoints": [],
+        "infrastructure": {},
+        "classification_gap": {},
+        "limitations": [],
+    }
+    note = threat_hunt.prepare(artifact)["threat_hunt_ui"]["hunt_impact"]["pattern_note"]
+    assert note is not None
+    assert "10.0% hits vs 5.0% response bytes" in note["text"]
+    assert "supporting evidence, not a standalone scraper signature" in note["text"]
+    assert [link["label"] for link in note["links"]] == [
+        "OWASP OAT-011 Scraping",
+        "OWASP Bot Management Cheat Sheet",
+        "F5 scraper behavior patterns",
+    ]
+
+
+def test_threat_hunt_legacy_bytes_do_not_populate_explicit_byte_lanes():
+    from report_engine.contexts import threat_hunt
+
+    artifact = {
+        "schema_version": "bot_threat_hunt.v3",
+        "scope": {
+            "cluster": "local",
+            "database": "akamai",
+            "current_window": {"start": "2026-05-01T00:00:00Z", "end": "2026-05-02T00:00:00Z"},
+            "baseline_window": {"start": "2026-04-30T00:00:00Z", "end": "2026-05-01T00:00:00Z"},
+        },
+        "module_scorecards": [],
+        "campaigns": [],
+        "scraper_cases": [],
+        "baseline_movement": {"metric_deltas": []},
+        "impact_assessment": {
+            "hunt": {
+                "requests": 100,
+                "request_share": 0.1,
+                "bytes": 123456,
+                "byte_share": 0.2,
+            }
+        },
+        "fingerprints": [],
+        "endpoints": [],
+        "infrastructure": {},
+        "classification_gap": {},
+        "limitations": [],
+    }
+    ui = threat_hunt.prepare(artifact)["threat_hunt_ui"]
+    rows = ui["impact_rows"]
+    assert rows[1]["value"] == "unavailable (unavailable of customer log volume)"
+    assert rows[2]["value"] == "unavailable (unavailable of response bytes)"
+    assert rows[3]["value"] == "unavailable (unavailable of CDN billed bandwidth)"
+    hunt_impact = ui["hunt_impact"]
+    assert hunt_impact["rows"][1]["value"] == "unavailable"
+    assert hunt_impact["rows"][1]["share"] == "unavailable"
+    assert hunt_impact["rows"][2]["value"] == "unavailable"
+    assert hunt_impact["rows"][2]["share"] == "unavailable"
+    assert hunt_impact["rows"][3]["value"] == "unavailable"
+    assert hunt_impact["rows"][3]["share"] == "unavailable"
 
 
 class TestIncidentExecutiveView:

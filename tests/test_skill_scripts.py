@@ -2325,6 +2325,211 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(artifact["endpoints"][0]["markers"], ["api", "catalog"])
         raw_limit = next(l for l in artifact["limitations"] if l["module"] == "raw_actor_exports")
         self.assertEqual(raw_limit["availability"], "not_available")
+        self.assertEqual(artifact["classification_gap"]["availability"], "not_available")
+
+    def test_threat_hunt_impact_assessment_persists_deduped_shares_and_costs(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/api/catalog", "requests": 10000, "bytes": 1000000000},
+                        {"period": "baseline", "request_path": "/api/catalog", "requests": 5000, "bytes": 500000000},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps(
+                    [
+                        {"userAgent": "python-requests/2.31", "requests": 2000, "bytes": 400000000},
+                        {"userAgent": "curl/8.0", "requests": 1000, "bytes": 100000000},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (actor_dir / "expedia-actors-baseline-user_agent.json").write_text(
+                json.dumps(
+                    [
+                        {"userAgent": "python-requests/2.31", "requests": 100, "bytes": 10000000},
+                        {"userAgent": "curl/8.0", "requests": 1000, "bytes": 50000000},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            cost_config = base / "cost.json"
+            cost_config.write_text(
+                json.dumps(
+                    {
+                        "enabled": True,
+                        "egress_rate_low_per_gb": 0.05,
+                        "egress_rate_high_per_gb": 0.10,
+                        "basis_label": "configured CDN egress",
+                        "disclaimer": "estimate only",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-05-01T00:00:00Z",
+                end="2026-05-02T00:00:00Z",
+                baseline_start="2026-04-30T00:00:00Z",
+                baseline_end="2026-05-01T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                cost_estimate_config=str(cost_config),
+            )
+
+        hunt = artifact["impact_assessment"]["hunt"]
+        self.assertEqual(hunt["requests"], 3000)
+        self.assertEqual(hunt["baseline_requests"], 1100)
+        self.assertEqual(hunt["bytes"], 500000000)
+        self.assertEqual(hunt["baseline_bytes"], 60000000)
+        self.assertAlmostEqual(hunt["request_share"], 0.3)
+        self.assertAlmostEqual(hunt["byte_share"], 0.5)
+        self.assertEqual(hunt["share_severity"], "dominant")
+        self.assertEqual(hunt["trend_severity"], "growing")
+        self.assertEqual(hunt["share_direction"], "growing_share")
+        self.assertAlmostEqual(hunt["cost_estimate"]["low"], 0.025)
+        self.assertAlmostEqual(hunt["cost_estimate"]["high"], 0.05)
+        self.assertEqual(artifact["impact_assessment"]["cost_config"]["basis_label"], "configured CDN egress")
+        case = next(row for row in artifact["scraper_cases"] if row["user_agent"] == "python-requests/2.31")
+        self.assertEqual(case["baseline_bytes"], 10000000)
+        self.assertAlmostEqual(case["impact_assessment"]["request_share"], 0.2)
+        tier_impact = artifact["impact_assessment"]["tiers"]["tier_1"]
+        self.assertEqual(tier_impact["requests"], 3000)
+
+    def test_threat_hunt_impact_assessment_omits_costs_when_disabled(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/api/catalog", "requests": 1000, "bytes": 1000},
+                        {"period": "baseline", "request_path": "/api/catalog", "requests": 1000, "bytes": 1000},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"userAgent": "curl/8.0", "requests": 100, "bytes": 1000}]),
+                encoding="utf-8",
+            )
+            (actor_dir / "expedia-actors-baseline-user_agent.json").write_text(
+                json.dumps([{"userAgent": "curl/8.0", "requests": 10, "bytes": 100}]),
+                encoding="utf-8",
+            )
+            cost_config = base / "cost.json"
+            cost_config.write_text(json.dumps({"enabled": False}), encoding="utf-8")
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-05-01T00:00:00Z",
+                end="2026-05-02T00:00:00Z",
+                baseline_start="2026-04-30T00:00:00Z",
+                baseline_end="2026-05-01T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                cost_estimate_config=str(cost_config),
+            )
+
+        self.assertNotIn("cost_config", artifact["impact_assessment"])
+        self.assertNotIn("cost_estimate", artifact["impact_assessment"]["hunt"])
+
+    def test_threat_hunt_bot_manager_context_is_informational_only(self) -> None:
+        from producers.threat_hunt import build_threat_hunt_artifact
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            (base / "summary.json").write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "request_path": "/api/catalog", "requests": 3000},
+                        {"period": "baseline", "request_path": "/api/catalog", "requests": 100},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            ua = "curl/8.0"
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": ua, "requests": 3000}]),
+                encoding="utf-8",
+            )
+            (base / "bot-manager.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "actionClass": "deny",
+                            "botType": "scraper",
+                            "policyId": "policy-a",
+                            "requests": 2000,
+                            "botScore": 92,
+                        },
+                        {
+                            "actionClass": "allow",
+                            "botType": "unknown",
+                            "policyId": "policy-b",
+                            "requests": 1000,
+                            "botScore": 20,
+                        },
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (base / "bot-manager-exact.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "user_agent": ua,
+                            "actionClass": "monitor",
+                            "botType": "scraper",
+                            "policyId": "policy-a",
+                            "requests": 750,
+                            "botScore": 88,
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            artifact = build_threat_hunt_artifact(
+                cluster="local",
+                database="akamai",
+                summary_parquet_glob=str(base / "summary.json"),
+                start="2026-04-17T00:00:00Z",
+                end="2026-04-18T00:00:00Z",
+                baseline_start="2026-04-16T00:00:00Z",
+                baseline_end="2026-04-17T00:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                bot_manager_context_in=str(base / "bot-manager.json"),
+                bot_manager_exact_ua_in=str(base / "bot-manager-exact.json"),
+            )
+
+        context = artifact["bot_manager_context"]
+        self.assertEqual(context["availability"], "evidence_backed")
+        self.assertEqual(context["aggregate"]["total_requests"], 3000)
+        self.assertEqual(context["aggregate"]["action_class_mix"][0]["value"], "deny")
+        self.assertEqual(artifact["classification_gap"]["availability"], "not_available")
+        self.assertFalse(
+            any("bot_manager" in flag for case in artifact["scraper_cases"] for flag in case["evidence_flags"])
+        )
+        self.assertFalse(
+            any("bot_manager" in flag for action in artifact["recommended_actions"] for flag in action["supporting_evidence"])
+        )
+        lead = next(case for case in artifact["scraper_cases"] if case["user_agent"] == ua)
+        self.assertEqual(lead["bot_manager_context"]["availability"], "evidence_backed")
+        self.assertEqual(lead["bot_manager_context"]["total_requests"], 750)
 
     def test_threat_hunt_ua_taxonomy_preserves_browsers_and_classifies_native_clients(self) -> None:
         from producers.threat_hunt_ua_plausibility import parse_user_agent
@@ -2584,10 +2789,12 @@ class BotInsightsScriptTests(unittest.TestCase):
                 baseline_end="2026-04-17T00:00:00Z",
                 raw_actor_dir=str(actor_dir),
                 top_n=20,
+                bot_manager_context_in=str(base / "summary.json"),
             )
 
         self.assertEqual(artifact["scraper_cases"], [])
         self.assertEqual(artifact["recommended_actions"], [])
+        self.assertEqual(artifact["bot_manager_context"]["availability"], "evidence_backed")
         self.assertEqual({row["user_agent"] for row in artifact["known_traffic"]}, set(known_uas))
         dispositions = {row["user_agent"]: row["disposition"] for row in artifact["known_traffic"]}
         self.assertEqual(dispositions["AkamaiImageServer/1.0"], "known_infrastructure")
@@ -4894,6 +5101,263 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertEqual(current_ip[0]["period"], "current")
         self.assertEqual(baseline_ua[0]["user_agent"], "Scraper/1.0")
         self.assertEqual(baseline_ua[0]["period"], "baseline")
+
+    def test_threat_hunt_actor_fixture_export_emits_explicit_byte_lanes(self) -> None:
+        from producers import threat_hunt
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            actor_dir = Path(tmpdir) / "actors"
+            calls = []
+
+            def fake_export(_cluster: str, sql: str, chunk_output: Path) -> None:
+                calls.append(sql)
+                row = {
+                    "user_agent": "Scraper/1.0",
+                    "requests": 20,
+                    "bytes": 200,
+                    "response_body_bytes": 200,
+                    "akamai_billed_bytes": 260,
+                    "hydrolix_log_ingest_bytes": 80,
+                }
+                if " AS client_ip" in sql:
+                    row = {
+                        "client_ip": "203.0.113.1",
+                        "requests": 10,
+                        "bytes": 100,
+                        "response_body_bytes": 100,
+                        "akamai_billed_bytes": 130,
+                        "hydrolix_log_ingest_bytes": 40,
+                    }
+                chunk_output.write_text(json.dumps({"data": [row]}), encoding="utf-8")
+
+            with mock.patch.object(threat_hunt, "_run_mux_export", side_effect=fake_export):
+                threat_hunt.export_raw_actor_fixtures(
+                    actor_dir=str(actor_dir),
+                    start="2026-04-18T00:00:00Z",
+                    end="2026-04-18T01:00:00Z",
+                    baseline_start="2026-04-17T00:00:00Z",
+                    baseline_end="2026-04-17T01:00:00Z",
+                    cluster="demo",
+                    database="akamai",
+                    top_n=50,
+                    hydrolix_log_ingest_bytes_column="rawLogBytes",
+                )
+
+            current_ua = json.loads(
+                (actor_dir / "expedia-actors-current-user_agent.json").read_text()
+            )
+
+        self.assertIn("sum(bytes) AS response_body_bytes", calls[0])
+        self.assertIn("sum(totalBytes) AS akamai_billed_bytes", calls[0])
+        self.assertIn("sum(rawLogBytes) AS hydrolix_log_ingest_bytes", calls[0])
+        self.assertEqual(current_ua[0]["bytes"], 200)
+        self.assertEqual(current_ua[0]["response_body_bytes"], 200)
+        self.assertEqual(current_ua[0]["akamai_billed_bytes"], 260)
+        self.assertEqual(current_ua[0]["hydrolix_log_ingest_bytes"], 80)
+
+    def test_threat_hunt_artifact_impact_keeps_byte_lanes_distinct(self) -> None:
+        from producers import threat_hunt
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            summary = base / "summary.json"
+            summary.write_text(
+                json.dumps(
+                    [
+                        {
+                            "period": "current",
+                            "requests": 100,
+                            "bytes": 1000,
+                            "totalBytes": 1600,
+                            "hydrolix_log_ingest_bytes": 400,
+                        },
+                        {
+                            "period": "baseline",
+                            "requests": 100,
+                            "bytes": 1000,
+                            "totalBytes": 1600,
+                            "hydrolix_log_ingest_bytes": 400,
+                        },
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "user_agent": "Scraper/1.0",
+                            "requests": 25,
+                            "bytes": 200,
+                            "response_body_bytes": 200,
+                            "akamai_billed_bytes": 500,
+                            "hydrolix_log_ingest_bytes": 100,
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (actor_dir / "expedia-actors-baseline-user_agent.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "user_agent": "Scraper/1.0",
+                            "requests": 5,
+                            "bytes": 50,
+                            "response_body_bytes": 50,
+                            "akamai_billed_bytes": 80,
+                            "hydrolix_log_ingest_bytes": 20,
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            artifact = threat_hunt.build_threat_hunt_artifact(
+                cluster="demo",
+                database="akamai",
+                summary_parquet_glob=str(summary),
+                start="2026-04-18T00:00:00Z",
+                end="2026-04-18T01:00:00Z",
+                baseline_start="2026-04-17T00:00:00Z",
+                baseline_end="2026-04-17T01:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                top_n=10,
+                fanout_strategy="skip",
+                background_query="off",
+                baseline_significance_query="off",
+                ua_fanout_query="skip",
+            )
+
+        hunt = artifact["impact_assessment"]["hunt"]
+        self.assertEqual(hunt["requests"], 25)
+        self.assertEqual(hunt["response_body_bytes"], 200)
+        self.assertEqual(hunt["akamai_billed_bytes"], 500)
+        self.assertEqual(hunt["hydrolix_log_ingest_bytes"], 100)
+        self.assertEqual(hunt["response_body_byte_share"], 0.2)
+        self.assertEqual(hunt["akamai_billed_byte_share"], 0.3125)
+        self.assertEqual(hunt["hydrolix_log_ingest_byte_share"], 0.25)
+
+    def test_threat_hunt_usagemeter_estimate_applies_hydrolix_ingest_lane(self) -> None:
+        from producers import threat_hunt
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            summary = base / "summary.json"
+            summary.write_text(
+                json.dumps(
+                    [
+                        {"period": "current", "requests": 100, "bytes": 1000, "totalBytes": 1600},
+                        {"period": "baseline", "requests": 100, "bytes": 1000, "totalBytes": 1600},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "user_agent": "Scraper/1.0",
+                            "requests": 25,
+                            "bytes": 200,
+                            "response_body_bytes": 200,
+                            "akamai_billed_bytes": 500,
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (actor_dir / "expedia-actors-baseline-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Scraper/1.0", "requests": 5, "bytes": 50, "akamai_billed_bytes": 80}]),
+                encoding="utf-8",
+            )
+            usagemeter = base / "usagemeter.json"
+            usagemeter.write_text(
+                json.dumps(
+                    [
+                        {
+                            "project_deployment_id": "expediagroup__akamai",
+                            "table_name": "logs",
+                            "rows": 1000,
+                            "billing_bytes": 4000,
+                            "raw_usage_bytes": 9000,
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            artifact = threat_hunt.build_threat_hunt_artifact(
+                cluster="demo",
+                database="akamai",
+                summary_parquet_glob=str(summary),
+                start="2026-04-18T00:00:00Z",
+                end="2026-04-18T01:00:00Z",
+                baseline_start="2026-04-17T00:00:00Z",
+                baseline_end="2026-04-17T01:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                hydrolix_log_ingest_usagemeter_in=str(usagemeter),
+                hydrolix_log_ingest_project_deployment_id="expediagroup__akamai",
+                hydrolix_log_ingest_table_name="logs",
+                fanout_strategy="skip",
+                background_query="off",
+                baseline_significance_query="off",
+                ua_fanout_query="skip",
+            )
+
+        metadata = artifact["impact_assessment"]["hydrolix_log_ingest_metadata"]
+        hunt = artifact["impact_assessment"]["hunt"]
+        self.assertEqual(metadata["source"], "hydro.logs usagemeter")
+        self.assertEqual(metadata["metric"], "billing_bytes_per_row")
+        self.assertEqual(metadata["billing_bytes_per_row"], 4)
+        self.assertEqual(metadata["raw_usage_bytes_per_row"], 9)
+        self.assertEqual(hunt["hydrolix_log_ingest_bytes"], 100)
+        self.assertEqual(hunt["hydrolix_log_ingest_byte_share"], 0.25)
+        self.assertEqual(hunt["response_body_bytes"], 200)
+        self.assertEqual(hunt["akamai_billed_bytes"], 500)
+
+    def test_threat_hunt_missing_usagemeter_leaves_ingest_unavailable(self) -> None:
+        from producers import threat_hunt
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            base = Path(tmpdir)
+            summary = base / "summary.json"
+            summary.write_text(
+                json.dumps([{"period": "current", "requests": 100, "bytes": 1000, "totalBytes": 1600}]),
+                encoding="utf-8",
+            )
+            actor_dir = base / "actors"
+            actor_dir.mkdir()
+            (actor_dir / "expedia-actors-current-user_agent.json").write_text(
+                json.dumps([{"user_agent": "Scraper/1.0", "requests": 25, "bytes": 200, "akamai_billed_bytes": 500}]),
+                encoding="utf-8",
+            )
+            usagemeter = base / "usagemeter.json"
+            usagemeter.write_text(json.dumps([{"rows": 0, "billing_bytes": 0}]), encoding="utf-8")
+            artifact = threat_hunt.build_threat_hunt_artifact(
+                cluster="demo",
+                database="akamai",
+                summary_parquet_glob=str(summary),
+                start="2026-04-18T00:00:00Z",
+                end="2026-04-18T01:00:00Z",
+                baseline_start="2026-04-17T00:00:00Z",
+                baseline_end="2026-04-17T01:00:00Z",
+                raw_actor_dir=str(actor_dir),
+                hydrolix_log_ingest_usagemeter_in=str(usagemeter),
+                fanout_strategy="skip",
+                background_query="off",
+                baseline_significance_query="off",
+                ua_fanout_query="skip",
+            )
+
+        self.assertEqual(
+            artifact["impact_assessment"]["hydrolix_log_ingest_metadata"]["availability"],
+            "not_available",
+        )
+        self.assertIsNone(artifact["impact_assessment"]["hunt"]["hydrolix_log_ingest_bytes"])
+        self.assertIsNone(artifact["impact_assessment"]["hunt"]["hydrolix_log_ingest_byte_share"])
 
     def test_threat_hunt_cooccurrence_export_chunks_and_writes_merged_rows(self) -> None:
         from producers import threat_hunt
