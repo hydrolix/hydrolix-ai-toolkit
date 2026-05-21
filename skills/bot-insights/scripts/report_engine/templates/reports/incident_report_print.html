@@ -1590,6 +1590,17 @@
           {% endfor %}
         </div>
         {% endif %}
+        {% if attack_shape.pattern_notes %}
+        <div style="margin-top: 8px;">
+          <span class="eyebrow">Pattern context</span>
+          {% for note in attack_shape.pattern_notes %}
+          <div class="small" style="color: var(--ink-1); line-height: 1.32; margin-top: 5px;">
+            <b>{{ note.title }}</b>: {{ note.text }}
+          </div>
+          <div class="tiny" style="color: var(--ink-3); margin-top: 2px;">Basis: {{ note.basis }}. Sources: {{ note.sources }}</div>
+          {% endfor %}
+        </div>
+        {% endif %}
         <div style="margin-top: 2px;">
           <span class="label">Evidence strength distribution</span>
           <div style="margin-top: 5px;">

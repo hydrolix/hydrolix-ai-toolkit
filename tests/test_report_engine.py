@@ -4104,6 +4104,13 @@ def test_threat_hunt_registered_and_renders_markdown(tmp_path):
     assert "Ua Ip Fanout unavailable" not in md
     assert "Fan-out shelf life" in md
     assert "Case against / missing evidence" in md
+    assert "## Scraper Pattern Context" in md
+    assert "Direct\\-to\\-data/API focus" in md
+    assert "Boxy or interval cadence" in md
+    assert "UA impersonation / rotation" in md
+    assert "Distributed fan\\-out" in md
+    assert "[OWASP OAT\\-011 Scraping](https://owasp.org/www-project-automated-threats-to-web-applications/assets/oats/EN/OAT-011_Scraping)" in md
+    assert "not classification evidence" in md
     assert "/api/catalog" in md
     assert "Raw actor user-agent exports were not supplied." in md
     assert "operator" in md
@@ -4117,6 +4124,9 @@ def test_threat_hunt_registered_and_renders_markdown(tmp_path):
     assert "2026-05-01T00:00:00Z to 2026-05-02T00:00:00Z" in html
     assert 'data-hx-export-all' in html
     assert 'data-hx-drawer-toggle' in html
+    assert '<body data-hx-drawer-host data-hx-drawer-state="collapsed">' in html
+    assert "⇰ Show IOCs" in html
+    assert "window.HX.setDrawer(false);" in html
     assert "data:image/svg+xml;base64" in html
     assert 'static/reports/threat-hunt.css' not in html
     assert '<script src="static/kit.js"></script>' not in html
@@ -4125,6 +4135,15 @@ def test_threat_hunt_registered_and_renders_markdown(tmp_path):
     assert ".hx-rail[hidden] { display: none !important; }" in html
     assert 'body[data-hx-drawer-state="collapsed"] .thr-body' in html
     assert 'id="verdict" class="thr-verdict"' in html
+    assert '<div class="thr-eyebrow">Verdict</div>' not in html
+    assert '<span class="thr-h1-sub"> · Threat Hunt</span>' in html
+    assert "scraper coordination hunt" not in html
+    assert 'class="thr-lede-grid" aria-label="Threat hunt topline"' in html
+    assert html.index("What the hunt found") < html.index("Hunt impact")
+    assert html.index("Impact of those findings") < html.index("Hunt impact")
+    assert html.index("Recommended actions") < html.index("Hunt impact")
+    assert "Hunt-scoped findings account for" in html
+    assert "Recommended queue:" in html
     assert 'class="hx-ladder"' in html
     assert 'class="thr-hunt-impact"' in html
     assert 'class="thr-impact-strip"' not in html
@@ -4138,8 +4157,9 @@ def test_threat_hunt_registered_and_renders_markdown(tmp_path):
     assert 'id="campaign" class="thr-section"' in html
     assert 'id="infra" class="thr-section"' in html
     assert 'id="evidence" class="thr-section"' in html
-    assert 'class="hx-drawer"' in html
+    assert '<aside class="hx-drawer" data-hx-drawer hidden>' in html
     assert 'class="hx-rail"' in html
+    assert '<aside class="hx-rail" role="button" tabindex="0"' in html
     assert "data-hx-drawer-collapse" in html
     assert "data-hx-rail-expand" in html
     assert re.search(
@@ -4173,6 +4193,9 @@ def test_threat_hunt_registered_and_renders_markdown(tmp_path):
     assert "Ua Ip Fanout unavailable" not in html
     assert "120.0x (+1.2K)" in html
     assert "Observed" in html
+    assert "Direct-to-data/API focus" in html
+    assert "https://www.f5.com/labs/articles/how-to-identify-and-stop-scrapers" in html
+    assert "not classification evidence" in html
     assert "Not established" in html
     assert "Operator identity" in html
     assert "Malicious intent" in html
@@ -4282,6 +4305,9 @@ def test_threat_hunt_registered_and_renders_markdown(tmp_path):
     assert "Hunt Findings" in print_html
     assert "Evidence Boundaries" in print_html
     assert "Bottom line: the threat-hunt findings account for" in print_html
+    assert "Pattern context" in print_html
+    assert "Direct-to-data/API focus" in print_html
+    assert "OWASP OAT-011 Scraping: https://owasp.org/www-project-automated-threats-to-web-applications/assets/oats/EN/OAT-011_Scraping" in print_html
     assert "Trajectory: traffic share" in print_html
     assert "response-body bytes" in print_html
     assert "No dollar, origin-capacity, or cache-hit impact is shown" in print_html
@@ -4636,7 +4662,7 @@ def test_threat_hunt_impact_rows_render_explicit_byte_lanes():
         {
             "label": "Hydrolix log ingest",
             "value": "100.0M (25.0% of customer log volume)",
-            "detail": "TrafficPeak retention cost",
+            "detail": "Hydrolix bill driver",
         },
         {
             "label": "Response body",
@@ -4663,7 +4689,7 @@ def test_threat_hunt_impact_rows_render_explicit_byte_lanes():
                 "label": "Hydrolix log ingest",
                 "value": "100.0 MB",
                 "share": "25.0%",
-                "denom": "of customer log volume - TrafficPeak retention cost",
+                "denom": "of customer log volume - Hydrolix bill driver",
             },
             {
                 "label": "Response body",
@@ -4688,7 +4714,66 @@ def test_threat_hunt_impact_rows_render_explicit_byte_lanes():
     assert ctx["threat_hunt_ui"]["impact_note"] == ctx["impact_note"]
 
 
-def test_threat_hunt_impact_note_surfaces_light_payload_pattern():
+def test_threat_hunt_pattern_notes_surface_light_payload_when_corroborated():
+    from report_engine.contexts import threat_hunt
+
+    artifact = {
+        "schema_version": "bot_threat_hunt.v3",
+        "scope": {
+            "cluster": "local",
+            "database": "akamai",
+            "current_window": {"start": "2026-05-01T00:00:00Z", "end": "2026-05-02T00:00:00Z"},
+            "baseline_window": {"start": "2026-04-30T00:00:00Z", "end": "2026-05-01T00:00:00Z"},
+        },
+        "module_scorecards": [],
+        "campaigns": [],
+        "scraper_cases": [
+            {
+                "user_agent": "CatalogScraper/1.0",
+                "verdict": "lead",
+                "requests": 1000,
+                "endpoint_evidence": {"tier": "scoped", "counts_for_verdict": True},
+                "endpoint_targets": [
+                    {
+                        "request_path": "/api/catalog",
+                        "requests": 1000,
+                        "share_pct": 100.0,
+                        "markers": ["api", "catalog"],
+                    }
+                ],
+            }
+        ],
+        "baseline_movement": {"metric_deltas": []},
+        "impact_assessment": {
+            "hunt": {
+                "requests": 1000,
+                "request_share": 0.10,
+                "response_body_bytes": 500000000,
+                "response_body_byte_share": 0.05,
+            }
+        },
+        "fingerprints": [],
+        "endpoints": [],
+        "infrastructure": {},
+        "classification_gap": {},
+        "limitations": [],
+    }
+    note = threat_hunt.prepare(artifact)["threat_hunt_ui"]["hunt_impact"]["pattern_note"]
+    assert note is not None
+    assert note["title"] == "Light payload / high hits"
+    assert "10.0% hits vs 5.0% response bytes" in note["text"]
+    assert "supporting context, not a standalone scraper signature" in note["text"]
+    assert "endpoint targeting" in note["evidence_basis"]
+    assert "not classification evidence" in note["confidence_boundary"]
+    assert [link["label"] for link in note["links"]] == [
+        "OWASP OAT-011 Scraping",
+        "OWASP Bot Management Cheat Sheet",
+        "F5 scraper behavior patterns",
+    ]
+    assert note["links"][2]["url"] == "https://www.f5.com/labs/articles/how-to-identify-and-stop-scrapers"
+
+
+def test_threat_hunt_light_payload_note_requires_corroboration_and_response_share():
     from report_engine.contexts import threat_hunt
 
     artifact = {
@@ -4717,15 +4802,118 @@ def test_threat_hunt_impact_note_surfaces_light_payload_pattern():
         "classification_gap": {},
         "limitations": [],
     }
-    note = threat_hunt.prepare(artifact)["threat_hunt_ui"]["hunt_impact"]["pattern_note"]
-    assert note is not None
-    assert "10.0% hits vs 5.0% response bytes" in note["text"]
-    assert "supporting evidence, not a standalone scraper signature" in note["text"]
-    assert [link["label"] for link in note["links"]] == [
-        "OWASP OAT-011 Scraping",
-        "OWASP Bot Management Cheat Sheet",
-        "F5 scraper behavior patterns",
+    ctx = threat_hunt.prepare(artifact)
+    assert ctx["pattern_notes"] == []
+    assert ctx["threat_hunt_ui"]["hunt_impact"]["pattern_note"] is None
+
+    equal_shares = deepcopy(artifact)
+    equal_shares["scraper_cases"] = [
+        {
+            "user_agent": "CatalogScraper/1.0",
+            "endpoint_evidence": {"counts_for_verdict": True},
+            "endpoint_targets": [{"request_path": "/api/catalog", "share_pct": 100.0}],
+        }
     ]
+    equal_shares["impact_assessment"]["hunt"]["response_body_byte_share"] = 0.09
+    titles = [note["title"] for note in threat_hunt.prepare(equal_shares)["pattern_notes"]]
+    assert "Light payload / high hits" not in titles
+
+    missing_response_share = deepcopy(equal_shares)
+    missing_response_share["impact_assessment"]["hunt"].pop("response_body_byte_share")
+    titles = [note["title"] for note in threat_hunt.prepare(missing_response_share)["pattern_notes"]]
+    assert "Light payload / high hits" not in titles
+
+
+def test_threat_hunt_pattern_notes_cover_endpoint_timing_ua_and_fanout():
+    from report_engine.contexts import threat_hunt
+
+    artifact = {
+        "schema_version": "bot_threat_hunt.v3",
+        "scope": {
+            "cluster": "local",
+            "database": "akamai",
+            "current_window": {"start": "2026-05-01T00:00:00Z", "end": "2026-05-02T00:00:00Z"},
+            "baseline_window": {"start": "2026-04-30T00:00:00Z", "end": "2026-05-01T00:00:00Z"},
+        },
+        "module_scorecards": [],
+        "campaigns": [
+            {
+                "campaign_id": "campaign-1",
+                "verdict": "lead",
+                "temporal_pattern": "interval",
+                "total_requests": 1000,
+                "leads": ["CatalogScraper/1.0"],
+                "endpoint_evidence_summary": {"confirmed_member_count": 1, "counts_for_verdict": True},
+                "endpoint_targets": [{"endpoint_prefix": "/api/listings", "requests": 1000, "share_pct": 90.0}],
+                "ua_plausibility_summary": {"anomalous_member_count": 1, "forged_ua_candidate": True},
+                "fanout_summary": {"unique_ips_lower_bound": 75, "source": "cooccurrence_lower_bound"},
+            }
+        ],
+        "ua_families": [
+            {
+                "family_id": "ua-family-1",
+                "template": "Chrome/{version}",
+                "members": ["Chrome/147", "Chrome/148", "Chrome/149"],
+                "member_count": 3,
+                "version_count": 3,
+                "structural_checks": ["version_rotation"],
+            }
+        ],
+        "scraper_cases": [
+            {
+                "user_agent": "CatalogScraper/1.0",
+                "verdict": "lead",
+                "requests": 1000,
+                "endpoint_evidence": {"counts_for_verdict": True},
+                "endpoint_targets": [{"request_path": "/api/listings", "requests": 1000, "share_pct": 90.0}],
+                "temporal_regularity": {
+                    "resolution": "request_iat",
+                    "archetype": "metronome",
+                    "sample_size": 60,
+                    "metrics": {"cv": 0.0},
+                },
+                "ua_plausibility": {"verdict": "confirmed"},
+                "fanout_enrichment": {"source": "summary_hour", "unique_ips": 75, "threshold_class": "elevated"},
+            }
+        ],
+        "baseline_movement": {"metric_deltas": []},
+        "impact_assessment": {"hunt": {"requests": 1000, "request_share": 0.10}},
+        "fingerprints": [],
+        "endpoints": [],
+        "infrastructure": {},
+        "classification_gap": {},
+        "limitations": [],
+    }
+    notes = threat_hunt.prepare(artifact)["pattern_notes"]
+    titles = [note["title"] for note in notes]
+    assert "Direct-to-data/API focus" in titles
+    assert "Boxy or interval cadence" in titles
+    assert "UA impersonation / rotation" in titles
+    assert "Distributed fan-out" in titles
+    fanout = next(note for note in notes if note["title"] == "Distributed fan-out")
+    assert "at least 75 IPs" in fanout["text"]
+    assert "IP-only blocking may be brittle" in fanout["text"]
+    assert all("not classification evidence" in note["confidence_boundary"] for note in notes)
+
+
+def test_threat_hunt_pattern_notes_do_not_render_from_endpoint_absence():
+    from report_engine.contexts import threat_hunt
+
+    artifact = {
+        "schema_version": "bot_threat_hunt.v3",
+        "scope": {"cluster": "local", "database": "akamai"},
+        "module_scorecards": [],
+        "campaigns": [],
+        "scraper_cases": [{"user_agent": "Generic/1.0", "requests": 1000}],
+        "baseline_movement": {"metric_deltas": []},
+        "impact_assessment": {"hunt": {"requests": 1000, "request_share": 0.10}},
+        "fingerprints": [],
+        "endpoints": [],
+        "infrastructure": {},
+        "classification_gap": {},
+        "limitations": [],
+    }
+    assert threat_hunt.prepare(artifact)["pattern_notes"] == []
 
 
 def test_threat_hunt_legacy_bytes_do_not_populate_explicit_byte_lanes():

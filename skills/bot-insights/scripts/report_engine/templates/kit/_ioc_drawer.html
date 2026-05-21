@@ -24,9 +24,9 @@
    ────────────────────────────────────────────────────────────────── #}
 {%- from 'kit/_copy_btn.html' import copy_btn -%}
 
-{% macro ioc_drawer(tabs, extras=[], stats=none, title='IOC drawer', initial=none) -%}
+{% macro ioc_drawer(tabs, extras=[], stats=none, title='IOC drawer', initial=none, hidden=false) -%}
 {% set _initial = initial or tabs[0].id %}
-<aside class="hx-drawer" data-hx-drawer>
+<aside class="hx-drawer" data-hx-drawer{% if hidden %} hidden{% endif %}>
   <div class="hx-drawer-head">
     <div><span class="hx-drawer-pin">⌖</span> {{ title }}</div>
     <div class="hx-drawer-head-right">
@@ -100,10 +100,10 @@
 </aside>
 {%- endmacro %}
 
-{% macro ioc_rail(stats=[], label='IOC drawer', icon='⌖') -%}
+{% macro ioc_rail(stats=[], label='IOC drawer', icon='⌖', hidden=false) -%}
 <aside class="hx-rail" role="button" tabindex="0"
        aria-label="Expand {{ label }}"
-       data-hx-rail-expand>
+       data-hx-rail-expand{% if hidden %} hidden{% endif %}>
   <div class="hx-rail-icon">{{ icon }}</div>
   <div class="hx-rail-stack">
     {% for s in stats -%}

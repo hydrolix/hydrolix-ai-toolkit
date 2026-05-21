@@ -24,6 +24,25 @@ Scope: {{ scope.cluster | md_escape }}{% if scope.database %} / {{ scope.databas
 Hunt impact rows were not available.
 {% endif %}
 
+{% if pattern_notes %}
+## Scraper Pattern Context
+
+These notes explain source-backed behavior patterns only when the artifact crosses the renderer's thresholds and at least one supporting evidence family is present. They are not classification evidence by themselves.
+
+{% for note in pattern_notes %}
+### {{ note.title | md_escape }}
+
+{{ note.text | md_escape }}
+
+Evidence basis: {{ note.evidence_basis | join("; ") | md_escape }}
+
+Boundary: {{ note.confidence_boundary | md_escape }}
+
+Sources: {% for link in note.links %}[{{ link.label | md_escape }}]({{ link.url }}){% if not loop.last %}; {% endif %}{% endfor %}
+
+{% endfor %}
+{% endif %}
+
 ## Recommended Actions
 
 {% if recommended_actions %}

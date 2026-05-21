@@ -57,7 +57,7 @@
   html, body { margin: 0; padding: 0; background: var(--hx-bg); font-family: "Inter", system-ui, sans-serif; }
 </style>
 </head>
-<body data-hx-drawer-host data-hx-drawer-state="open">
+<body data-hx-drawer-host data-hx-drawer-state="collapsed">
 <div class="thr">
 
   {# ─── Header ────────────────────────────────────────────── #}
@@ -72,7 +72,7 @@
     <div class="thr-header-right">
       <span class="thr-window">{{ data.meta.window_current.pretty }}</span>
       <button type="button" class="thr-tool-btn" data-hx-export-all>↓ Export all</button>
-      <button type="button" class="thr-tool-btn" data-hx-drawer-toggle>⇱ Hide IOCs</button>
+      <button type="button" class="thr-tool-btn" data-hx-drawer-toggle>⇰ Show IOCs</button>
     </div>
   </header>
 
@@ -82,15 +82,21 @@
       {# ─── Verdict ─────────────────────────────────────────── #}
       <section id="verdict" class="thr-verdict">
         <img class="thr-verdict-mark" src="{{ threat_hunt_asset_uri['x-light.svg'] if asset_mode == 'inline' else asset_base ~ 'x-light.svg' }}" alt="" aria-hidden="true" />
-        <div class="thr-eyebrow">Verdict</div>
-        <h1 class="thr-h1">{{ data.meta.customer }}<span class="thr-h1-sub"> · scraper coordination hunt</span></h1>
+        <h1 class="thr-h1">{{ data.meta.customer }}<span class="thr-h1-sub"> · Threat Hunt</span></h1>
         <div class="thr-pills">
           {{ pill('escalate', label=data.verdict.level_label, solid=true, size='lg') }}
           {{ pill('neutral',  label='Confidence · ' ~ data.verdict.confidence_label, size='lg') }}
           {{ pill('neutral',  label=(data.campaign.members ~ ' UAs · ' ~ data.campaign_count ~ ' campaign' ~ ('' if data.campaign_count == 1 else 's') ~ ' · ' ~ data.leads | length ~ ' leads'), size='lg') }}
         </div>
         {{ severity_ladder(data.verdict.ladder) }}
-        <p class="thr-summary">{{ data.verdict.summary }}</p>
+        <div class="thr-lede-grid" aria-label="Threat hunt topline">
+          {% for item in data.topline_lede %}
+          <div class="thr-lede-item">
+            <div class="thr-lede-label">{{ item.label }}</div>
+            <p>{{ item.body }}</p>
+          </div>
+          {% endfor %}
+        </div>
 
         {% if data.hunt_impact %}
         <div class="thr-hunt-impact">
@@ -110,6 +116,7 @@
           </div>
           {% if data.hunt_impact.pattern_note %}
           <div class="thr-hunt-impact-pattern">
+            <strong>{{ data.hunt_impact.pattern_note.title }}</strong>
             <p>{{ data.hunt_impact.pattern_note.text }}</p>
             <div class="thr-hunt-impact-links">
               {% for link in data.hunt_impact.pattern_note.links %}
@@ -296,11 +303,30 @@
             <ul class="thr-bullets thr-bullets-not">{% for b in data.boundaries.not_established %}<li>{{ b }}</li>{% endfor %}</ul>
           </div>
         </div>
+        {% if data.pattern_notes %}
+        <div class="thr-evidence" style="margin-top: 16px;">
+          {% for note in data.pattern_notes[:4] %}
+          <div class="thr-card">
+            <h3 class="thr-card-title">{{ note.title }}</h3>
+            <p class="thr-muted">{{ note.text }}</p>
+            <ul class="thr-bullets">
+              {% for item in note.evidence_basis %}<li>{{ item }}</li>{% endfor %}
+            </ul>
+            <p class="thr-hunt-impact-footnote">{{ note.confidence_boundary }}</p>
+            <div class="thr-hunt-impact-links">
+              {% for link in note.links %}
+              <a href="{{ link.url }}" rel="noopener noreferrer">{{ link.label }}</a>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
       </section>
     </main>
 
     {# ─── IOC drawer + rail ─────────────────────────────────── #}
-    {% call() ioc_drawer(ioc_drawer_tabs, extras=ioc_drawer_extras, stats=ioc_drawer_stats) -%}
+    {% call() ioc_drawer(ioc_drawer_tabs, extras=ioc_drawer_extras, stats=ioc_drawer_stats, hidden=true) -%}
     <div class="thr-drawer-brand">
       <img src="{{ threat_hunt_asset_uri['hydrolix-dark.svg'] if asset_mode == 'inline' else asset_base ~ 'hydrolix-dark.svg' }}" alt="Hydrolix" class="thr-drawer-brand-mark" />
       <span class="thr-drawer-brand-tag">Threat hunt · {{ data.meta.schema }}</span>
@@ -327,9 +353,8 @@
 <script>{{ threat_hunt_js | safe }}</script>
 {% endif %}
 <script>
-  /* The rail starts hidden via JS; we don't want a flash of two drawers
-     on first paint, so we run the toggle once on DOMContentLoaded. */
-  window.HX.setDrawer(true);
+  /* Keep the server-rendered collapsed state synchronized after JS loads. */
+  window.HX.setDrawer(false);
   document.querySelector("[data-hx-export-all]")?.addEventListener("click", function () {
     window.HX.downloadText("threat_hunt.json", {{ data.exports.json | tojson }}, "application/json");
   });

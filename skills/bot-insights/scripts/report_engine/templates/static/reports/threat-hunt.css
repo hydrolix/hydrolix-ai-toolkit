@@ -97,9 +97,27 @@ body[data-hx-drawer-state="collapsed"] .thr-body { grid-template-columns: minmax
   opacity: 0.18; pointer-events: none;
 }
 .thr-pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 8px; }
-.thr-summary {
-  margin: 16px 0 22px; font-size: 15.5px; line-height: 1.55;
-  color: var(--hx-text-2); max-width: 64ch; text-wrap: pretty;
+.thr-lede-grid {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px; margin: 18px 0 20px;
+}
+.thr-lede-item {
+  padding: 14px 16px;
+  background: color-mix(in srgb, var(--hx-paper) 88%, var(--hx-bg));
+  border: 1px solid var(--hx-rule);
+  border-radius: 8px;
+}
+.thr-lede-label {
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.11em; text-transform: uppercase;
+  color: var(--hx-muted); margin-bottom: 7px;
+}
+.thr-lede-item p {
+  margin: 0; font-size: 14px; line-height: 1.5;
+  color: var(--hx-text-2); text-wrap: pretty;
+}
+@media (max-width: 980px) {
+  .thr-lede-grid { grid-template-columns: 1fr; }
 }
 .thr-hunt-impact {
   margin-top: 22px;

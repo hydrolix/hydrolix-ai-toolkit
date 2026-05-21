@@ -14,6 +14,24 @@ PRINT_TEMPLATE = "reports/incident_report_print.html"
 NOTE_ID_TO_SLOT = {
     "llm-interpretation": "executive_summary",
 }
+SCRAPER_PATTERN_LINKS = {
+    "owasp_oat_011": {
+        "label": "OWASP OAT-011 Scraping",
+        "url": "https://owasp.org/www-project-automated-threats-to-web-applications/assets/oats/EN/OAT-011_Scraping",
+    },
+    "owasp_bot_management": {
+        "label": "OWASP Bot Management Cheat Sheet",
+        "url": "https://cheatsheetseries.owasp.org/cheatsheets/Bot_Management_and_Anti-Automation_Cheat_Sheet.html",
+    },
+    "f5_scraper_patterns": {
+        "label": "F5 scraper behavior patterns",
+        "url": "https://www.f5.com/labs/articles/how-to-identify-and-stop-scrapers",
+    },
+    "cloudflare_bot_detection": {
+        "label": "Cloudflare bot detection concepts",
+        "url": "https://developers.cloudflare.com/bots/concepts/bot-detection-engines/",
+    },
+}
 
 
 def _artifact(artifacts: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1756,7 +1774,7 @@ def _explicit_impact_rows(view: dict[str, Any]) -> list[dict[str, str]]:
                 f"{view['hydrolix_log_ingest_bytes_display']} "
                 f"({view['hydrolix_log_ingest_byte_share_display']} of customer log volume)"
             ),
-            "detail": "TrafficPeak retention cost",
+            "detail": "Hydrolix bill driver",
         },
         {
             "label": "Response body",
@@ -1842,7 +1860,35 @@ def _impact_trajectory_sentence(impact: dict[str, Any]) -> str:
     )
 
 
-def _print_impact_story(impact_assessment: dict[str, Any], customer: str) -> dict[str, Any] | None:
+def _print_source_labels(note: dict[str, Any]) -> str:
+    links = note.get("links") if isinstance(note.get("links"), list) else []
+    return "; ".join(
+        f"{link.get('label')}: {link.get('url')}"
+        for link in links
+        if isinstance(link, dict) and link.get("label") and link.get("url")
+    )
+
+
+def _print_pattern_notes(notes: list[dict[str, Any]], limit: int = 3) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for note in notes[:limit]:
+        if not isinstance(note, dict):
+            continue
+        rows.append(
+            {
+                "title": str(note.get("title") or "Pattern context"),
+                "text": str(note.get("text") or ""),
+                "basis": "; ".join(str(item) for item in note.get("evidence_basis") or []),
+                "boundary": str(note.get("confidence_boundary") or ""),
+                "sources": _print_source_labels(note),
+            }
+        )
+    return rows
+
+
+def _print_impact_story(
+    impact_assessment: dict[str, Any], customer: str, pattern_notes: list[dict[str, Any]] | None = None
+) -> dict[str, Any] | None:
     if not isinstance(impact_assessment, dict):
         return None
     hunt = impact_assessment.get("hunt")
@@ -1876,6 +1922,8 @@ def _print_impact_story(impact_assessment: dict[str, Any], customer: str) -> dic
         lines.append(
             "No dollar, origin-capacity, or cache-hit impact is shown because no cost config or grounded origin/cache fields were supplied."
         )
+    for note in (pattern_notes or [])[:1]:
+        lines.append(f"Pattern context: {note.get('title')}: {note.get('text')}")
     return {"lines": lines}
 
 
@@ -2379,6 +2427,7 @@ def _print_report(ctx: dict[str, Any]) -> dict[str, Any]:
     story_primary = _story_primary_finding(campaigns, cases, top_pattern, top_surface, audience)
     story_secondary = _story_secondary_finding(ua_families, cases, audience)
     story_independent = _story_independent_leads(cases)
+    pattern_notes = ctx.get("pattern_notes") or []
     cover_headline = _cover_threat_headline(
         campaigns,
         ua_families,
@@ -2591,8 +2640,9 @@ def _print_report(ctx: dict[str, Any]) -> dict[str, Any]:
             "lede_html": "What the hunt found, how much customer traffic it represents, and what the supplied evidence does not establish.",
             "campaign_descriptor": campaign_descriptor,
             "findings_summary": _print_findings_summary(campaigns, cases, top_pattern, top_surface),
-            "impact_story": _print_impact_story(ctx.get("impact_assessment") or {}, audience),
+            "impact_story": _print_impact_story(ctx.get("impact_assessment") or {}, audience, pattern_notes),
             "impact_rows": _print_impact_rows(ctx.get("impact_assessment") or {}),
+            "pattern_notes": _print_pattern_notes(pattern_notes),
             "evidence_distribution": _print_evidence_distribution(cases),
             "boundaries": evidence_boundaries,
             "partial_boundaries": partial_boundaries,
@@ -2948,38 +2998,278 @@ def _impact_rows_ui(ctx: dict[str, Any]) -> list[dict[str, str]]:
     return _explicit_impact_rows(hunt)
 
 
-def _hunt_impact_pattern_note(hunt: dict[str, Any]) -> dict[str, Any] | None:
+def _pattern_link(*keys: str) -> list[dict[str, str]]:
+    return [SCRAPER_PATTERN_LINKS[key] for key in keys if key in SCRAPER_PATTERN_LINKS]
+
+
+def _has_endpoint_pattern(ctx: dict[str, Any]) -> tuple[bool, list[str], float | None]:
+    basis: list[str] = []
+    max_share: float | None = None
+    scoped_terms = ("api", "catalog", "search", "listing", "list", "product", "inventory", "graphql")
+
+    def observe_endpoint(row: dict[str, Any], source: str) -> None:
+        nonlocal max_share
+        haystack = " ".join(
+            str(value)
+            for value in [
+                row.get("endpoint_prefix"),
+                row.get("request_path"),
+                row.get("value"),
+                row.get("endpoint_category"),
+                row.get("category"),
+                *(row.get("markers") or []),
+            ]
+            if value
+        ).lower()
+        share = _to_float(row.get("share_pct"))
+        if share is None:
+            share = _to_float(row.get("request_share_pct"))
+        if share is not None:
+            max_share = max(max_share or 0.0, share)
+        if any(term in haystack for term in scoped_terms):
+            basis.append(source)
+        elif share is not None and share >= 50.0:
+            basis.append(source)
+
+    for campaign in ctx.get("campaigns") or []:
+        summary = campaign.get("endpoint_evidence_summary") or {}
+        if summary.get("counts_for_verdict") or summary.get("confirmed_member_count"):
+            basis.append("campaign endpoint evidence")
+        for row in campaign.get("endpoint_targets") or []:
+            if isinstance(row, dict):
+                observe_endpoint(row, "campaign endpoint target")
+    for case in ctx.get("scraper_cases") or []:
+        evidence = case.get("endpoint_evidence") or {}
+        if evidence.get("counts_for_verdict"):
+            basis.append("lead scoped endpoint evidence")
+        for row in case.get("endpoint_targets") or []:
+            if isinstance(row, dict):
+                observe_endpoint(row, "lead endpoint target")
+    for row in ctx.get("endpoints") or []:
+        if isinstance(row, dict):
+            observe_endpoint(row, "site-level endpoint row")
+    return bool(basis), sorted(set(basis)), max_share
+
+
+def _has_timing_pattern(ctx: dict[str, Any]) -> tuple[bool, list[str]]:
+    basis: list[str] = []
+    for campaign in ctx.get("campaigns") or []:
+        pattern = str(campaign.get("temporal_pattern") or "")
+        summary = campaign.get("timing_summary") if isinstance(campaign.get("timing_summary"), dict) else {}
+        if pattern and pattern not in {"not_established", "unavailable", "unknown"}:
+            basis.append(f"campaign timing pattern {campaign.get('temporal_pattern_label') or _label(pattern)}")
+        if summary.get("evidence_text"):
+            basis.append("campaign timing summary")
+    for case in ctx.get("scraper_cases") or []:
+        timing = case.get("timing") if isinstance(case.get("timing"), dict) else {}
+        raw = case.get("temporal_regularity") if isinstance(case.get("temporal_regularity"), dict) else {}
+        sample_size = _to_float(timing.get("sample_size") if timing else raw.get("sample_size"))
+        if (timing and timing.get("status") != "unavailable") or raw:
+            if sample_size is None or sample_size >= 20:
+                basis.append("lead timing regularity")
+    return bool(basis), sorted(set(basis))
+
+
+def _has_ua_pattern(ctx: dict[str, Any]) -> tuple[bool, list[str]]:
+    basis: list[str] = []
+    for family in ctx.get("ua_families") or []:
+        version_count = _to_float(family.get("version_count")) or 0.0
+        member_count = _to_float(family.get("member_count")) or 0.0
+        checks = " ".join(str(value) for value in family.get("structural_checks") or []).lower()
+        if version_count >= 3 and member_count >= 2:
+            basis.append("UA-family version rotation")
+        if "rotation" in checks or "imperson" in checks or "version" in checks:
+            basis.append("UA-family structural check")
+    for campaign in ctx.get("campaigns") or []:
+        summary = campaign.get("ua_plausibility_summary") or {}
+        if summary.get("forged_ua_candidate") or summary.get("anomalous_member_count"):
+            basis.append("campaign UA plausibility summary")
+    for case in ctx.get("scraper_cases") or []:
+        plausibility = case.get("ua_plausibility") or {}
+        if plausibility.get("verdict") in {"confirmed", "elevated"}:
+            basis.append("lead UA plausibility anomaly")
+    return bool(basis), sorted(set(basis))
+
+
+def _has_fanout_pattern(ctx: dict[str, Any]) -> tuple[bool, list[str], dict[str, float]]:
+    basis: list[str] = []
+    maxima = {"ips": 0.0, "asns": 0.0, "countries": 0.0}
+
+    def observe(ip_value: Any = None, asn_value: Any = None, country_value: Any = None, source: str = "") -> None:
+        ip_count = _to_float(ip_value) or 0.0
+        asn_count = _to_float(asn_value) or 0.0
+        country_count = _to_float(country_value) or 0.0
+        maxima["ips"] = max(maxima["ips"], ip_count)
+        maxima["asns"] = max(maxima["asns"], asn_count)
+        maxima["countries"] = max(maxima["countries"], country_count)
+        if ip_count >= 50 or asn_count >= 3 or country_count >= 3:
+            basis.append(source)
+
+    for campaign in ctx.get("campaigns") or []:
+        fanout = campaign.get("fanout_summary") or {}
+        observe(
+            fanout.get("unique_ips_lower_bound") or fanout.get("effective_ips_composite") or campaign.get("unique_client_ips"),
+            campaign.get("unique_asns"),
+            campaign.get("unique_countries"),
+            "campaign fan-out lower bound",
+        )
+    for case in ctx.get("scraper_cases") or []:
+        fanout = case.get("fanout_enrichment") or {}
+        observe(
+            fanout.get("unique_ips") or fanout.get("unique_client_ips") or case.get("unique_client_ips"),
+            case.get("unique_asns"),
+            case.get("unique_countries"),
+            "lead fan-out lower bound",
+        )
+    for row in ctx.get("fingerprints") or []:
+        if isinstance(row, dict):
+            observe(
+                row.get("unique_client_ips"),
+                row.get("unique_asns"),
+                row.get("unique_countries"),
+                "fingerprint fan-out lower bound",
+            )
+    for row in (ctx.get("infrastructure") or {}).get("asn_rollups") or []:
+        if isinstance(row, dict):
+            observe(row.get("client_ip_count"), 1, row.get("country_count"), "infrastructure rollup")
+    return bool(basis), sorted(set(basis)), maxima
+
+
+def _pattern_note(
+    *,
+    title: str,
+    text: str,
+    evidence_basis: list[str],
+    links: list[dict[str, str]],
+    surface_priority: int,
+) -> dict[str, Any]:
+    return {
+        "title": title,
+        "text": text,
+        "evidence_basis": evidence_basis,
+        "links": links,
+        "confidence_boundary": (
+            "Pattern note only. It supports validation dimensions and is not classification evidence; "
+            "it does not prove intent, operator identity, or enforcement eligibility by itself."
+        ),
+        "surface_priority": surface_priority,
+    }
+
+
+def _build_pattern_notes(ctx: dict[str, Any]) -> list[dict[str, Any]]:
+    assessment = ctx.get("impact_assessment") if isinstance(ctx.get("impact_assessment"), dict) else {}
+    hunt = assessment.get("hunt") if isinstance(assessment.get("hunt"), dict) else {}
     request_share = _to_float(hunt.get("request_share"))
     response_share = _to_float(hunt.get("response_body_byte_share"))
-    if request_share is None or response_share is None or request_share <= 0:
-        return None
-    ratio = response_share / request_share
-    if ratio > 0.75:
-        return None
-    return {
-        "text": (
-            f"The hit share is higher than response-byte share ({_fmt_share(request_share)} hits vs "
-            f"{_fmt_share(response_share)} response bytes), so this scope produces many "
-            f"lighter-than-average requests. That pattern is consistent with API enumeration or "
-            f"harvest-style scraping when paired with endpoint targeting, timing regularity, UA "
-            f"rotation, or fan-out evidence; treat it as supporting evidence, not a standalone "
-            f"scraper signature."
-        ),
-        "links": [
-            {
-                "label": "OWASP OAT-011 Scraping",
-                "url": "https://owasp.org/www-project-automated-threats-to-web-applications/assets/oats/EN/OAT-011_Scraping",
-            },
-            {
-                "label": "OWASP Bot Management Cheat Sheet",
-                "url": "https://cheatsheetseries.owasp.org/cheatsheets/Bot_Management_and_Anti-Automation_Cheat_Sheet.html",
-            },
-            {
-                "label": "F5 scraper behavior patterns",
-                "url": "https://www.f5.com/labs/articles/threat-intelligence/how-to-identify-and-stop-scrapers",
-            },
-        ],
-    }
+    has_endpoint, endpoint_basis, endpoint_share = _has_endpoint_pattern(ctx)
+    has_timing, timing_basis = _has_timing_pattern(ctx)
+    has_ua, ua_basis = _has_ua_pattern(ctx)
+    has_fanout, fanout_basis, fanout_max = _has_fanout_pattern(ctx)
+    has_campaign = bool(ctx.get("campaigns"))
+    notes: list[dict[str, Any]] = []
+
+    corroborating = []
+    if has_endpoint:
+        corroborating.append("endpoint targeting")
+    if has_timing:
+        corroborating.append("timing regularity")
+    if has_ua:
+        corroborating.append("UA plausibility or rotation")
+    if has_fanout:
+        corroborating.append("fan-out")
+    if has_campaign:
+        corroborating.append("campaign linkage")
+
+    if (
+        request_share is not None
+        and response_share is not None
+        and request_share >= 0.01
+        and response_share <= request_share * 0.75
+        and request_share - response_share >= 0.01
+        and corroborating
+    ):
+        notes.append(
+            _pattern_note(
+                title="Light payload / high hits",
+                text=(
+                    f"The hit share materially exceeds response-byte share "
+                    f"({_fmt_share(request_share)} hits vs {_fmt_share(response_share)} response bytes). "
+                    f"That is consistent with many lighter-than-average requests when paired with "
+                    f"{', '.join(corroborating[:4])}; treat it as supporting context, not a standalone scraper signature."
+                ),
+                evidence_basis=[
+                    "hunt request share and response-byte share",
+                    *corroborating[:4],
+                ],
+                links=_pattern_link("owasp_oat_011", "owasp_bot_management", "f5_scraper_patterns"),
+                surface_priority=10,
+            )
+        )
+
+    if has_endpoint and (endpoint_share is None or endpoint_share >= 25.0 or request_share is None or request_share >= 0.01):
+        notes.append(
+            _pattern_note(
+                title="Direct-to-data/API focus",
+                text=(
+                    "Endpoint evidence is concentrated on scoped API, catalog, search, listing, or similarly narrow flow points. "
+                    "Use this to validate endpoint/session controls and current Bot Manager coverage; do not escalate enforcement from endpoint shape alone."
+                ),
+                evidence_basis=endpoint_basis,
+                links=_pattern_link("owasp_oat_011", "f5_scraper_patterns"),
+                surface_priority=20,
+            )
+        )
+
+    if has_timing:
+        notes.append(
+            _pattern_note(
+                title="Boxy or interval cadence",
+                text=(
+                    "Timing evidence shows regular, continuous, or interval-shaped behavior that can diverge from typical human diurnal variation. "
+                    "Validate with current inter-arrival samples and endpoint context before treating cadence as response evidence."
+                ),
+                evidence_basis=timing_basis,
+                links=_pattern_link("owasp_bot_management", "f5_scraper_patterns", "cloudflare_bot_detection"),
+                surface_priority=30,
+            )
+        )
+
+    if has_ua:
+        notes.append(
+            _pattern_note(
+                title="UA impersonation / rotation",
+                text=(
+                    "UA plausibility or version-family evidence suggests the declared client identity should not be trusted alone. "
+                    "Pair UA strings with behavior, fingerprints, endpoint surface, and session controls before enforcement."
+                ),
+                evidence_basis=ua_basis,
+                links=_pattern_link("owasp_bot_management", "cloudflare_bot_detection", "f5_scraper_patterns"),
+                surface_priority=40,
+            )
+        )
+
+    if has_fanout and (has_endpoint or has_timing or has_ua or has_campaign):
+        spread_bits = []
+        if fanout_max["ips"]:
+            spread_bits.append(f"at least {_fmt_num(fanout_max['ips'])} IPs")
+        if fanout_max["asns"]:
+            spread_bits.append(f"{_fmt_num(fanout_max['asns'])} ASNs")
+        if fanout_max["countries"]:
+            spread_bits.append(f"{_fmt_num(fanout_max['countries'])} countries")
+        notes.append(
+            _pattern_note(
+                title="Distributed fan-out",
+                text=(
+                    f"Fan-out lower bounds show requests spread across {' / '.join(spread_bits) or 'multiple infrastructure pivots'}. "
+                    "Evaluate identity, session, endpoint, and behavioral controls; IP-only blocking may be brittle for this evidence shape."
+                ),
+                evidence_basis=fanout_basis,
+                links=_pattern_link("owasp_bot_management", "cloudflare_bot_detection", "f5_scraper_patterns"),
+                surface_priority=50,
+            )
+        )
+
+    return sorted(notes, key=lambda row: int(row.get("surface_priority") or 999))
 
 
 def _hunt_impact_ui(ctx: dict[str, Any]) -> dict[str, Any] | None:
@@ -3002,7 +3292,7 @@ def _hunt_impact_ui(ctx: dict[str, Any]) -> dict[str, Any] | None:
                 "label": "Hydrolix log ingest",
                 "value": _fmt_bytes_long(hunt.get("hydrolix_log_ingest_bytes")),
                 "share": view["hydrolix_log_ingest_byte_share_display"],
-                "denom": "of customer log volume - TrafficPeak retention cost",
+                "denom": "of customer log volume - Hydrolix bill driver",
             },
             {
                 "label": "Response body",
@@ -3018,7 +3308,7 @@ def _hunt_impact_ui(ctx: dict[str, Any]) -> dict[str, Any] | None:
             },
         ],
         "footnote": _hydrolix_ingest_note(assessment),
-        "pattern_note": _hunt_impact_pattern_note(hunt),
+        "pattern_note": (ctx.get("pattern_notes") or [None])[0],
     }
 
 
@@ -3185,6 +3475,88 @@ def _action_groups(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return groups
 
 
+def _topline_lede(data: dict[str, Any]) -> list[dict[str, str]]:
+    hunt_impact = data.get("hunt_impact") if isinstance(data.get("hunt_impact"), dict) else {}
+    rows = {
+        str(row.get("label") or ""): row
+        for row in hunt_impact.get("rows") or []
+        if isinstance(row, dict)
+    }
+    hits = rows.get("Hits") or {}
+    hydrolix = rows.get("Hydrolix log ingest") or {}
+    akamai = rows.get("Akamai-billed") or {}
+    impact_parts = []
+    if hits.get("value"):
+        impact_parts.append(
+            f"{hits['value']} hits"
+            + (f" ({hits['share']} of window HTTP requests)" if hits.get("share") else "")
+        )
+    if hydrolix.get("value") and hydrolix.get("value") != "unavailable":
+        impact_parts.append(
+            f"{hydrolix['value']} Hydrolix log ingest"
+            + (f" ({hydrolix['share']} of customer log volume)" if hydrolix.get("share") else "")
+        )
+    if akamai.get("value") and akamai.get("value") != "unavailable":
+        impact_parts.append(
+            f"{akamai['value']} Akamai-billed bandwidth"
+            + (f" ({akamai['share']} of CDN billed bandwidth)" if akamai.get("share") else "")
+        )
+    impact = (
+        "Hunt-scoped findings account for " + "; ".join(impact_parts) + "."
+        if impact_parts
+        else "Impact is bounded to the supplied threat-hunt evidence."
+    )
+
+    response_count = sum(
+        len(group.get("actions") or [])
+        for group in data.get("action_groups") or []
+        if group.get("title") == "Impact-backed response candidates"
+    )
+    validate_count = sum(
+        len(group.get("actions") or [])
+        for group in data.get("action_groups") or []
+        if group.get("title") == "Monitor / validate before enforcement"
+    )
+    first_response = next(
+        (
+            action
+            for group in data.get("action_groups") or []
+            if group.get("title") == "Impact-backed response candidates"
+            for action in group.get("actions") or []
+            if isinstance(action, dict)
+        ),
+        None,
+    )
+    action_parts = []
+    if response_count:
+        action_parts.append(f"{response_count} impact-backed response candidates")
+    if validate_count:
+        action_parts.append(f"{validate_count} validation-first items")
+    actions = (
+        "Recommended queue: " + " and ".join(action_parts) + "."
+        if action_parts
+        else "No recommended actions were generated from the supplied evidence."
+    )
+    if first_response:
+        target = first_response.get("target_value") or first_response.get("scope_label") or "top target"
+        actions += f" Start with {first_response.get('action_type') or 'Monitor'} for {target}."
+
+    return [
+        {
+            "label": "What the hunt found",
+            "body": data["verdict"]["summary"],
+        },
+        {
+            "label": "Impact of those findings",
+            "body": impact,
+        },
+        {
+            "label": "Recommended actions",
+            "body": actions,
+        },
+    ]
+
+
 def _threat_hunt_ui(ctx: dict[str, Any]) -> dict[str, Any]:
     scope = ctx.get("scope") or {}
     summary = ctx.get("deterministic_summary") or {}
@@ -3213,6 +3585,7 @@ def _threat_hunt_ui(ctx: dict[str, Any]) -> dict[str, Any]:
         "impact_tiles": _impact_tiles_ui(ctx),
         "impact_rows": _impact_rows_ui(ctx),
         "impact_note": _hydrolix_ingest_note(ctx.get("impact_assessment")),
+        "pattern_notes": ctx.get("pattern_notes") or [],
         "hunt_impact": _hunt_impact_ui(ctx),
         "actions": [],
         "leads": [_lead_ui(case) for case in (ctx.get("lead_cards") or [])],
@@ -3267,6 +3640,7 @@ def _threat_hunt_ui(ctx: dict[str, Any]) -> dict[str, Any]:
             }
         )
     data["action_groups"] = _action_groups(data["actions"])
+    data["topline_lede"] = _topline_lede(data)
     data["exports"] = _exports_for_ui(data)
     return data
 
@@ -3509,5 +3883,6 @@ def prepare(artifact: dict[str, Any]) -> dict[str, Any]:
             "reasons": deterministic_summary["reasons"],
         },
     }
+    ctx["pattern_notes"] = _build_pattern_notes(ctx)
     ctx["threat_hunt_ui"] = _threat_hunt_ui(ctx)
     return ctx
