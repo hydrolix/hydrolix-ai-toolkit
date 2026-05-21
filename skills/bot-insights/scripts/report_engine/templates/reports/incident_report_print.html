@@ -791,6 +791,8 @@
 </style>
 </head>
 <body class="profile-print" data-profile="print" data-pdf-layout="fixed-letter">
+{% set print_sections = print_sections | default({}) %}
+{% set page_numbers = page_numbers | default({}) %}
 <div class="doc">
 
 <!-- =========================================================
@@ -1173,6 +1175,7 @@
 <!-- =========================================================
      PAGE 4 — RECOMMENDED ACTIONS
      ========================================================= -->
+{% if print_sections.actions | default(true) %}
 <section class="page" data-screen-label="04 Recommended actions">
   <div class="top-bar">
     <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
@@ -1200,6 +1203,17 @@
       </div>
     </div>
     {% endfor %}
+
+    {% if known_traffic is defined and known_traffic %}
+    <h3 style="margin-top: 18px;">Known crawler and infrastructure traffic</h3>
+    <p class="small" style="margin-top: 6px;">These informational records were excluded from threat classifications and recommended actions.</p>
+    {% for row in known_traffic %}
+    <div class="callout" style="margin-top: 8px;">
+      <b>{{ row.label }}</b> · {{ row.target_html | safe }}<br />
+      <span class="small">{{ row.detail_html | safe }}</span>
+    </div>
+    {% endfor %}
+    {% endif %}
   </div>
 
   <div class="foot-bar">
@@ -1208,11 +1222,12 @@
     <div class="page-no">04 / {{ page_count }}</div>
   </div>
 </section>
+{% endif %}
 
 <!-- =========================================================
      PAGE 5 — ATTACK SHAPE
      ========================================================= -->
-<section class="page" data-screen-label="05 Attack shape">
+<section class="page" data-screen-label="{{ page_numbers.attack_shape | default('05') }} {{ attack_shape.screen_label | default('Attack shape') }}">
   <div class="top-bar">
     <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
     <div class="meta" style="display:flex; gap:18px;"><span><b>{{ customer | upper }}</b></span><span>{{ window.date | upper }} · {{ window.start }} — {{ window.end }} {{ window.tz }}</span><span>RISK <b style="color:var(--{{ verdict.band }});">{{ verdict.risk_score }} / {{ verdict.band_label | upper }}</b></span></div>
@@ -1274,15 +1289,15 @@
 
   <div class="foot-bar">
     <div>{{ customer }} · {{ meta.schema | upper }}</div>
-    <div>Attack shape</div>
-    <div class="page-no">05 / {{ page_count }}</div>
+    <div>{{ attack_shape.footer_label | default('Attack shape') }}</div>
+    <div class="page-no">{{ page_numbers.attack_shape | default('05') }} / {{ page_count }}</div>
   </div>
 </section>
 
 <!-- =========================================================
      PAGE 6 — WHO HIT IT
      ========================================================= -->
-<section class="page" data-screen-label="06 Who hit it">
+<section class="page" data-screen-label="{{ page_numbers.actors | default('06') }} {{ actors_page.screen_label | default('Who hit it') }}">
   <div class="top-bar">
     <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
     <div class="meta" style="display:flex; gap:18px;"><span><b>{{ customer | upper }}</b></span><span>{{ window.date | upper }} · {{ window.start }} — {{ window.end }} {{ window.tz }}</span><span>RISK <b style="color:var(--{{ verdict.band }});">{{ verdict.risk_score }} / {{ verdict.band_label | upper }}</b></span></div>
@@ -1314,13 +1329,13 @@
         <thead>
           <tr>
             <th style="width: 28px;">#</th>
-            <th>Client IP</th>
+            <th>{{ actors_page.actor_column_label | default('Client IP') }}</th>
             <th class="right num">Requests</th>
             <th class="right num">Share</th>
-            <th class="right num">429%</th>
+            <th class="right num">{{ actors_page.rate_column_label | default("429%") }}</th>
             <th>Severity</th>
-            <th>Edge action</th>
-            <th>ATT&amp;CK</th>
+            <th>{{ actors_page.evidence_column_label | default('Edge action') }}</th>
+            <th>{{ actors_page.basis_column_label | default('ATT&CK') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -1333,7 +1348,7 @@
             </td>
             <td class="num right">{{ r.requests }}</td>
             <td class="num right">{{ r.share }}</td>
-            <td class="num right">{{ r.rate_429 }}</td>
+            <td class="num right" style="color: var(--{{ r.rate_429_class | default('ink-3') }});">{{ r.rate_429 }}</td>
             <td><span class="chip {{ r.severity }}">{{ r.severity_label }}</span></td>
             <td><span class="num" style="font-size: 8pt;">{{ r.edge_action_html | safe }}</span></td>
             <td class="tiny basis">{{ r.attck }}</td>
@@ -1344,6 +1359,7 @@
     </div>
     <div class="tiny" style="margin-top: 6px; padding: 0 4px;">{{ actors_page.appendix_note }}</div>
 
+    {% if top_hosts or geo %}
     <!-- Where they hit · Where they came from -->
     <div class="grid-2" style="margin-top: 22px; gap: 14px;">
       <!-- Top affected hosts -->
@@ -1374,18 +1390,20 @@
         <div class="tiny" style="margin-top: 4px; color: var(--ink-3);">{{ geo_footnote }}</div>
       </div>
     </div>
+    {% endif %}
   </div>
 
   <div class="foot-bar">
     <div>{{ customer }} · {{ meta.schema | upper }}</div>
-    <div>Who hit it</div>
-    <div class="page-no">06 / {{ page_count }}</div>
+    <div>{{ actors_page.footer_label | default('Who hit it') }}</div>
+    <div class="page-no">{{ page_numbers.actors | default('06') }} / {{ page_count }}</div>
   </div>
 </section>
 
 <!-- =========================================================
      PAGE 7 — CLASSIFICATION & EDGE RESPONSE
      ========================================================= -->
+{% if print_sections.classification | default(true) %}
 <section class="page" data-screen-label="07 Classification &amp; edge">
   <div class="top-bar">
     <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
@@ -1472,11 +1490,12 @@
     <div class="page-no">07 / {{ page_count }}</div>
   </div>
 </section>
+{% endif %}
 
 <!-- =========================================================
      PAGE 8 — ATT&CK + METHODOLOGY
      ========================================================= -->
-<section class="page" data-screen-label="08 ATT&amp;CK · Methodology">
+<section class="page" data-screen-label="{{ page_numbers.methodology | default('08') }} {{ attck_page.screen_label | default('ATT&CK · Methodology') }}">
   <div class="top-bar">
     <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
     <div class="meta" style="display:flex; gap:18px;"><span><b>{{ customer | upper }}</b></span><span>{{ window.date | upper }} · {{ window.start }} — {{ window.end }} {{ window.tz }}</span><span>RISK <b style="color:var(--{{ verdict.band }});">{{ verdict.risk_score }} / {{ verdict.band_label | upper }}</b></span></div>
@@ -1487,6 +1506,7 @@
     <h2 style="margin-top: 8px;">{{ attck_page.headline }}</h2>
     <p class="small" style="margin-top: 8px; max-width: 70ch;">{{ attck_page.lede_html | safe }}</p>
 
+	    {% if attck_page.techniques %}
 	    <div class="grid-2" style="margin-top: 18px;">
 	      {% for t in attck_page.techniques %}
 	      <div class="attck"{% if t.span_full %} style="grid-column: span 2;"{% endif %}>
@@ -1499,9 +1519,10 @@
       </div>
 	      {% endfor %}
 	    </div>
+	    {% endif %}
 
 	    <!-- Methodology -->
-    <hr class="div" style="margin-top: 26px;"/>
+    <hr class="div" style="margin-top: {% if attck_page.techniques %}26px{% else %}18px{% endif %};"/>
     <div class="grid-2" style="gap: 28px;">
       <div>
         <span class="eyebrow muted">Methodology</span>
@@ -1540,15 +1561,15 @@
 
   <div class="foot-bar">
     <div>{{ customer }} · {{ meta.schema | upper }}</div>
-    <div>ATT&amp;CK · Methodology</div>
-    <div class="page-no">08 / {{ page_count }}</div>
+    <div>{{ attck_page.footer_label | default('ATT&CK · Methodology') }}</div>
+    <div class="page-no">{{ page_numbers.methodology | default('08') }} / {{ page_count }}</div>
   </div>
 </section>
 
 <!-- =========================================================
      PAGE 9 — SCORE + DATA AVAILABILITY
      ========================================================= -->
-<section class="page" data-screen-label="09 Score &amp; availability">
+<section class="page" data-screen-label="{{ page_numbers.score_availability | default('09') }} Score &amp; availability">
   <div class="top-bar">
     <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
     <div class="meta" style="display:flex; gap:18px;"><span><b>{{ customer | upper }}</b></span><span>{{ window.date | upper }} · {{ window.start }} — {{ window.end }} {{ window.tz }}</span><span>RISK <b style="color:var(--{{ verdict.band }});">{{ verdict.risk_score }} / {{ verdict.band_label | upper }}</b></span></div>
@@ -1619,14 +1640,15 @@
   <div class="foot-bar">
     <div>{{ customer }} · {{ meta.schema | upper }}</div>
     <div>Score &amp; availability</div>
-    <div class="page-no">09 / {{ page_count }}</div>
+    <div class="page-no">{{ page_numbers.score_availability | default('09') }} / {{ page_count }}</div>
   </div>
 </section>
 
 <!-- =========================================================
      PAGE 10 — UA AGE
      ========================================================= -->
-<section class="page" data-screen-label="10 Browser UA age">
+{% if print_sections.browser_age | default(true) %}
+<section class="page" data-screen-label="{{ page_numbers.browser_age | default('10') }} Browser UA age">
   <div class="top-bar">
     <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
     <div class="meta" style="display:flex; gap:18px;"><span><b>{{ customer | upper }}</b></span><span>{{ window.date | upper }} · {{ window.start }} — {{ window.end }} {{ window.tz }}</span><span>RISK <b style="color:var(--{{ verdict.band }});">{{ verdict.risk_score }} / {{ verdict.band_label | upper }}</b></span></div>
@@ -1684,9 +1706,10 @@
   <div class="foot-bar">
     <div>{{ customer }} · {{ meta.schema | upper }}</div>
     <div>UA age</div>
-    <div class="page-no">10 / {{ page_count }}</div>
+    <div class="page-no">{{ page_numbers.browser_age | default('10') }} / {{ page_count }}</div>
   </div>
 </section>
+{% endif %}
 
 <!-- =========================================================
      PAGE 11 — UA ROTATION (WHEN AVAILABLE)

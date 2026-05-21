@@ -41,6 +41,7 @@ from . import (
     scorecard_brief,
     scorecard_entity_review,
     soc_triage,
+    threat_hunt,
 )
 
 
@@ -57,6 +58,7 @@ _MODULES: list[ModuleType] = [
     incident_soc_action_packet,
     incident_edge_platform_brief,
     incident_detection_engineering,
+    threat_hunt,
 ]
 
 # Registry keyed on raw artifact schema_version. ``soc_triage``,

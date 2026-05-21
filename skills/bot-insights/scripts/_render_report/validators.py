@@ -24,6 +24,7 @@ from .constants import (
     SCORECARD_PACKET_SCHEMA,
     SCORECARD_SCHEMA,
     SUPPORTED_SCHEMAS,
+    THREAT_HUNT_SCHEMA,
     WRAPPER_SCHEMA,
 )
 from .errors import (
@@ -677,6 +678,9 @@ def validate_report_artifacts(
             "actors": actors,
             "action_targets": action_targets,
         }
+    if report_type == "threat_hunt":
+        threat_hunt = require_one(artifacts, THREAT_HUNT_SCHEMA, report_type)
+        return {"threat_hunt": threat_hunt}
     if report_type == "edge_ops_impact":
         scorecards = by_schema(artifacts, SCORECARD_SCHEMA)
         if not scorecards:

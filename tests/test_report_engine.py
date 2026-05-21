@@ -3524,6 +3524,551 @@ def test_incident_stakeholder_views_registered_and_legacy_accepted():
     )
 
 
+def test_threat_hunt_registered_and_renders_markdown(tmp_path):
+    import render_report
+    from report_engine.contexts import REPORT_TYPE_REGISTRY
+
+    assert "threat_hunt" in REPORT_TYPE_REGISTRY
+    assert "threat_hunt" in render_report.REPORT_TYPES
+    wrapper = {
+        "schema_version": "bot_report_input.v1",
+        "report_type": "threat_hunt",
+        "title": "Threat Hunt",
+        "scope_label": "local/akamai",
+        "artifacts": [
+            {
+                "schema_version": "bot_threat_hunt.v3",
+                "scope": {
+                    "cluster": "local",
+                    "database": "akamai",
+                    "current_window": {
+                        "start": "2026-05-01T00:00:00Z",
+                        "end": "2026-05-02T00:00:00Z",
+                    },
+                    "baseline_window": {
+                        "start": "2026-04-30T00:00:00Z",
+                        "end": "2026-05-01T00:00:00Z",
+                    },
+                },
+                "module_scorecards": [
+                    {
+                        "module": "ua_fanout",
+                        "verdict": "not_enough_data",
+                        "rationale": "Cooccurrence evidence was not supplied.",
+                    }
+                ],
+                "campaigns": [
+                    {
+                        "campaign_id": "campaign-1",
+                        "verdict": "strong_lead",
+                        "sophistication": "moderate",
+                        "temporal_pattern": "synchronized",
+                        "leads": ["CatalogScraper/1.0", "CatalogScraper/2.0"],
+                        "linking_evidence": [
+                            {
+                                "left_user_agent": "CatalogScraper/1.0",
+                                "right_user_agent": "CatalogScraper/2.0",
+                                "link_types": ["shared_ips"],
+                                "shared_ip_count": 3,
+                                "shared_ip_samples": ["198.51.100.1"],
+                                "path_cosine": 0.91,
+                                "asn_cosine": None,
+                                "country_cosine": 1.0,
+                                "temporal_correlation": None,
+                                "shared_path_count": 3,
+                                "shared_path_samples": ["/api/catalog"],
+                            }
+                        ],
+                        "total_requests": 2400,
+                        "baseline_requests": 20,
+                        "drilldown_coverage_summary": {
+                            "status_counts": {"focused": 2},
+                            "drilldown_requests": 2400,
+                            "total_requests": 2400,
+                            "weighted_coverage_pct": 100.0,
+                            "surface_label": "focused_api_surface",
+                        },
+                        "unique_client_ips": 3,
+                        "unique_asns": 1,
+                        "unique_countries": 1,
+                        "endpoint_targets": [
+                            {"endpoint_prefix": "/api/catalog", "requests": 2400, "share_pct": 100.0}
+                        ],
+                        "hourly_profile": [],
+                        "recommended_actions": [
+                            {
+                                "tier": "tier_3",
+                                "scope": "campaign",
+                                "action_type": "campaign_watchlist_or_challenge",
+                                "target_values": {
+                                    "campaign_id": "campaign-1",
+                                    "user_agents": ["CatalogScraper/1.0", "CatalogScraper/2.0"],
+                                },
+                                "supporting_evidence": ["coordinated_activity"],
+                                "estimated_observed_window_impact": {"requests": 2400},
+                                "validation_notes": ["Validate campaign membership."],
+                                "false_positive_caveat": "Challenge first.",
+                                "rollback_monitoring": ["Track post-change traffic."],
+                                "enforcement_wording": "challenge_first",
+                            }
+                        ],
+                    }
+                ],
+                "ua_families": [
+                    {
+                        "family_id": "ua-family-1",
+                        "template": (
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                            "(KHTML, like Gecko) Chrome/{ver}.0.0.0 Safari/537.36"
+                        ),
+                        "members": [
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+                        ],
+                        "member_count": 3,
+                        "version_range": {"min": 147, "max": 149},
+                        "version_count": 3,
+                        "versions": [147, 148, 149],
+                        "total_requests": 3600,
+                        "total_baseline": 30,
+                        "request_volume_cv": 0.0,
+                        "common_evidence": [
+                            "Browser user-agent strings share the same template after replacing browser major versions.",
+                            "Request volumes are uniform enough to suggest parameterized UA-version rotation.",
+                        ],
+                        "structural_checks": ["zero_point_version"],
+                        "campaign_overlaps": [
+                            {
+                                "campaign_id": "campaign-1",
+                                "member_count": 2,
+                                "members": [
+                                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+                                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+                                ],
+                            }
+                        ],
+                        "recommended_actions": [
+                            {
+                                "tier": "tier_3",
+                                "scope": "ua_family",
+                                "action_type": "campaign_watchlist_or_challenge",
+                                "target_values": {
+                                    "ua_family_id": "ua-family-1",
+                                    "ua_family_template": "Mozilla/5.0 Chrome/{ver}.0.0.0 Safari/537.36",
+                                    "user_agents": [
+                                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+                                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+                                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+                                    ],
+                                },
+                                "supporting_evidence": ["ua_family_version_rotation"],
+                                "estimated_observed_window_impact": {"requests": 3600},
+                                "validation_notes": ["Validate current family membership."],
+                                "false_positive_caveat": "Challenge-first handling is recommended.",
+                                "rollback_monitoring": ["Track family traffic."],
+                                "enforcement_wording": "challenge_first",
+                            }
+                        ],
+                    }
+                ],
+                "scraper_cases": [
+                    {
+                        "user_agent": "CatalogScraper/1.0",
+                        "verdict": "lead",
+                        "campaign_id": "campaign-1",
+                        "campaign_verdict": "strong_lead",
+                        "ua_family_id": "ua-family-1",
+                        "ua_family_template": "Mozilla/5.0 Chrome/{ver}.0.0.0 Safari/537.36",
+                        "nested_under_family": False,
+                        "requests": 1200,
+                        "baseline_requests": 10,
+                        "unique_client_ips": 12,
+                        "unique_asns": 2,
+                        "unique_countries": 2,
+                        "drilldown_coverage": {
+                            "drilldown_requests": 1200,
+                            "total_requests": 1200,
+                            "coverage_pct": 100.0,
+                            "status": "focused",
+                        },
+                        "evidence_flags": ["ua_ip_fanout", "endpoint_targeting"],
+                        "ua_plausibility": {
+                            "parsed": {
+                                "browser_family": "Chrome",
+                                "browser_major": 149,
+                                "browser_version": "149.0.7777.1",
+                                "platform": "Windows",
+                                "device_class": "desktop",
+                                "ua_class": "browser",
+                            },
+                            "signals": {
+                                "version_currency": {"status": "future_dated", "score": 1.0},
+                                "fanout": {"status": "unavailable", "score": 0.0},
+                                "homogeneity": {"status": "unavailable", "score": 0.0},
+                                "structural": {"status": "normal", "score": 0.0, "checks": []},
+                            },
+                            "composite_score": 1.0,
+                            "verdict": "confirmed",
+                            "trigger_reason": "Future-dated Chrome/149 for 2026-05-02 window",
+                            "fired_structural_checks": [],
+                            "counts_for_verdict": True,
+                            "source": "scoped_fallback",
+                        },
+                        "case_for": [
+                            "Exact UA/IP cooccurrence observed 12 client IPs across 2 ASNs.",
+                            "Requests concentrated on API/search/catalog/content-like endpoint markers.",
+                        ],
+                        "case_against": [
+                            "Scoped raw scraper drilldown was unavailable, so endpoint cooccurrence and hourly burst proof are limited."
+                        ],
+                        "missing_evidence": ["automation_signature"],
+                        "endpoint_targets": [
+                            {
+                                "request_path": "/api/catalog",
+                                "requests": 1200,
+                                "share_pct": 100.0,
+                                "markers": ["api", "catalog"],
+                            }
+                        ],
+                        "hourly_bursts": [],
+                        "temporal_regularity": {
+                            "resolution": "request_iat",
+                            "archetype": "metronome",
+                            "sample_size": 60,
+                            "summary": "Request-level inter-arrival timing matches metronome behavior in the sampled rows.",
+                            "metrics": {
+                                "cv": 0.0,
+                                "log_bucket_entropy": 0.0,
+                                "spectral_peak_ratio": None,
+                            },
+                            "top_pairs": [],
+                        },
+                        "fanout_enrichment": {
+                            "source": "summary_hour",
+                            "unique_ips": 12000,
+                            "effective_ips": 12000,
+                            "threshold_class": "elevated",
+                        },
+                        "confidence_assessment": {
+                            "qualifier": "partial",
+                            "score": 0.42,
+                            "reasons": ["Confidence is bounded by available corroboration."],
+                            "background_rates": {
+                                "ua_ip_fanout": {
+                                    "triggered": 0,
+                                    "sample_size": 0,
+                                    "rate_pct": None,
+                                    "concern": "unavailable",
+                                },
+                                "endpoint_targeting": {
+                                    "triggered": 12,
+                                    "sample_size": 100,
+                                    "rate_pct": 12.0,
+                                    "concern": "moderate",
+                                },
+                            },
+                            "baseline_significance": {"status": "unavailable"},
+                            "evidence_shelf_life": [
+                                {
+                                    "evidence": "ua_ip_fanout",
+                                    "shelf_life": "next_hunt_window",
+                                    "guidance": "Fan-out counts are hunt-window specific and should be re-queried.",
+                                }
+                            ],
+                        },
+                    }
+                ],
+                "baseline_movement": {"metric_deltas": []},
+                "fingerprints": [],
+                "endpoints": [],
+                "infrastructure": {"asn_rollups": []},
+                "classification_gap": {
+                    "summary": "Bot/SIEM/edge classification artifacts were not supplied."
+                },
+                "recommended_actions": [
+                    {
+                        "tier": "tier_3",
+                        "scope": "campaign",
+                        "action_type": "campaign_watchlist_or_challenge",
+                        "target_values": {"campaign_id": "campaign-1"},
+                        "supporting_evidence": ["coordinated_activity"],
+                        "estimated_observed_window_impact": {"requests": 2400},
+                        "validation_notes": ["Validate campaign membership."],
+                        "false_positive_caveat": "Challenge first.",
+                        "rollback_monitoring": ["Track post-change traffic."],
+                        "enforcement_wording": "challenge_first",
+                    },
+                    {
+                        "tier": "tier_3",
+                        "scope": "ua_family",
+                        "action_type": "campaign_watchlist_or_challenge",
+                        "target_values": {"ua_family_id": "ua-family-1"},
+                        "supporting_evidence": ["ua_family_version_rotation"],
+                        "estimated_observed_window_impact": {"requests": 3600},
+                        "validation_notes": ["Validate current family membership."],
+                        "false_positive_caveat": "Challenge first.",
+                        "rollback_monitoring": ["Track family traffic."],
+                        "enforcement_wording": "challenge_first",
+                    },
+                    {
+                        "tier": "tier_4",
+                        "scope": "lead",
+                        "action_type": "monitor_and_revalidate",
+                        "target_values": {"user_agents": ["Unclassified/1.0"]},
+                        "supporting_evidence": [],
+                        "estimated_observed_window_impact": {"requests": 100},
+                        "validation_notes": ["Monitor only."],
+                        "false_positive_caveat": "No enforcement.",
+                        "rollback_monitoring": ["No action taken."],
+                        "enforcement_wording": "challenge_first",
+                    },
+                ],
+                "known_traffic": [
+                    {
+                        "user_agent": "Googlebot/2.1",
+                        "disposition": "known_crawler",
+                        "reason": "Major search crawler user-agent pattern; informational traffic unless crawler-specific analysis is requested.",
+                        "requests": 2200,
+                        "baseline_requests": 2100,
+                    }
+                ],
+                "limitations": [
+                    {
+                        "module": "cooccurrence",
+                        "availability": "not_available",
+                        "detail": "UA fanout not supplied",
+                    }
+                ],
+            }
+        ],
+        "analyst_notes": [],
+    }
+    path = tmp_path / "threat_hunt.json"
+    path.write_text(json.dumps(wrapper), encoding="utf-8")
+    md = _render(path, "--format", "markdown")
+    assert "Report type: `threat_hunt`" in md
+    assert md.index("## Campaign Summary") < md.index("## Scraper Leads")
+    assert md.index("## UA Families") < md.index("## Scraper Leads")
+    assert "ua\\-family\\-1" in md
+    assert "Recommendation: **Tier 3** - Campaign Watchlist Or Challenge" in md
+    assert md.count("Recommendation: **Tier 3** - Campaign Watchlist Or Challenge") == 1
+    assert "## Known Crawler And Infrastructure Traffic" in md
+    assert "Googlebot/2\\.1" in md
+    assert "Evidence: \n" not in md
+    assert "Evidence: \r\n" not in md
+    assert "Part of UA family ua\\-family\\-1" in md
+    assert "2 members also appear in campaign\\-1" in md
+    assert "links to CatalogScraper" in md
+    assert "3 shared IPs" in md
+    assert "path similarity 0\\.91" in md
+    assert "Part of campaign\\-1" in md
+    assert "Campaign surface: **Focused Api Surface**" in md
+    assert "Campaign endpoint evidence" in md
+    assert "## Scraper Leads" in md
+    assert "CatalogScraper" in md
+    assert "Surface coverage: **Focused**" in md
+    assert "Endpoint evidence: **Not Available**" in md
+    assert "UA plausibility: **Confirmed**" in md
+    assert "UA plausibility anomaly confirmed" in md
+    assert "Future\\-dated Chrome/149" in md
+    assert "Timing status" in md
+    assert "Metronome" in md
+    assert "CV 0\\.00" in md
+    assert "Background-rate caveats: Endpoint Targeting 12.0% (moderate)" in md
+    assert "Ua Ip Fanout unavailable" not in md
+    assert "Fan-out shelf life" in md
+    assert "Case against / missing evidence" in md
+    assert "/api/catalog" in md
+    assert "Raw actor user-agent exports were not supplied." in md
+    assert "operator" in md
+    assert "malicious intent" not in md.lower()
+
+    html = _render(path)
+    assert 'class="report-header"' not in html
+    assert 'class="brief-incident threat-hunt-brief"' in html
+    assert '<header class="brief-mast">' in html
+    assert "Public Sans" in html
+    assert 'href="#verdict">Verdict</a>' in html
+    assert 'href="#ua-families">UA Families</a>' in html
+    assert 'class="verdict-print-top-row"' in html
+    assert 'class="severity-ladder"' in html
+    assert 'class="analyst-assessment"' in html
+    assert 'class="primary-concern"' in html
+    assert 'id="impact"' in html
+    assert 'class="kpis"' in html
+    assert 'id="findings" class="verdict-findings"' in html
+    assert 'id="campaigns"' in html
+    assert 'id="ua-families"' in html
+    assert 'id="leads"' in html
+    assert html.index('id="ua-families"') < html.index('id="leads"')
+    assert 'class="actors-table" data-state="populated"' in html
+    assert "ua-family-1" in html
+    assert "Part of UA family ua-family-1" in html
+    assert "2 members also appear in campaign-1" in html
+    assert "Surface coverage" in html
+    assert "Endpoint evidence" in html
+    assert "UA plausibility" in html
+    assert "Future-dated Chrome/149" in html
+    assert "background Endpoint Targeting 12.0%" in html
+    assert "Ua Ip Fanout unavailable" not in html
+    assert "re-query them in the next hunt window" in html
+    assert "Site-level endpoint context" in html
+    assert "Focused Api Surface" in html
+    assert "Delta vs baseline" in html
+    assert "120.0x (+1.2K)" in html
+    assert "Evidence Boundaries" in html
+    assert 'id="known-traffic"' in html
+    assert "Known Crawler" in html
+    assert "Googlebot/2.1" in html
+    assert "Limitations" in html
+    assert "artifact bot_threat_hunt.v3" in html
+
+    print_html = _render(path, "--profile", "print")
+    assert 'data-pdf-layout="fixed-letter"' in print_html
+    assert "HYDROLIX · BOTINSIGHTS" in print_html
+    assert '<div class="hero pf-xl"' in print_html
+    assert "Assessment summary" in print_html
+    assert "Evidence Coverage" in print_html
+    assert "Delta vs baseline" in print_html
+    assert "120.0x (+1.2K)" in print_html
+    assert "04 Evidence shape" in print_html
+    assert "surface Focused Api Surface" in print_html
+    assert "05 Scraper leads" in print_html
+    assert "06 ATT&amp;CK · Methodology" in print_html
+    assert "07 Score &amp; availability" in print_html
+    assert "Recommended Actions" in print_html
+    assert "Known crawler and infrastructure traffic" in print_html
+    assert "Googlebot/2.1" in print_html
+    assert "Classification &amp; edge" not in print_html
+    assert "Browser UA age" not in print_html
+    assert "No browser-age enrichment supplied." not in print_html
+    assert "ATT&amp;CK · Methodology" in print_html
+    assert "bot_threat_hunt.v3" in print_html
+    assert "Ua Ip Fanout unavailable" not in print_html
+
+
+def test_threat_hunt_context_derives_editorial_readouts():
+    from report_engine.contexts import threat_hunt
+
+    artifact = {
+        "schema_version": "bot_threat_hunt.v3",
+        "scope": {
+            "cluster": "local",
+            "database": "akamai",
+            "current_window": {
+                "start": "2026-05-01T00:00:00Z",
+                "end": "2026-05-02T00:00:00Z",
+            },
+            "baseline_window": {
+                "start": "2026-04-30T00:00:00Z",
+                "end": "2026-05-01T00:00:00Z",
+            },
+        },
+        "module_scorecards": [
+            {
+                "module": "ua_fanout",
+                "verdict": "lead",
+                "rationale": "Fanout evidence present.",
+            }
+        ],
+        "campaigns": [
+            {
+                "campaign_id": "campaign-strong",
+                "verdict": "strong_lead",
+                "sophistication": "moderate",
+                "temporal_pattern": "synchronized",
+                "leads": ["CatalogScraper/1.0", "CatalogScraper/2.0"],
+                "linking_evidence": [{"shared_ip_count": 2}],
+                "total_requests": 2400,
+                "baseline_requests": 20,
+                "unique_client_ips": 3,
+                "unique_asns": 1,
+                "unique_countries": 1,
+                "endpoint_targets": [
+                    {
+                        "endpoint_prefix": "/api/catalog",
+                        "requests": 2400,
+                        "share_pct": 100.0,
+                    }
+                ],
+            }
+        ],
+        "scraper_cases": [
+            {
+                "user_agent": "CatalogScraper/1.0",
+                "verdict": "lead",
+                "requests": 1200,
+                "baseline_requests": 10,
+                "unique_client_ips": 12,
+                "unique_asns": 2,
+                "unique_countries": 2,
+                "drilldown_coverage": {
+                    "drilldown_requests": 1,
+                    "total_requests": 1200,
+                    "coverage_pct": 0.0833333333,
+                    "status": "thin_slice",
+                },
+                "evidence_flags": ["ua_ip_fanout", "endpoint_targeting"],
+                "case_for": ["Endpoint concentration."],
+                "case_against": ["No operator attribution."],
+                "endpoint_targets": [
+                    {
+                        "request_path": "/api/catalog",
+                        "requests": 1200,
+                        "share_pct": 100.0,
+                        "markers": ["api"],
+                    }
+                ],
+                "temporal_regularity": {
+                    "resolution": "request_iat",
+                    "archetype": "metronome",
+                    "sample_size": 60,
+                    "summary": "Fixed interval sample.",
+                    "metrics": {"cv": 0.0, "log_bucket_entropy": 0.0},
+                },
+            }
+        ],
+        "baseline_movement": {"metric_deltas": []},
+        "fingerprints": [],
+        "endpoints": [],
+        "infrastructure": {},
+        "classification_gap": {},
+        "limitations": [],
+    }
+    ctx = threat_hunt.prepare(artifact)
+    assert ctx["deterministic_summary"]["level_label"] == "Strong scraper lead"
+    assert ctx["deterministic_summary"]["confidence_label"] == "Conservative confidence"
+    assert len(ctx["threat_findings"]) == 3
+    assert ctx["impact_tiles"][1]["value"] == "1"
+    assert ctx["impact_tiles"][2]["value"] == "1"
+    assert ctx["campaign_readouts"][0]["campaign_id"] == "campaign-strong"
+    assert ctx["campaign_readouts"][0]["baseline_delta_display"] == "120.0x (+2.4K)"
+    assert ctx["lead_cards"][0]["user_agent"] == "CatalogScraper/1.0"
+    assert ctx["lead_cards"][0]["baseline_delta_display"] == "120.0x (+1.2K)"
+    assert ctx["lead_cards"][0]["drilldown_coverage"]["status_label"] == "Thin Slice"
+    assert any("multi-lead campaign" in item for item in ctx["evidence_boundaries"]["observed"])
+    assert any("Operator identity" in item for item in ctx["evidence_boundaries"]["not_established"])
+    assert any("Primary request surface characterized is not established" in item for item in ctx["evidence_boundaries"]["not_established"])
+
+    no_campaign = deepcopy(artifact)
+    no_campaign["campaigns"] = []
+    no_campaign["scraper_cases"][0].pop("temporal_regularity")
+    no_campaign["scraper_cases"][0]["endpoint_targets"] = []
+    ctx = threat_hunt.prepare(no_campaign)
+    assert ctx["deterministic_summary"]["level_label"] == "Scraper lead"
+    assert ctx["deterministic_summary"]["confidence_label"] == "Limited confidence"
+    assert "No coordinated scraper campaign" in ctx["threat_findings"][0]["lead"]
+    assert any("timing regularity is not established" in item for item in ctx["evidence_boundaries"]["not_established"])
+    assert any("Primary request surface characterized is not established" in item for item in ctx["evidence_boundaries"]["not_established"])
+
+    no_drilldown = deepcopy(artifact)
+    no_drilldown["scraper_cases"][0]["endpoint_targets"] = []
+    no_drilldown["scraper_cases"][0]["drilldown_coverage"] = {"status": "unavailable"}
+    ctx = threat_hunt.prepare(no_drilldown)
+    assert any("drilldown behavior is not established" in item for item in ctx["evidence_boundaries"]["not_established"])
+
+
 class TestIncidentExecutiveView:
     """Direct unit tests on the incident_executive_view context module."""
 

@@ -28,6 +28,7 @@ import argparse
 import json
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 
 from producers.evidence.metrics import (
     METRIC_LABELS,
@@ -272,6 +273,7 @@ def analyst_note_from_args(args: argparse.Namespace) -> dict | None:
             "soc_triage": "SOC Triage Interpretation",
             "crawler_governance": "Crawler Governance Interpretation",
             "edge_ops_impact": "Edge & Origin Cost Interpretation",
+            "threat_hunt": "Threat Hunt Interpretation",
         }.get(args.report, "Analyst Interpretation"),
         "text": text.strip(),
         "show_data_sources": False,
@@ -300,6 +302,7 @@ def build_report_wrapper(
             "soc_triage": "SOC Triage",
             "crawler_governance": "Crawler Governance",
             "edge_ops_impact": "Edge & Origin Cost",
+            "threat_hunt": "Threat Hunt",
             "incident_report": "Incident Report",
             "incident_executive_view": "Incident Executive View",
             "incident_soc_action_packet": "Incident SOC Action Packet",

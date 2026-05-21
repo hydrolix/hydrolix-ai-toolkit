@@ -1,0 +1,659 @@
+{% extends "base.html" %}
+
+{# Threat hunt uses the incident editorial shell while preserving the
+   bot_threat_hunt.v3 schema and existing evidence semantics. #}
+{% block header %}{% endblock %}
+{% block hero %}{% endblock %}
+
+{% block content %}
+<article class="brief-incident threat-hunt-brief">
+  <header class="brief-mast">
+    <div class="mast-titles header-titles">
+      <div class="mast-eyebrow">
+        <span class="mast-brand" aria-label="Hydrolix">{{ hydrolix_logotype_svg }}</span>
+        <span class="mast-eyebrow-divider"></span>
+        <span class="kicker section-eyebrow">{{ kicker }}</span>
+      </div>
+      <h1 class="display-xl">{{ headline }}</h1>
+      {% if windows %}
+        <p class="mast-window-line">{{ windows.current | headline_window_fmt(clock) }}</p>
+      {% endif %}
+      <nav class="mast-anchors" aria-label="Jump to section">
+        <a href="#verdict">Verdict</a>
+        <a href="#impact">KPIs</a>
+        <a href="#findings">Findings</a>
+        <a href="#actions">Actions</a>
+        <a href="#campaigns">Campaigns</a>
+        <a href="#ua-families">UA Families</a>
+        <a href="#leads">Scraper Leads</a>
+        <a href="#evidence">Evidence</a>
+        <a href="#boundaries">Boundaries</a>
+        <a href="#limitations">Limitations</a>
+      </nav>
+      {% if dek %}<p class="mast-dek dek">{{ dek }}</p>{% endif %}
+    </div>
+  </header>
+
+  <section id="verdict" class="verdict">
+    <div class="verdict-cover">
+      <div class="verdict-print-top-row">
+        <div class="verdict-main">
+          <div class="kicker section-eyebrow">The Verdict</div>
+          <div class="verdict-pills">
+            <span class="pill pill-{{ deterministic_summary.level_tone }} pill-lg verdict-level-pill">
+              {{ deterministic_summary.level_label }}
+            </span>
+            <span class="pill pill-medium pill-lg">Confidence: {{ deterministic_summary.confidence_label }}</span>
+            <span class="pill pill-mono pill-lg">artifact {{ method.schema_version }}</span>
+          </div>
+
+          <div class="severity-ladder" role="img"
+               aria-label="Evidence ladder — current level {{ deterministic_summary.level_label }}">
+            <div class="severity-ladder-bars">
+              {% for step in severity_ladder %}
+                <div class="severity-ladder-bar{% if step.on %} is-on{% endif %}{% if step.current %} is-current{% endif %}"
+                     style="--bar-color: {{ step.bar_color }};"></div>
+              {% endfor %}
+            </div>
+            <div class="severity-ladder-labels">
+              {% for step in severity_ladder %}
+                <span{% if step.current %} class="is-current"{% endif %}>{{ step.label }}</span>
+              {% endfor %}
+            </div>
+          </div>
+
+          <p class="verdict-caveat">
+            This hunt reports deterministic scraper evidence from the supplied artifact.
+            It does not identify an operator, prove intent, or show cross-customer reuse.
+          </p>
+          <div class="story-grid" style="margin-top: 14px;">
+            <div class="story-panel">
+              <h3>Confidence Drivers</h3>
+              <ul class="story-bullets">
+                {% for reason in deterministic_summary.reasons %}
+                  <li>{{ reason | inline_code }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+            <div class="story-panel">
+              <h3>Open Validation Items</h3>
+              <ul class="story-bullets">
+                <li>Validate whether endpoint rows reflect normalized routes or exact paths before route-level controls.</li>
+                <li>Use request-level inter-arrival samples only when sub-hour cadence proof is required.</li>
+                <li>Review protected traffic before using this report as a control recommendation.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+      <aside class="verdict-score-card">
+        <div class="kicker section-eyebrow">Evidence Level</div>
+        <div class="verdict-score-num tnum">{{ scraper_cases | length }}</div>
+        <div class="assessment-source">scraper leads</div>
+      </aside>
+    </div>
+
+    <section class="analyst-assessment">
+      <div class="kicker section-eyebrow">Analyst Assessment</div>
+      <div class="assessment-source">Deterministic interpretation</div>
+      <p class="assessment-conclusion">{{ analyst_assessment.conclusion | inline_code }}</p>
+      <ul class="assessment-pillars">
+        {% for pillar in analyst_assessment.pillars %}
+          <li>{{ pillar | inline_code }}</li>
+        {% endfor %}
+      </ul>
+      <p class="assessment-boundary">{{ analyst_assessment.boundary }}</p>
+    </section>
+
+    {% if primary_concern %}
+      <aside class="primary-concern">
+        <div>
+          <div class="kicker section-eyebrow">Primary Concern</div>
+          <h2>{{ primary_concern.title }}</h2>
+          <p>{{ primary_concern.summary | inline_code }}</p>
+          <p class="assessment-boundary">{{ primary_concern.boundary }}</p>
+        </div>
+        {% if primary_concern.evidence %}
+          <ul>
+            {% for evidence in primary_concern.evidence %}
+              <li>{{ evidence | inline_code }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </aside>
+    {% endif %}
+
+    <ol id="findings" class="verdict-findings">
+      {% for finding in threat_findings %}
+        <li>
+          <div class="finding-label">{{ finding.label }}</div>
+          <div class="finding-lead">{{ finding.lead | inline_code }}</div>
+          <p class="finding-body">{{ finding.body | inline_code }}</p>
+        </li>
+      {% endfor %}
+    </ol>
+  </section>
+
+  <section id="actions" class="section section-actions">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">Recommended Actions</span><span class="hr"></span>
+        <span class="section-head-count">{{ recommended_actions | length }} shown</span>
+      </div>
+      <h2 class="display">Campaign-first response queue</h2>
+    </div>
+    {% if recommended_actions %}
+      <div class="story-grid">
+        {% for action in recommended_actions[:6] %}
+          <article class="story-panel">
+            <div class="cluster-card-head">
+              <h3>{{ action.tier_label }}</h3>
+              <span class="pill pill-{{ 'escalate' if action.tier == 'tier_1' else 'monitor' if action.tier in ['tier_2', 'tier_3'] else 'low' }} pill-sm">{{ action.scope_label }}</span>
+            </div>
+            <p><strong>{{ action.action_type_label }}</strong>; {{ action.wording_label }}; observed impact {{ action.impact_requests_display }} requests{% if action.impact_bytes_display != "unavailable" %}, {{ action.impact_bytes_display }} bytes{% endif %}.</p>
+            {% if action.threat_category %}
+              <p class="assessment-boundary">
+                Threat classification: {{ action.threat_category_label }} ({{ action.threat_confidence_display }}).
+                {% if action.classification_ambiguity_note %}{{ action.classification_ambiguity_note }}{% endif %}
+              </p>
+            {% endif %}
+            <p class="assessment-boundary">
+              {% if action.target_values.campaign_id %}<code>{{ action.target_values.campaign_id }}</code>{% elif action.target_values.ua_family_id %}<code>{{ action.target_values.ua_family_id }}</code>{% elif action.target_values.user_agents %}<code>{{ action.target_values.user_agents[0] }}</code>{% else %}Selected scope{% endif %}
+              {% if action.target_values.endpoint_prefixes %} · endpoint <code>{{ action.target_values.endpoint_prefixes[0] }}</code>{% endif %}
+            </p>
+            <p class="assessment-boundary">{{ action.threat_action_modifier or action.false_positive_caveat }}</p>
+            {% if action.supporting_evidence %}
+              <div class="reasons">
+                {% for item in action.supporting_evidence[:5] %}
+                  <span>{{ item | replace("_", " ") | title }}</span>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="assessment-boundary">No tiered recommendations were supplied in the artifact.</p>
+    {% endif %}
+  </section>
+
+  <section id="known-traffic" class="section section-entity-clusters">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">Known Traffic</span><span class="hr"></span>
+        <span class="section-head-count">{{ known_traffic | length }} shown</span>
+      </div>
+      <h2 class="display">Crawler and infrastructure records</h2>
+    </div>
+    {% if known_traffic %}
+      <p class="assessment-boundary">These records matched known crawler or infrastructure user-agent patterns and were excluded from threat classifications and recommended actions.</p>
+      <table class="mini-table">
+        <thead>
+          <tr><th>Disposition</th><th>User agent</th><th class="is-num">Requests</th><th>Reason</th></tr>
+        </thead>
+        <tbody>
+          {% for row in known_traffic %}
+            <tr>
+              <td><span class="pill pill-low pill-sm">{{ row.disposition_label }}</span></td>
+              <td><code>{{ row.user_agent }}</code></td>
+              <td class="is-num">{{ row.requests_display }}</td>
+              <td>{{ row.reason }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="assessment-boundary">No known crawler or infrastructure user-agent patterns were separated from the action queue.</p>
+    {% endif %}
+  </section>
+
+  <section id="impact" class="section section-impact">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">KPI Strip</span><span class="hr"></span>
+      </div>
+      <h2 class="display">Threat-hunt readout</h2>
+    </div>
+    <dl class="kpis" style="grid-template-columns: repeat({{ impact_tiles | length }}, 1fr);">
+      {% for tile in impact_tiles %}
+        <div class="kpi">
+          <dt class="kpi-label">{{ tile.label }}</dt>
+          <dd class="kpi-value tnum">{{ tile.value }}</dd>
+          <dd class="kpi-delta">{{ tile.delta }}</dd>
+        </div>
+      {% endfor %}
+    </dl>
+  </section>
+
+  <section id="campaigns" class="section section-entity-clusters">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">Campaign Summary</span><span class="hr"></span>
+        <span class="section-head-count">{{ campaign_readouts | length }} shown</span>
+      </div>
+      <h2 class="display">Coordinated scraper leads</h2>
+    </div>
+    {% if campaign_readouts %}
+      <div class="cluster-grid">
+        {% for campaign in campaign_readouts %}
+          <article class="cluster-card">
+            <div class="cluster-card-head">
+              <h3>{{ campaign.campaign_id }}</h3>
+              <span class="pill pill-{{ campaign.tone }} pill-sm">{{ campaign.verdict_label }}</span>
+            </div>
+            <p>{{ campaign.total_requests_display }} requests; baseline {{ campaign.baseline_requests_display }}; {{ campaign.baseline_delta_display }} vs baseline; {{ campaign.unique_client_ips }} IPs; {{ campaign.unique_asns }} ASNs; {{ campaign.unique_countries }} countries.</p>
+            {% set fanout_summary = campaign.fanout_summary %}
+            <p class="assessment-boundary">{{ fanout_summary.line }}</p>
+            <div class="cluster-facets">
+              <span>Sophistication <code>{{ campaign.sophistication }}</code></span>
+              <span>Pattern <code>{{ campaign.temporal_pattern_label }}</code></span>
+              {% set surface = campaign.drilldown_coverage_summary %}
+              <span>Surface <code>{{ surface.surface_label_display }}</code> {{ surface.weighted_coverage_display }}</span>
+              {% set endpoint_summary = campaign.endpoint_evidence_summary %}
+              <span>Endpoint evidence <code>{{ endpoint_summary.reason_label }}</code></span>
+            </div>
+            {% if surface.surface_label == 'diffuse_surface' %}
+              <p class="assessment-boundary">High-volume campaign surface is mostly diffuse general-site, asset, or tracking context unless confirmed endpoint members are shown.</p>
+            {% endif %}
+            {% set classification = campaign.threat_classification %}
+            {% if classification.primary %}
+              <p class="assessment-boundary">
+                Threat classification: <strong>{{ classification.primary.category_label }}</strong>
+                ({{ classification.primary.confidence_display }}).
+                {% if classification.ambiguity_note %}{{ classification.ambiguity_note }}{% endif %}
+              </p>
+              {% set mapping = classification.primary.attack_mapping %}
+              {% if mapping.mitre_techniques or mapping.hdx_techniques %}
+                <p class="assessment-boundary">
+                  Consistent-with mappings:
+                  {% for tech in mapping.mitre_techniques %}<a href="{{ tech | attack_url }}" target="_blank" rel="noopener"><code>{{ tech }}</code></a>{% if not loop.last or mapping.hdx_techniques %}, {% endif %}{% endfor %}
+                  {% for tech in mapping.hdx_techniques %}<code>{{ tech }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
+                  — not attribution.
+                </p>
+              {% endif %}
+            {% endif %}
+            <p class="assessment-boundary">
+              Endpoint evidence: {{ endpoint_summary.confirmed_member_count | default(0) }} confirmed,
+              {{ endpoint_summary.inferred_member_count | default(0) }} inferred,
+              {{ endpoint_summary.unconfirmed_member_count | default(0) }} unconfirmed members.
+              {% if not endpoint_summary.counts_for_verdict %}Endpoint targeting is not credited for this campaign verdict.{% endif %}
+            </p>
+            {% set ua_summary = campaign.ua_plausibility_summary %}
+            <p class="assessment-boundary">
+              UA plausibility: {{ ua_summary.anomalous_member_count }} confirmed,
+              {{ ua_summary.weak_member_count }} elevated; max score {{ ua_summary.max_score_display }}.
+              {% if ua_summary.forged_ua_candidate %}Forged-UA residential proxy operation candidate.{% endif %}
+            </p>
+            {% set confidence = campaign.confidence_summary %}
+            <p class="assessment-boundary">
+              Confidence: {{ confidence.dominant_qualifier_label | default("Unavailable") }};
+              baseline z-scores available for {{ confidence.baseline_significance_available_count | default(0) }} members.
+              {% set max_background = confidence.get("max_background_rate_concern") %}
+              {% if max_background and max_background.family %}
+                Highest background-rate caveat: {{ max_background.family | replace("_", " ") | title }}
+                {{ max_background.rate_pct | pct2 if max_background.rate_pct is not none else "unavailable" }}.
+              {% endif %}
+            </p>
+            {% set timing_summary = campaign.get("timing_summary") %}
+            {% if timing_summary and timing_summary.get("evidence_text") %}
+              <p class="assessment-boundary">{{ timing_summary.get("evidence_text") }}</p>
+            {% endif %}
+            <div class="cluster-members">
+              {% for lead in campaign.leads %}
+                <code>{{ lead }}</code>
+              {% endfor %}
+            </div>
+            {% if campaign.link_narratives %}
+              <ul class="story-bullets">
+                {% for item in campaign.link_narratives[:3] %}
+                  <li>{{ item | inline_code }}</li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+            {% if campaign.endpoint_targets %}
+              <table class="mini-table">
+                <thead>
+                  <tr><th>Endpoint prefix</th><th>Category</th><th class="is-num">Requests</th><th class="is-num">Share</th></tr>
+                </thead>
+                <tbody>
+                  {% for row in campaign.endpoint_targets[:5] %}
+                    <tr>
+                      <td><code>{{ row.endpoint_prefix }}</code></td>
+                      <td>{{ row.get("endpoint_category") or "uncharacterized" }}</td>
+                      <td class="is-num">{{ row.requests | big_number }}</td>
+                      <td class="is-num">{{ row.share_pct | pct2 if row.share_pct is not none else "—" }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% endif %}
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="assessment-boundary">No multi-lead scraper campaign passed the conservative linking thresholds. Singleton leads remain below as independent scraper cases.</p>
+    {% endif %}
+  </section>
+
+  <section id="ua-families" class="section section-entity-clusters">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">UA Families</span><span class="hr"></span>
+        <span class="section-head-count">{{ ua_family_readouts | length }} shown</span>
+      </div>
+      <h2 class="display">Parametric browser-version leads</h2>
+    </div>
+    {% if ua_family_readouts %}
+      <div class="cluster-grid">
+        {% for family in ua_family_readouts %}
+          <article class="cluster-card">
+            <div class="cluster-card-head">
+              <h3>{{ family.family_id }}</h3>
+              <span class="pill pill-monitor pill-sm">{{ family.member_count }} members</span>
+            </div>
+            <p><code>{{ family.template }}</code></p>
+            <p>{{ family.total_requests_display }} requests; baseline {{ family.total_baseline_display }}; versions {{ family.version_range_display }} ({{ family.version_count }} majors); request CV {{ family.request_volume_cv_display }}.</p>
+            {% if family.common_evidence %}
+              <ul class="story-bullets">
+                {% for item in family.common_evidence[:4] %}
+                  <li>{{ item | inline_code }}</li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+            {% if family.structural_checks %}
+              <p class="assessment-boundary">Structural checks: {{ family.structural_checks | join(", ") | replace("_", " ") | title }}</p>
+            {% endif %}
+            {% if family.campaign_overlaps %}
+              {% for overlap in family.campaign_overlaps %}
+                <p class="assessment-boundary">{{ overlap.summary }}</p>
+              {% endfor %}
+            {% else %}
+              <p class="assessment-boundary">No campaign overlap recorded for this UA family.</p>
+            {% endif %}
+            {% set classification = family.threat_classification %}
+            {% if classification.primary %}
+              <p class="assessment-boundary">
+                Threat classification: <strong>{{ classification.primary.category_label }}</strong>
+                ({{ classification.primary.confidence_display }}).
+                {% if classification.ambiguity_note %}{{ classification.ambiguity_note }}{% endif %}
+              </p>
+            {% endif %}
+            {% if family.recommended_actions %}
+              {% set action = family.recommended_actions[0] %}
+              <p><strong>{{ action.tier_label }}</strong>; {{ action.action_type_label }}; {{ action.wording_label }}.</p>
+            {% endif %}
+            <div class="cluster-members">
+              {% for member in family.members[:12] %}
+                <code>{{ member }}</code>
+              {% endfor %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="assessment-boundary">No browser-version UA family met the member, version-count, and request-uniformity thresholds.</p>
+    {% endif %}
+  </section>
+
+  <section id="leads" class="section section-actors">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">Scraper Leads</span><span class="hr"></span>
+        <span class="section-head-count">{{ lead_cards | length }} shown</span>
+      </div>
+      <h2 class="display">Behavioral scraper cases</h2>
+    </div>
+    {% if lead_cards %}
+      <table class="actors-table" data-state="populated">
+        <thead>
+          <tr>
+            <th>Lead</th>
+            <th>Verdict</th>
+            <th class="is-num">Requests</th>
+            <th class="is-num">Delta vs baseline</th>
+            <th class="is-num">IPs</th>
+            <th>Surface coverage</th>
+            <th>Endpoint evidence</th>
+            <th>UA plausibility</th>
+            <th>Threat classification</th>
+            <th>Confidence assessment</th>
+            <th>Timing</th>
+            <th>Evidence</th>
+            <th>Missing / against</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for case in lead_cards %}
+            <tr class="{% if case.tone in ['escalate', 'monitor'] %}row-strong{% endif %}">
+              <td>
+                <code class="ident">{{ case.user_agent }}</code>
+                {% if case.campaign_id %}<div class="severity-conf">Part of {{ case.campaign_id }}</div>{% endif %}
+                {% if case.get("ua_family_id") %}<div class="severity-conf">Part of UA family {{ case.get("ua_family_id") }}</div>{% endif %}
+                {% if case.get("nested_under_family") %}<div class="severity-conf">Standalone action nested under family recommendation.</div>{% endif %}
+              </td>
+              <td><span class="pill pill-{{ case.tone }} pill-sm">{{ case.verdict_label }}</span></td>
+              <td class="is-num"><span class="num-large">{{ case.requests_display }}</span><div class="severity-conf">baseline {{ case.baseline_display }}</div></td>
+              <td class="is-num"><span class="num-large">{{ case.baseline_delta_display }}</span><div class="severity-conf">{{ case.request_delta_display }} requests</div></td>
+              <td class="is-num">{{ case.unique_client_ips if case.unique_client_ips is not none else "—" }}</td>
+              {% set coverage = case.drilldown_coverage %}
+              <td><span class="pill pill-sm pill-{{ 'monitor' if coverage.status in ['substantial', 'focused'] else 'low' }}">{{ coverage.status_label }}</span><div class="severity-conf">{{ coverage.coverage_display }} ({{ coverage.drilldown_requests_display }}/{{ coverage.total_requests_display }})</div></td>
+              {% set endpoint_evidence = case.endpoint_evidence %}
+              <td><span class="pill pill-sm pill-{{ 'monitor' if endpoint_evidence.counts_for_verdict else 'low' }}">{{ endpoint_evidence.tier_label }}</span><div class="severity-conf">{{ endpoint_evidence.source_label }}</div></td>
+              {% set ua_plausibility = case.ua_plausibility %}
+              {% set fanout = case.fanout_enrichment %}
+              <td>
+                <span class="pill pill-sm pill-{{ 'monitor' if ua_plausibility.counts_for_verdict else 'low' }}">{{ ua_plausibility.verdict_label }}</span>
+                <div class="severity-conf">{{ ua_plausibility.score_display }} · {{ ua_plausibility.boundary_text }}</div>
+                {% if ua_plausibility.trigger_reason %}<div>{{ ua_plausibility.trigger_reason | inline_code }}</div>{% endif %}
+                {% if ua_plausibility.fired_structural_checks %}<div class="severity-conf">{{ ua_plausibility.fired_structural_checks | join(", ") }}</div>{% endif %}
+                <div class="severity-conf">{{ fanout.line }}</div>
+                {% if fanout.shelf_life_guidance %}<div class="severity-conf">{{ fanout.shelf_life_guidance }}</div>{% endif %}
+              </td>
+              {% set confidence = case.confidence_assessment %}
+              {% set classification = case.threat_classification %}
+              <td>
+                {% if classification.primary %}
+                  <span class="pill pill-sm pill-monitor">{{ classification.primary.category_label }}</span>
+                  <div class="severity-conf">confidence {{ classification.primary.confidence_display }}</div>
+                  {% if classification.ambiguity_note %}<div class="severity-conf">{{ classification.ambiguity_note }}</div>{% endif %}
+                  {% set mapping = classification.primary.attack_mapping %}
+                  {% if mapping.mitre_techniques or mapping.hdx_techniques %}
+                    <div class="severity-conf">
+                      {% for tech in mapping.mitre_techniques %}<a href="{{ tech | attack_url }}" target="_blank" rel="noopener"><code>{{ tech }}</code></a>{% if not loop.last or mapping.hdx_techniques %}, {% endif %}{% endfor %}
+                      {% for tech in mapping.hdx_techniques %}<code>{{ tech }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
+                    </div>
+                  {% endif %}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                <span class="pill pill-sm pill-{{ 'monitor' if confidence.qualifier in ['high', 'partial'] else 'low' }}">{{ confidence.qualifier_label }}</span>
+                <div class="severity-conf">score {{ confidence.score_display }} · z {{ confidence.baseline_z_display }}</div>
+                {% if confidence.background_rate_rows %}
+                  <div class="severity-conf">background {{ confidence.background_rate_rows[0].family_label }} {{ confidence.background_rate_rows[0].rate_display }}</div>
+                {% endif %}
+                {% if confidence.shelf_life_rows %}
+                  <div class="severity-conf">{{ confidence.shelf_life_rows[0].shelf_life_label }}</div>
+                {% endif %}
+              </td>
+              <td>{% if case.timing %}<span class="pill pill-sm pill-{{ 'monitor' if case.timing.status == 'regular' else 'low' }}">{{ case.timing.status_label }}</span><div class="severity-conf">{{ case.timing.metric_line }}</div>{% else %}—{% endif %}</td>
+              <td>
+                <div class="reasons">
+                  {% for item in case.evidence_flag_labels[:4] %}
+                    <span>{{ item }}</span>
+                  {% endfor %}
+                </div>
+                {% if case.timing and case.timing.status == 'regular' %}<div class="severity-conf">{{ case.timing.archetype }}</div>{% endif %}
+              </td>
+              <td>
+                {% for item in case.case_against[:2] %}
+                  <div>{{ item | inline_code }}</div>
+                {% endfor %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <table class="actors-table" data-state="empty"><tbody><tr><td>No user-agent scraper cases could be assembled from the supplied actor evidence.</td></tr></tbody></table>
+    {% endif %}
+    <p class="assessment-boundary">A scraper lead here means repeated automated-looking access to API/search/catalog/content endpoints. It does not identify an operator, prove intent, or show cross-customer reuse.</p>
+  </section>
+
+  <section id="evidence" class="section full-evidence">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">Lead Evidence</span><span class="hr"></span>
+      </div>
+      <h2 class="display">Deep tables</h2>
+    </div>
+
+    <h3 class="display-lg">Module verdicts</h3>
+    <table class="mini-table">
+      <thead><tr><th>Module</th><th>Verdict</th><th>Evidence basis</th></tr></thead>
+      <tbody>
+        {% for card in scorecards %}
+          <tr>
+            <td>{{ card.module_label }}</td>
+            <td><span class="pill pill-{{ card.tone }} pill-sm">{{ card.verdict_label }}</span></td>
+            <td>{{ card.rationale }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h3 class="display-lg">Exact fingerprints</h3>
+    {% if fingerprints %}
+      <table class="mini-table">
+        <thead><tr><th>#</th><th>User agent</th><th class="is-num">Requests</th><th class="is-num">Baseline</th><th class="is-num">IPs</th><th class="is-num">ASNs</th><th class="is-num">Countries</th></tr></thead>
+        <tbody>
+          {% for row in fingerprints %}
+            <tr>
+              <td class="is-num">{{ row.rank }}</td>
+              <td><code>{{ row.user_agent }}</code></td>
+              <td class="is-num">{{ row.requests | big_number }}</td>
+              <td class="is-num">{{ row.baseline_requests | big_number }}</td>
+              <td class="is-num">{{ row.unique_client_ips if row.unique_client_ips is not none else "—" }}</td>
+              <td class="is-num">{{ row.unique_asns if row.unique_asns is not none else "—" }}</td>
+              <td class="is-num">{{ row.unique_countries if row.unique_countries is not none else "—" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="assessment-boundary">Raw actor user-agent exports were not supplied.</p>
+    {% endif %}
+
+    <h3 class="display-lg">Site-level endpoint context</h3>
+    <p class="assessment-boundary">These rows are site-level endpoint context. They are displayed for analyst orientation and do not count as lead-specific endpoint evidence unless a lead also has confirmed scoped drilldown.</p>
+    {% if endpoints %}
+      <table class="mini-table mini-table-urls">
+        <thead><tr><th>#</th><th>Path</th><th>Category</th><th class="is-num">Requests</th><th class="is-num">Share</th><th class="is-num">429</th><th class="is-num">5xx</th><th>Markers</th></tr></thead>
+        <tbody>
+          {% for row in endpoints %}
+            <tr>
+              <td class="is-num">{{ row.rank }}</td>
+              <td><code>{{ row.value }}</code></td>
+              <td>{{ row.get("endpoint_category") or "uncharacterized" }}</td>
+              <td class="is-num">{{ row.requests | big_number }}</td>
+              <td class="is-num">{{ row.request_share_pct | pct2 if row.request_share_pct is not none else "—" }}</td>
+              <td class="is-num">{{ row.rate_429_pct | pct2 if row.rate_429_pct is not none else "—" }}</td>
+              <td class="is-num">{{ row.rate_5xx_pct | pct2 if row.rate_5xx_pct is not none else "—" }}</td>
+              <td>{{ row.markers | join(", ") if row.markers else "—" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="assessment-boundary">Path-ranked summary rows were not available.</p>
+    {% endif %}
+
+    <h3 class="display-lg">Infrastructure</h3>
+    {% set asns = infrastructure.asn_rollups if infrastructure else [] %}
+    {% if asns %}
+      <table class="mini-table">
+        <thead><tr><th>#</th><th>ASN</th><th>Organization</th><th class="is-num">Requests</th><th class="is-num">IPs</th><th class="is-num">Countries</th></tr></thead>
+        <tbody>
+          {% for row in asns %}
+            <tr>
+              <td class="is-num">{{ row.rank }}</td>
+              <td><code>{{ row.asn }}</code></td>
+              <td>{{ row.asn_org or "—" }}</td>
+              <td class="is-num">{{ row.requests | big_number }}</td>
+              <td class="is-num">{{ row.client_ip_count }}</td>
+              <td class="is-num">{{ row.country_count }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="assessment-boundary">GeoIP/ASN enrichment was not supplied or no client-IP rows were available.</p>
+    {% endif %}
+
+    <h3 class="display-lg">Baseline movement</h3>
+    <table class="mini-table">
+      <thead><tr><th>Metric</th><th class="is-num">Current</th><th class="is-num">Baseline</th><th class="is-num">Change</th></tr></thead>
+      <tbody>
+        {% for row in metric_rows %}
+          <tr>
+            <td>{{ row.metric_label }}</td>
+            <td class="is-num">{{ row.current_display }}</td>
+            <td class="is-num">{{ row.baseline_display }}</td>
+            <td class="is-num">{{ row.pct_change_display }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section id="boundaries" class="section section-analytic-story">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">Evidence Boundaries</span><span class="hr"></span>
+      </div>
+      <h2 class="display">Observed vs not established</h2>
+    </div>
+    <div class="story-grid">
+      <div class="story-panel">
+        <h3>Observed</h3>
+        <ul class="story-bullets">
+          {% for item in evidence_boundaries.observed %}
+            <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div class="story-panel">
+        <h3>Not Established</h3>
+        <ul class="story-bullets">
+          {% for item in evidence_boundaries.not_established %}
+            <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="limitations" class="section section-limitations">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">Limitations</span><span class="hr"></span>
+      </div>
+      <h2 class="display">Data limits</h2>
+    </div>
+    <p class="assessment-boundary">{{ classification_gap.summary or "Bot/SIEM/edge visibility artifacts were not supplied." }}</p>
+    <table class="mini-table">
+      <thead><tr><th>Input</th><th>Status</th><th>Effect</th></tr></thead>
+      <tbody>
+        {% for row in limitations %}
+          <tr>
+            <td>{{ row.module }}</td>
+            <td>{{ row.availability }}</td>
+            <td>{{ row.detail }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</article>
+{% endblock %}
