@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -55,9 +56,9 @@ def _fmt_num(value: Any) -> str:
     except (TypeError, ValueError):
         return "unavailable"
     if abs(n) >= 1_000_000:
-        return f"{n / 1_000_000:.1f}M"
+        return f"{n / 1_000_000:,.1f}M"
     if abs(n) >= 1_000:
-        return f"{n / 1_000:.1f}K"
+        return f"{n / 1_000:,.1f}K"
     return f"{n:.0f}"
 
 
@@ -148,6 +149,160 @@ def _fmt_tiny_pct(value: Any) -> str:
     if number < 1.0:
         return f"{number:.2f}%"
     return f"{number:.1f}%"
+
+
+def _fmt_share(value: Any) -> str:
+    number = _to_float(value)
+    if number is None:
+        return "unavailable"
+    return _fmt_tiny_pct(number * 100.0)
+
+
+def _fmt_money(value: Any) -> str:
+    number = _to_float(value)
+    if number is None:
+        return "unavailable"
+    if abs(number) >= 1000:
+        return f"${number:,.0f}"
+    return f"${number:,.2f}"
+
+
+def _fmt_bytes(value: Any) -> str:
+    number = _to_float(value)
+    if number is None:
+        return "unavailable"
+    magnitude = abs(number)
+    units = [
+        (1_000_000_000_000_000, "P"),
+        (1_000_000_000_000, "T"),
+        (1_000_000_000, "B"),
+        (1_000_000, "M"),
+        (1_000, "K"),
+    ]
+    for divisor, suffix in units:
+        if magnitude >= divisor:
+            return f"{number / divisor:.1f}{suffix}"
+    return f"{number:.0f}"
+
+
+def _fmt_bytes_long(value: Any) -> str:
+    number = _to_float(value)
+    if number is None:
+        return "unavailable"
+    magnitude = abs(number)
+    units = [
+        (1_000_000_000_000_000, "PB"),
+        (1_000_000_000_000, "TB"),
+        (1_000_000_000, "GB"),
+        (1_000_000, "MB"),
+        (1_000, "KB"),
+    ]
+    for divisor, suffix in units:
+        if magnitude >= divisor:
+            return f"{number / divisor:.1f} {suffix}"
+    return f"{number:.0f} bytes"
+
+
+def _impact_action_text(impact: dict[str, Any]) -> str:
+    response_bytes = impact.get("response_body_bytes")
+    response_share = impact.get("response_body_byte_share")
+    if response_bytes is None:
+        response_bytes = impact.get("bytes")
+        response_share = impact.get("byte_share")
+    return (
+        f"IMPACT: {_fmt_num(impact.get('requests'))} requests"
+        f" ({_fmt_share(impact.get('request_share'))} of window total)"
+        f" · {_fmt_bytes(response_bytes)} response body"
+        f" ({_fmt_share(response_share)} of response bytes)"
+    )
+
+
+def _impact_trend_sentence(subject: str, impact: dict[str, Any] | None, *, audience: str) -> str:
+    view = _impact_view(impact)
+    current = view.get("request_share_display") or "unavailable"
+    baseline = view.get("baseline_request_share_display") or "unavailable"
+    direction = str(view.get("share_direction") or "")
+    trend = str(view.get("trend_severity") or "")
+    if current == "unavailable":
+        return f"{subject} has no available total-traffic share for this window."
+    if subject == "This UA family" and (
+        direction == "new_entrant" or trend in {"new_entrant", "accelerating", "growing"}
+    ):
+        return "This UA family is newly visible or sharply growing relative to baseline."
+    if direction == "new_entrant" or trend == "new_entrant" or baseline == "unavailable":
+        return f"{subject} represents {current} of all {audience} traffic in this window and is newly visible relative to baseline."
+    if direction == "shrinking_share":
+        phrase = f"down from baseline window share of {baseline}"
+    elif direction == "growing_share":
+        phrase = f"up from baseline window share of {baseline}"
+    else:
+        phrase = f"stable versus baseline window share of {baseline}"
+    return f"{subject} represents {current} of all {audience} traffic in this window, {phrase}."
+
+
+def _impact_view(impact: dict[str, Any] | None) -> dict[str, Any]:
+    impact = impact or {}
+    cost = impact.get("cost_estimate") if isinstance(impact.get("cost_estimate"), dict) else {}
+    low = _to_float(cost.get("low")) if cost else None
+    high = _to_float(cost.get("high")) if cost else None
+    cost_range = None
+    if low is not None and high is not None:
+        cost_range = f"{_fmt_money(low)}-{_fmt_money(high)}"
+    return {
+        **impact,
+        "requests_display": _fmt_num(impact.get("requests")),
+        "baseline_requests_display": _fmt_num(impact.get("baseline_requests")),
+        "request_share_display": _fmt_share(impact.get("request_share")),
+        "baseline_request_share_display": _fmt_share(impact.get("baseline_request_share")),
+        "bytes_display": _fmt_bytes(impact.get("bytes")),
+        "baseline_bytes_display": _fmt_bytes(impact.get("baseline_bytes")),
+        "byte_share_display": _fmt_share(impact.get("byte_share")),
+        "hydrolix_log_ingest_bytes_display": _fmt_bytes(impact.get("hydrolix_log_ingest_bytes")),
+        "hydrolix_log_ingest_byte_share_display": _fmt_share(
+            impact.get("hydrolix_log_ingest_byte_share")
+        ),
+        "response_body_bytes_display": _fmt_bytes(impact.get("response_body_bytes")),
+        "response_body_byte_share_display": _fmt_share(impact.get("response_body_byte_share")),
+        "akamai_billed_bytes_display": _fmt_bytes(impact.get("akamai_billed_bytes")),
+        "akamai_billed_byte_share_display": _fmt_share(impact.get("akamai_billed_byte_share")),
+        "share_severity_label": _label(str(impact.get("share_severity") or "minor")),
+        "trend_severity_label": _label(str(impact.get("trend_severity") or "stable")),
+        "share_direction_label": _label(str(impact.get("share_direction") or "stable_share")),
+        "interpretation": impact.get("interpretation"),
+        "cost_estimate": cost,
+        "cost_range_display": cost_range,
+        "cost_basis_label": cost.get("basis_label") if cost else None,
+        "cost_disclaimer": cost.get("disclaimer") if cost else None,
+    }
+
+
+def _short_ua_label(user_agent: Any, max_len: int = 42) -> str:
+    ua = str(user_agent or "unknown UA").strip()
+    if not ua:
+        return "unknown UA"
+    if len(ua) <= max_len:
+        return ua
+    first_token = ua.split(" ", 1)[0]
+    if "/" in first_token and len(first_token) <= max_len:
+        return first_token
+    return ua[: max_len - 3].rstrip() + "..."
+
+
+def _parsed_ua_label(case: dict[str, Any]) -> str:
+    ua = str(case.get("user_agent") or "unknown UA")
+    parsed = ((case.get("ua_plausibility") or {}).get("parsed") or {})
+    browser = parsed.get("browser_family")
+    major = parsed.get("browser_major")
+    platform = parsed.get("platform")
+    app_match = ua.split(" ", 1)[0]
+    if browser and str(browser).lower() not in {"unknown", "other"}:
+        label = f"{browser}/{major}" if major is not None else str(browser)
+        if platform:
+            label = f"{label} - {platform}"
+        return label
+    if app_match and "/" in app_match:
+        return app_match
+    return _short_ua_label(ua)
 
 
 def _coverage_view(coverage: dict[str, Any] | None) -> dict[str, Any]:
@@ -392,9 +547,12 @@ def _action_view(action: dict[str, Any] | None) -> dict[str, Any]:
         "scope_label": _label(str(action.get("scope") or "lead")),
         "action_type_label": _label(str(action.get("action_type") or "monitor")),
         "impact_requests_display": _fmt_num(impact.get("requests")),
-        "impact_bytes_display": _fmt_num(impact.get("bytes"))
+        "impact_request_share_display": _fmt_share(impact.get("request_share")),
+        "impact_bytes_display": _fmt_bytes(impact.get("bytes"))
         if impact.get("bytes") is not None
         else "unavailable",
+        "impact_byte_share_display": _fmt_share(impact.get("byte_share")),
+        "impact_assessment": _impact_view(action.get("impact_assessment")),
         "wording_label": _label(str(action.get("enforcement_wording") or "challenge_first")),
         "threat_category": action.get("threat_category"),
         "threat_category_label": _label(str(action.get("threat_category") or "unclassified")),
@@ -404,6 +562,59 @@ def _action_view(action: dict[str, Any] | None) -> dict[str, Any]:
         else "unavailable",
         "threat_action_modifier": action.get("threat_action_modifier"),
         "classification_ambiguity_note": action.get("classification_ambiguity_note"),
+    }
+
+
+def _mix_view(rows: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    return [
+        {
+            **row,
+            "label": str(row.get("value") or "unknown").replace("_", " "),
+            "requests_display": _fmt_num(row.get("requests")),
+            "share_display": _fmt_tiny_pct(row.get("share_pct")),
+        }
+        for row in (rows or [])
+        if isinstance(row, dict) and row.get("value") not in (None, "")
+    ]
+
+
+def _bot_manager_source_view(source: dict[str, Any] | None) -> dict[str, Any]:
+    source = source or {}
+    window = source.get("window") if isinstance(source.get("window"), dict) else {}
+    score = _to_float(source.get("average_bot_score"))
+    return {
+        **source,
+        "available": source.get("availability") == "evidence_backed",
+        "total_requests_display": _fmt_num(source.get("total_requests")),
+        "average_bot_score_display": f"{score:.1f}" if score is not None else "unavailable",
+        "action_class_mix": _mix_view(source.get("action_class_mix")),
+        "bot_type_mix": _mix_view(source.get("bot_type_mix")),
+        "policy_mix": _mix_view(source.get("policy_mix")),
+        "window_label": (
+            f"{window.get('start')} to {window.get('end')}"
+            if window.get("start") and window.get("end")
+            else None
+        ),
+    }
+
+
+def _bot_manager_context_view(context: dict[str, Any] | None) -> dict[str, Any]:
+    context = context or {}
+    aggregate = _bot_manager_source_view(context.get("aggregate"))
+    exact_ua = _bot_manager_source_view(context.get("exact_ua"))
+    return {
+        **context,
+        "available": context.get("availability") == "evidence_backed",
+        "summary": context.get("summary") or "Bot Manager operational context was not supplied.",
+        "caveat": context.get("caveat")
+        or (
+            "Bot Manager context is operational enrichment, not threat-hunt attribution "
+            "or independent evidence for classification."
+        ),
+        "aggregate": aggregate,
+        "exact_ua": exact_ua,
+        "has_aggregate": aggregate["available"],
+        "has_exact_ua": exact_ua["available"],
     }
 
 
@@ -457,6 +668,7 @@ def _ua_family_view(family: dict[str, Any]) -> dict[str, Any]:
         "versions_display": ", ".join(str(value) for value in family.get("versions") or []),
         "total_requests_display": _fmt_num(family.get("total_requests")),
         "total_baseline_display": _fmt_num(family.get("total_baseline")),
+        "impact_assessment": _impact_view(family.get("impact_assessment")),
         "request_volume_cv_display": _fmt_float(family.get("request_volume_cv")),
         "common_evidence": family.get("common_evidence") or [],
         "structural_checks": family.get("structural_checks") or [],
@@ -766,21 +978,33 @@ def _build_threat_findings(
             }
         )
     if cases:
-        top_case = cases[0]
+        top_case = next(
+            (case for case in cases if not _is_weak_first_party_app_lead(case)),
+            cases[0],
+        )
         ua_view = top_case.get("ua_plausibility") or {}
         ua_text = (
             f" UA plausibility: {ua_view.get('trigger_reason')}."
             if ua_view.get("verdict") in {"confirmed", "elevated"}
             else ""
         )
+        if _is_weak_first_party_app_lead(top_case):
+            lead = f"{_parsed_ua_label(top_case)} is the highest-volume evidence-bounded lead."
+            body = (
+                f"It accounts for {_fmt_num(top_case.get('requests'))} requests, but the first-party "
+                "app user-agent shape and current evidence do not support stronger scraper wording."
+            )
+        else:
+            lead = f"{_parsed_ua_label(top_case)} is the strongest non-campaign lead."
+            body = (
+                f"It accounts for {_fmt_num(top_case.get('requests'))} requests with "
+                f"{', '.join(top_case.get('evidence_flag_labels') or []) or 'no named evidence flags'}.{ua_text}"
+            )
         findings.append(
             {
                 "label": "Finding 2",
-                "lead": f"{top_case.get('user_agent')} is the lead scraper fingerprint.",
-                "body": (
-                    f"It accounts for {_fmt_num(top_case.get('requests'))} requests with "
-                    f"{', '.join(top_case.get('evidence_flag_labels') or []) or 'no named evidence flags'}.{ua_text}"
-                ),
+                "lead": lead,
+                "body": body,
             }
         )
     else:
@@ -805,6 +1029,16 @@ def _build_threat_findings(
         }
     )
     return findings[:3]
+
+
+def _is_weak_first_party_app_lead(case: dict[str, Any]) -> bool:
+    ua = str(case.get("user_agent") or "")
+    parsed = ((case.get("ua_plausibility") or {}).get("parsed") or {})
+    first_party = ua.lower().startswith(("expedia/", "vrbo/", "hotels.com/"))
+    app_like = parsed.get("ua_class") in {"native_app", "mobile_app", "first_party_app"}
+    weak = str(case.get("verdict") or "").lower() in {"weak_lead", "not_enough_data", "possible"}
+    confidence = ((case.get("confidence_assessment") or {}).get("qualifier") or "").lower()
+    return first_party and (app_like or weak or confidence in {"weak", "low", "partial"})
 
 
 def _build_evidence_boundaries(
@@ -929,13 +1163,66 @@ def _build_primary_concern(
         return {
             "title": "Independent scraper lead",
             "summary": (
-                f"{top.get('user_agent')} accounts for {_fmt_num(top.get('requests'))} requests "
+                f"{_parsed_ua_label(top)} accounts for {_fmt_num(top.get('requests'))} requests "
                 f"with {', '.join(top.get('evidence_flag_labels') or []) or 'limited evidence flags'}."
             ),
             "boundary": "The case remains a lead unless additional independent evidence is supplied.",
             "evidence": (top.get("case_for") or [])[:3],
         }
     return None
+
+
+def _print_primary_concern_stats(
+    campaigns: list[dict[str, Any]], cases: list[dict[str, Any]]
+) -> list[dict[str, str]]:
+    if campaigns:
+        top = campaigns[0]
+        coverage = top.get("drilldown_coverage_summary") or {}
+        return [
+            {
+                "label": "Campaign",
+                "value": str(top.get("campaign_id") or "campaign"),
+                "detail": _count_label(len(top.get("leads") or []), "lead"),
+                "value_size": "13pt",
+            },
+            {
+                "label": "Requests",
+                "value": _fmt_num(top.get("total_requests")),
+                "detail": top.get("baseline_delta_display") or "",
+                "value_size": "15pt",
+            },
+            {
+                "label": "Surface",
+                "value": coverage.get("surface_label_display") or "Bounded",
+                "detail": f"{coverage.get('weighted_coverage_display') or 'unavailable'} coverage",
+                "value_size": "10pt",
+            },
+        ]
+    if cases:
+        top = cases[0]
+        return [
+            {
+                "label": "Lead",
+                "value": _parsed_ua_label(top),
+                "detail": top.get("verdict_label") or "Lead",
+                "value_size": "10pt",
+            },
+            {
+                "label": "Requests",
+                "value": _fmt_num(top.get("requests")),
+                "detail": top.get("baseline_delta_display") or "",
+                "value_size": "15pt",
+            },
+            {
+                "label": "Evidence",
+                "value": _count_label(len(top.get("evidence_flag_labels") or []), "tag"),
+                "detail": ", ".join((top.get("evidence_flag_labels") or [])[:2]),
+                "value_size": "11pt",
+            },
+        ]
+    return [
+        {"label": "Evidence", "value": "Unavailable", "detail": "No scraper lead rows", "value_size": "11pt"}
+    ]
 
 
 def _risk_value(summary: dict[str, Any], campaigns: list[dict[str, Any]], cases: list[dict[str, Any]]) -> int:
@@ -1002,29 +1289,51 @@ def _print_chart(ctx: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _print_actor_rows(cases: list[dict[str, Any]], limit: int = 10) -> list[dict[str, str]]:
+def _print_actor_rows(cases: list[dict[str, Any]], limit: int = 8) -> list[dict[str, str]]:
     rows = []
     for idx, case in enumerate(cases[:limit], start=1):
         baseline = case.get("baseline_comparison") or _baseline_comparison(case)
-        coverage = _coverage_view(case.get("drilldown_coverage"))
-        endpoint_evidence = _endpoint_evidence_view(case.get("endpoint_evidence"))
-        fanout = _fanout_view(case.get("fanout_enrichment") or (case.get("ua_plausibility") or {}).get("signals", {}).get("fanout"))
+        evidence = (case.get("evidence_flag_labels") or [])[:3]
+        classification = case.get("threat_classification") or {}
+        primary = classification.get("primary") if isinstance(classification, dict) else {}
+        verdict = primary.get("category_label") if isinstance(primary, dict) else None
+        campaign_id = case.get("campaign_id")
         rows.append(
             {
                 "rank": str(idx),
-                "ip": str(case.get("user_agent") or "Lead"),
-                "asn_meta": str(case.get("campaign_id") or "independent lead"),
+                "ip": _parsed_ua_label(case),
+                "asn_meta": str(campaign_id or case.get("ua_family_id") or "independent lead"),
                 "requests": case.get("requests_display") or _fmt_num(case.get("requests")),
-                "share": f"{coverage['coverage_display']} {coverage['status_label']}; endpoint {endpoint_evidence['tier_label']}; {fanout['line']}",
+                "share": baseline.get("display") or "",
                 "rate_429": baseline.get("display") or "",
                 "rate_429_class": baseline.get("class") or "ink-3",
                 "severity": "critical" if case.get("tone") == "escalate" else "high",
                 "severity_label": case.get("verdict_label") or "Lead",
-                "edge_action_html": ", ".join(case.get("evidence_flag_labels") or []) or "Observed",
-                "attck": "scraper lead",
+                "edge_action_html": ", ".join(evidence) or "Observed",
+                "attck": verdict or case.get("verdict_label") or "Lead",
+                "is_campaign_member": bool(campaign_id),
+                "campaign_id": str(campaign_id or ""),
+                "row_class": "campaign-member" if campaign_id else "",
             }
         )
-    return rows
+    if rows:
+        return rows
+    return [
+        {
+            "n": "01",
+            "severity": "observe",
+            "chip_text": "No Action",
+            "scope_label": "Empty state",
+            "target_html": "<code>no recommended target</code>",
+            "action_label": "Monitor",
+            "classification_label": "Evidence bounded",
+            "confidence_label": "confidence unavailable",
+            "impact_html": "0 observed requests",
+            "endpoint_html": "No endpoint target supplied",
+            "evidence_tags": ["No recommended actions"],
+            "action_text": "No recommended actions were generated; preserve the fixed six-page report flow and re-run after new evidence arrives.",
+        }
+    ]
 
 
 def _print_endpoint_rows(
@@ -1070,63 +1379,582 @@ def _print_signal_rows(cases: list[dict[str, Any]], limit: int = 6) -> list[dict
     ]
 
 
-def _print_actions(actions: list[dict[str, Any]], limit: int = 5) -> list[dict[str, str]]:
-    severity_by_tier = {
-        "tier_1": "critical",
-        "tier_2": "high",
-        "tier_3": "monitor",
-        "tier_4": "low",
-    }
-    rows = []
-    for idx, action in enumerate(actions[:limit], start=1):
-        targets = action.get("target_values") if isinstance(action.get("target_values"), dict) else {}
-        uas = targets.get("user_agents") or []
-        endpoints = targets.get("endpoint_prefixes") or []
-        impact = (
-            action.get("estimated_observed_window_impact")
-            if isinstance(action.get("estimated_observed_window_impact"), dict)
-            else {}
-        )
-        target_label = targets.get("campaign_id") or (uas[0] if uas else "selected lead")
-        evidence = [
-            _label(str(flag))
-            for flag in (action.get("supporting_evidence") or [])[:4]
-            if str(flag)
+def _lead_has_flag(case: dict[str, Any], *needles: str) -> bool:
+    haystack = " ".join(
+        [
+            *(str(flag) for flag in case.get("evidence_flags") or []),
+            *(str(flag) for flag in case.get("evidence_flag_labels") or []),
         ]
-        evidence_html = (
-            "Evidence: " + ", ".join(evidence)
-            if evidence
-            else "Evidence basis was not supplied in this action."
-        )
+    ).lower()
+    return any(needle.lower() in haystack for needle in needles)
+
+
+def _print_campaign_descriptor(
+    campaigns: list[dict[str, Any]], cases: list[dict[str, Any]], top_pattern: str, top_surface: str
+) -> dict[str, str]:
+    if campaigns:
+        top = campaigns[0]
+        member_count = len(top.get("leads") or [])
+        return {
+            "campaign_id": str(top.get("campaign_id") or "campaign"),
+            "member_count": _count_label(member_count, "member"),
+            "timing_pattern": top.get("temporal_pattern_label") or top_pattern,
+            "surface": top_surface,
+            "requests": _fmt_num(top.get("total_requests")),
+        }
+    return {
+        "campaign_id": "No linked campaign",
+        "member_count": _count_label(len(cases), "independent lead"),
+        "timing_pattern": top_pattern,
+        "surface": top_surface,
+        "requests": _fmt_num(sum(float(case.get("requests") or 0) for case in cases)),
+    }
+
+
+def _print_evidence_distribution(cases: list[dict[str, Any]]) -> list[dict[str, str]]:
+    specs = [
+        (
+            "Temporal Regularity",
+            lambda case: bool(case.get("temporal_regularity")) or _lead_has_flag(case, "temporal"),
+        ),
+        (
+            "Coordinated Activity",
+            lambda case: bool(case.get("campaign_id")) or _lead_has_flag(case, "coordinated", "campaign"),
+        ),
+        (
+            "UA Anomaly",
+            lambda case: (case.get("ua_plausibility") or {}).get("verdict") in {"confirmed", "elevated"}
+            or _lead_has_flag(case, "ua anomaly", "ua plausibility", "automation signature"),
+        ),
+        (
+            "Automation Signature",
+            lambda case: _lead_has_flag(case, "automation signature", "automation"),
+        ),
+        (
+            "Rate Limit / Error Pressure",
+            lambda case: _lead_has_flag(case, "rate limit", "error pressure", "429", "5xx"),
+        ),
+    ]
+    rows = []
+    for label, predicate in specs:
+        count = sum(1 for case in cases if isinstance(case, dict) and predicate(case))
         rows.append(
             {
-                "n": f"{idx:02d}",
-                "severity": severity_by_tier.get(str(action.get("tier")), "monitor"),
-                "chip_text": _label(str(action.get("tier") or "tier_4")),
-                "meta_html": (
-                    f"{_label(str(action.get('scope') or 'lead'))} · "
-                    f"{_fmt_num(impact.get('requests'))} observed requests"
-                ),
-                "title_html": f"{_label(str(action.get('action_type') or 'monitor'))}: <code>{target_label}</code>",
-                "why_html": (
-                    evidence_html
-                    + (f". Endpoint focus: <code>{endpoints[0]}</code>." if endpoints else ".")
-                    + (
-                        f" {action.get('threat_action_modifier')}"
-                        if action.get("threat_action_modifier")
-                        else " Validate current Bot Manager/SIEM coverage before enforcement."
-                    )
-                ),
+                "label": label,
+                "count": count,
+                "count_display": _count_label(count, "lead"),
+                "status": "yes" if count else "na",
             }
         )
     return rows
 
 
-def _print_known_traffic(rows: list[dict[str, Any]], limit: int = 5) -> list[dict[str, str]]:
+def _print_findings_summary(
+    campaigns: list[dict[str, Any]], cases: list[dict[str, Any]], top_pattern: str, top_surface: str
+) -> dict[str, Any]:
+    member_count = sum(len(campaign.get("leads") or []) for campaign in campaigns)
+    timing_count = sum(1 for case in cases if isinstance(case, dict) and case.get("temporal_regularity"))
+    ua_count = sum(
+        1
+        for case in cases
+        if isinstance(case, dict)
+        and (case.get("ua_plausibility") or {}).get("verdict") in {"confirmed", "elevated"}
+    )
+    automation_count = sum(
+        1 for case in cases if isinstance(case, dict) and _lead_has_flag(case, "automation signature", "automation")
+    )
+    return {
+        "rows": [
+            {"label": "Campaigns", "value": _count_label(len(campaigns), "campaign")},
+            {"label": "Campaign members", "value": _count_label(member_count, "member")},
+            {"label": "Scraper leads", "value": _count_label(len(cases), "lead")},
+            {"label": "Timing evidence", "value": _count_label(timing_count, "lead")},
+            {"label": "UA anomaly evidence", "value": _count_label(ua_count, "lead")},
+            {"label": "Automation evidence", "value": _count_label(automation_count, "lead")},
+            {"label": "Campaign timing pattern", "value": top_pattern},
+            {"label": "Campaign surface", "value": top_surface},
+        ],
+    }
+
+
+def _print_boundary_rows(ctx: dict[str, Any], cases: list[dict[str, Any]]) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    boundaries = [
+        {
+            "label": "Operator identity",
+            "status": "Not established",
+            "detail": "The artifact links behavior, not a named operator.",
+        },
+        {
+            "label": "Malicious intent",
+            "status": "Not established",
+            "detail": "The artifact supports scraper and automation leads, not intent.",
+        },
+        {
+            "label": "Cross-customer reuse",
+            "status": "Not established",
+            "detail": "Reuse outside this customer and window is not established.",
+        },
+    ]
+    partials: list[dict[str, str]] = []
+    for item in (ctx.get("evidence_boundaries") or {}).get("not_established", [])[3:]:
+        partials.append({"label": "Evidence gap", "status": "Partial", "detail": str(item)})
+    for row in ctx.get("limitations") or []:
+        if not isinstance(row, dict):
+            continue
+        detail = row.get("detail") or row.get("summary") or row.get("module")
+        if detail:
+            partials.append({"label": _label(str(row.get("module") or "limitation")), "status": "Partial", "detail": str(detail)})
+    if any((case.get("fanout_enrichment") or {}).get("source") == "unavailable" for case in cases if isinstance(case, dict)):
+        partials.append(
+            {
+                "label": "Fan-out",
+                "status": "Partial",
+                "detail": "Fan-out enrichment is missing or lower-bound only for at least one visible lead.",
+            }
+        )
+    bot_manager = ctx.get("bot_manager_context") or {}
+    if not bot_manager.get("available"):
+        partials.append(
+            {
+                "label": "Bot Manager",
+                "status": "Partial",
+                "detail": "Bot Manager operational context was not supplied as independent attribution evidence.",
+            }
+        )
+    classification_gap = ctx.get("classification_gap") or {}
+    if classification_gap.get("summary"):
+        partials.append(
+            {
+                "label": "SIEM / classification",
+                "status": "Partial",
+                "detail": str(classification_gap.get("summary")),
+            }
+        )
+    seen: set[tuple[str, str]] = set()
+    unique_partials = []
+    for row in partials:
+        key = (row["label"], row["detail"])
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_partials.append(row)
+    return boundaries, unique_partials[:5]
+
+
+def _action_target_label(action: dict[str, Any]) -> str:
+    targets = action.get("target_values") if isinstance(action.get("target_values"), dict) else {}
+    group_size = int(_to_float(action.get("print_group_size")) or 0)
+    if group_size > 1:
+        return _count_label(group_size, "lead target")
+    if targets.get("campaign_id"):
+        return str(targets["campaign_id"])
+    if targets.get("ua_family_id"):
+        return str(targets["ua_family_id"])
+    uas = targets.get("user_agents") or []
+    if uas:
+        return _short_ua_label(uas[0])
+    if targets.get("endpoint_prefixes"):
+        return str(targets["endpoint_prefixes"][0])
+    return "selected lead"
+
+
+def _action_endpoint_label(action: dict[str, Any]) -> str:
+    targets = action.get("target_values") if isinstance(action.get("target_values"), dict) else {}
+    endpoints = targets.get("endpoint_prefixes") or []
+    if endpoints:
+        return str(endpoints[0])
+    return "Revalidate current endpoint focus before enforcement"
+
+
+def _action_classification(action: dict[str, Any]) -> tuple[str, str]:
+    category = action.get("threat_category_label") or _label(str(action.get("threat_category") or "unclassified"))
+    confidence = action.get("threat_confidence_display") or "unavailable"
+    if confidence == "unavailable":
+        return category, "classification confidence unavailable"
+    return category, f"confidence {confidence}"
+
+
+def _merge_print_action_group(base: dict[str, Any], action: dict[str, Any]) -> None:
+    base_targets = base.setdefault("target_values", {})
+    targets = action.get("target_values") if isinstance(action.get("target_values"), dict) else {}
+    base_targets["user_agents"] = [
+        *base_targets.get("user_agents", []),
+        *(targets.get("user_agents") or []),
+    ]
+    base["print_group_size"] = int(base.get("print_group_size") or 1) + 1
+    base_impact = (
+        base.get("estimated_observed_window_impact")
+        if isinstance(base.get("estimated_observed_window_impact"), dict)
+        else {}
+    )
+    impact = (
+        action.get("estimated_observed_window_impact")
+        if isinstance(action.get("estimated_observed_window_impact"), dict)
+        else {}
+    )
+    base["estimated_observed_window_impact"] = {
+        "requests": (_to_float(base_impact.get("requests")) or 0.0)
+        + (_to_float(impact.get("requests")) or 0.0),
+        "bytes": (_to_float(base_impact.get("bytes")) or 0.0)
+        + (_to_float(impact.get("bytes")) or 0.0),
+        "request_share": (_to_float(base_impact.get("request_share")) or 0.0)
+        + (_to_float(impact.get("request_share")) or 0.0),
+        "byte_share": (_to_float(base_impact.get("byte_share")) or 0.0)
+        + (_to_float(impact.get("byte_share")) or 0.0),
+    }
+    seen = set(base.get("supporting_evidence") or [])
+    for flag in action.get("supporting_evidence") or []:
+        if flag not in seen:
+            seen.add(flag)
+            base.setdefault("supporting_evidence", []).append(flag)
+    base["threat_category"] = base.get("threat_category") or action.get("threat_category")
+    base["threat_category_label"] = _label(str(base.get("threat_category") or "unclassified"))
+    confidence_values = [
+        value
+        for value in [
+            _to_float(base.get("threat_confidence")),
+            _to_float(action.get("threat_confidence")),
+        ]
+        if value is not None
+    ]
+    if confidence_values:
+        base["threat_confidence"] = max(confidence_values)
+        base["threat_confidence_display"] = f"{base['threat_confidence']:.2f}"
+
+
+def _group_print_actions(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: list[dict[str, Any]] = []
+    by_key: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for action in actions:
+        targets = action.get("target_values") if isinstance(action.get("target_values"), dict) else {}
+        endpoints = tuple(targets.get("endpoint_prefixes") or [])
+        if action.get("scope") != "lead" or not endpoints:
+            grouped.append(action)
+            continue
+        key = (
+            action.get("tier"),
+            action.get("action_type"),
+            endpoints,
+            action.get("enforcement_wording"),
+        )
+        if key not in by_key:
+            copy = {
+                **action,
+                "target_values": {**targets, "user_agents": list(targets.get("user_agents") or [])},
+                "supporting_evidence": list(action.get("supporting_evidence") or []),
+                "print_group_size": 1,
+            }
+            by_key[key] = copy
+            grouped.append(copy)
+            continue
+        _merge_print_action_group(by_key[key], action)
+    return grouped
+
+
+def _print_actions(actions: list[dict[str, Any]], limit: int = 4) -> list[dict[str, Any]]:
+    severity_by_tier = {
+        "tier_1": "critical",
+        "tier_2": "high",
+        "tier_3": "monitor",
+        "tier_4": "observe",
+    }
+    rows = []
+    for idx, action in enumerate(_group_print_actions(actions)[:limit], start=1):
+        impact = (
+            action.get("estimated_observed_window_impact")
+            if isinstance(action.get("estimated_observed_window_impact"), dict)
+            else {}
+        )
+        evidence = [
+            _label(str(flag))
+            for flag in (action.get("supporting_evidence") or [])[:4]
+            if str(flag)
+        ]
+        category, confidence = _action_classification(action)
+        group_size = int(_to_float(action.get("print_group_size")) or 1)
+        action_text = action.get("threat_action_modifier")
+        if group_size > 1:
+            action_text = (
+                f"Apply {_label(str(action.get('enforcement_wording') or 'challenge_first')).lower()} "
+                f"handling to {_count_label(group_size, 'lead target')} after validating each UA and endpoint match."
+            )
+        rows.append(
+            {
+                "n": f"{idx:02d}",
+                "severity": severity_by_tier.get(str(action.get("tier")), "monitor"),
+                "chip_text": _label(str(action.get("tier") or "tier_4")),
+                "scope_label": _label(str(action.get("scope") or "lead")),
+                "target_html": f"<code>{_action_target_label(action)}</code>",
+                "action_label": _label(str(action.get("action_type") or "monitor")),
+                "classification_label": category,
+                "confidence_label": confidence,
+                "impact_html": _impact_action_text(impact),
+                "endpoint_html": _action_endpoint_label(action),
+                "evidence_tags": evidence,
+                "action_text": action_text
+                or f"Use {_label(str(action.get('enforcement_wording') or 'challenge_first')).lower()} handling for this target candidate.",
+            }
+        )
+    return rows
+
+
+def _print_impact_block(impact: dict[str, Any] | None) -> list[dict[str, str]]:
+    view = _impact_view(impact)
+    byte_label = "Response body" if impact and impact.get("response_body_bytes") is not None else "Legacy bytes"
+    byte_value = (
+        view["response_body_bytes_display"]
+        if byte_label == "Response body"
+        else view["bytes_display"]
+    )
+    share_label = (
+        "Response byte share"
+        if impact and impact.get("response_body_byte_share") is not None
+        else "Legacy byte share"
+    )
+    share_value = (
+        view["response_body_byte_share_display"]
+        if share_label == "Response byte share"
+        else view["byte_share_display"]
+    )
+    rows = [
+        {"label": "Requests", "value": view["requests_display"]},
+        {"label": "Share of total", "value": view["request_share_display"]},
+        {"label": byte_label, "value": byte_value},
+        {"label": share_label, "value": share_value},
+        {"label": "Trend", "value": view["trend_severity_label"]},
+    ]
+    if view.get("cost_range_display"):
+        rows.append({"label": "Cost range", "value": view["cost_range_display"]})
+    if view.get("interpretation"):
+        rows.append({"label": "Readout", "value": str(view["interpretation"])})
+    return rows
+
+
+def _print_impact_rows(impact_assessment: dict[str, Any]) -> list[dict[str, str]]:
+    if not isinstance(impact_assessment, dict):
+        return []
+    rows = []
+    hunt = impact_assessment.get("hunt")
+    if isinstance(hunt, dict):
+        view = _impact_view(hunt)
+        rows.extend(_explicit_impact_rows(view))
+    return rows
+
+
+def _explicit_impact_rows(view: dict[str, Any]) -> list[dict[str, str]]:
+    if "requests_display" not in view:
+        view = _impact_view(view)
+    return [
+        {
+            "label": "Hits",
+            "value": f"{view['requests_display']} ({view['request_share_display']} of window)",
+            "detail": "HTTP requests attributed to this hunt scope.",
+        },
+        {
+            "label": "Hydrolix log ingest",
+            "value": (
+                f"{view['hydrolix_log_ingest_bytes_display']} "
+                f"({view['hydrolix_log_ingest_byte_share_display']} of customer log volume)"
+            ),
+            "detail": "TrafficPeak retention cost",
+        },
+        {
+            "label": "Response body",
+            "value": (
+                f"{view['response_body_bytes_display']} "
+                f"({view['response_body_byte_share_display']} of response bytes)"
+            ),
+            "detail": "response data copied to scrapers",
+        },
+        {
+            "label": "Akamai-billed",
+            "value": (
+                f"{view['akamai_billed_bytes_display']} "
+                f"({view['akamai_billed_byte_share_display']} of CDN billed bandwidth)"
+            ),
+            "detail": "CDN bandwidth Akamai billed",
+        },
+    ]
+
+
+def _hydrolix_ingest_note(impact_assessment: dict[str, Any] | None) -> str | None:
+    if not isinstance(impact_assessment, dict):
+        return None
+    notes = []
+    hunt = impact_assessment.get("hunt")
+    if isinstance(hunt, dict) and hunt.get("impact_scope_note"):
+        notes.append(str(hunt["impact_scope_note"]))
+    metadata = impact_assessment.get("hydrolix_log_ingest_metadata")
+    if (
+        isinstance(metadata, dict)
+        and metadata.get("source") == "hydro.logs usagemeter"
+        and metadata.get("availability") == "available"
+    ):
+        notes.append(
+            "Hydrolix log ingest is estimated from Hydrolix usagemeter billing bytes per row "
+            "for the Akamai logs table."
+        )
+    return " ".join(notes) if notes else None
+
+
+def _impact_share_relationship(impact: dict[str, Any]) -> str | None:
+    request_share = _to_float(impact.get("request_share"))
+    byte_share = _to_float(impact.get("response_body_byte_share"))
+    if byte_share is None:
+        byte_share = _to_float(impact.get("byte_share"))
+    if request_share in (None, 0) or byte_share is None:
+        return None
+    ratio = byte_share / request_share
+    if ratio <= 0.75:
+        return (
+            "Byte share is materially lower than request share, so this looks like many lighter requests "
+            "rather than byte-heavy transfer."
+        )
+    if ratio >= 1.25:
+        return (
+            "Byte share is higher than request share, so the finding carries disproportionate transfer volume "
+            "relative to its request count."
+        )
+    return "Byte share is broadly in line with request share, so transfer volume tracks request volume."
+
+
+def _impact_trajectory_sentence(impact: dict[str, Any]) -> str:
+    view = _impact_view(impact)
+    direction = str(impact.get("share_direction") or "")
+    if direction == "shrinking_share":
+        return (
+            f"Trajectory: traffic share is down from {view['baseline_request_share_display']} in baseline, "
+            f"but still represents {view['request_share_display']} of current-window traffic."
+        )
+    if direction == "growing_share":
+        return (
+            f"Trajectory: traffic share rose from {view['baseline_request_share_display']} in baseline "
+            f"to {view['request_share_display']} in the current window."
+        )
+    if direction == "new_entrant":
+        return (
+            f"Trajectory: this finding is newly visible against baseline and now represents "
+            f"{view['request_share_display']} of current-window traffic."
+        )
+    return (
+        f"Trajectory: traffic share is broadly stable versus the {view['baseline_request_share_display']} "
+        "baseline share."
+    )
+
+
+def _print_impact_story(impact_assessment: dict[str, Any], customer: str) -> dict[str, Any] | None:
+    if not isinstance(impact_assessment, dict):
+        return None
+    hunt = impact_assessment.get("hunt")
+    if not isinstance(hunt, dict):
+        return None
+    view = _impact_view(hunt)
+    if view["requests_display"] == "unavailable" and view["request_share_display"] == "unavailable":
+        return None
+    lines = [
+        (
+            f"Bottom line: the threat-hunt findings account for {view['requests_display']} requests "
+            f"({view['request_share_display']} of all {customer} traffic), "
+            f"{view['response_body_bytes_display']} response-body bytes "
+            f"({view['response_body_byte_share_display']} of response bytes), and "
+            f"{view['akamai_billed_bytes_display']} Akamai-billed bytes "
+            f"({view['akamai_billed_byte_share_display']} of CDN billed bandwidth) in this window."
+        ),
+        _impact_trajectory_sentence(hunt),
+    ]
+    relationship = _impact_share_relationship(hunt)
+    if relationship:
+        lines.append(relationship)
+    hydrolix_note = _hydrolix_ingest_note(impact_assessment)
+    if hydrolix_note:
+        lines.append(hydrolix_note)
+    if view.get("cost_range_display"):
+        basis = view.get("cost_basis_label") or "configured basis"
+        disclaimer = view.get("cost_disclaimer") or "estimate only"
+        lines.append(f"Cost estimate: {view['cost_range_display']} on {basis}; {disclaimer}.")
+    else:
+        lines.append(
+            "No dollar, origin-capacity, or cache-hit impact is shown because no cost config or grounded origin/cache fields were supplied."
+        )
+    return {"lines": lines}
+
+
+def _cover_impact_metric(label: str, impact: dict[str, Any], *, include_bytes: bool = False) -> dict[str, str]:
+    parts = [
+        f"{_fmt_share(impact.get('request_share'))}",
+        f"{_fmt_num(impact.get('requests'))} requests",
+    ]
+    if include_bytes:
+        response_bytes = impact.get("response_body_bytes")
+        if response_bytes is None:
+            response_bytes = impact.get("bytes")
+        if response_bytes is not None:
+            parts.append(f"{_fmt_bytes_long(response_bytes)} response body")
+    return {"label": label, "value": " · ".join(parts)}
+
+
+def _cover_impact_panel(
+    impact_assessment: dict[str, Any],
+    campaigns: list[dict[str, Any]],
+    ua_families: list[dict[str, Any]],
+    cases: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not isinstance(impact_assessment, dict):
+        return None
+    hunt = impact_assessment.get("hunt")
+    if not isinstance(hunt, dict) or hunt.get("request_share") is None:
+        return None
+    rows = [
+        {
+            "label": "Finding share",
+            "value": f"{_fmt_share(hunt.get('request_share'))} of window traffic",
+            "emphasis": True,
+        }
+    ]
+    if campaigns:
+        campaign = campaigns[0]
+        rows.append(
+            _cover_impact_metric(
+                str(campaign.get("campaign_id") or "Campaign"),
+                campaign.get("impact_assessment") or {},
+                include_bytes=True,
+            )
+        )
+    if ua_families:
+        family = sorted(ua_families, key=lambda row: _to_float(row.get("total_requests")) or 0.0, reverse=True)[0]
+        rows.append(_cover_impact_metric("UA family", family.get("impact_assessment") or {}))
+    independent = [
+        case
+        for case in cases
+        if not case.get("campaign_id")
+        and not case.get("ua_family_id")
+        and case.get("tone") in {"escalate", "monitor", "observe"}
+    ]
+    if independent:
+        rows.append(
+            _cover_impact_metric(
+                "Independent leads",
+                {
+                    "requests": sum(_to_float(case.get("requests")) or 0.0 for case in independent),
+                    "request_share": sum(
+                        _to_float((case.get("impact_assessment") or {}).get("request_share")) or 0.0
+                        for case in independent
+                    ),
+                },
+            )
+        )
+    return {
+        "eyebrow": "Hunt Impact",
+        "rows": rows,
+        "footnote": "Shares use total window traffic as the denominator. Bytes are shown where they materially clarify transfer impact.",
+    }
+
+
+def _print_known_traffic(rows: list[dict[str, Any]], limit: int = 3) -> list[dict[str, str]]:
     return [
         {
             "label": _label(str(row.get("disposition") or "known_traffic")),
-            "target_html": f"<code>{row.get('user_agent') or 'unknown user-agent'}</code>",
+            "target_html": f"<code>{_short_ua_label(row.get('user_agent'))}</code>",
             "detail_html": (
                 f"{_fmt_num(row.get('requests'))} observed requests. "
                 f"{row.get('reason') or 'Known crawler or infrastructure traffic.'}"
@@ -1136,9 +1964,333 @@ def _print_known_traffic(rows: list[dict[str, Any]], limit: int = 5) -> list[dic
     ]
 
 
-def _classification_technique_rows(ctx: dict[str, Any], limit: int = 8) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
-    seen: set[tuple[str, str]] = set()
+def _story_classification(source: dict[str, Any] | None) -> dict[str, str]:
+    classification = (source or {}).get("threat_classification") or {}
+    primary = classification.get("primary") if isinstance(classification, dict) else None
+    if not isinstance(primary, dict):
+        return {
+            "category": "Evidence bounded",
+            "confidence": "confidence unavailable",
+            "summary": "Evidence bounded; confidence unavailable",
+        }
+    category = primary.get("category_label") or _label(str(primary.get("category") or "evidence_bounded"))
+    confidence = primary.get("confidence_display")
+    if not confidence or confidence == "unavailable":
+        confidence = "confidence unavailable"
+    else:
+        confidence = f"confidence {confidence}"
+    return {
+        "category": category,
+        "confidence": confidence,
+        "summary": f"{category}; {confidence}",
+    }
+
+
+def _story_fanout_lower_bound(cases: list[dict[str, Any]]) -> str:
+    values = []
+    for case in cases:
+        fanout = case.get("fanout_enrichment") or {}
+        value = _to_float(fanout.get("effective_ips"))
+        if value is None:
+            value = _to_float(fanout.get("unique_ips"))
+        if value is not None:
+            values.append(value)
+    if not values:
+        return "Not established"
+    return f">= {_fmt_num(max(values))} effective IPs"
+
+
+def _story_ua_mix(cases: list[dict[str, Any]], campaign: dict[str, Any] | None = None) -> str:
+    if campaign:
+        campaign_id = campaign.get("campaign_id")
+        member_set = set(str(value) for value in campaign.get("leads") or [])
+        rows = [
+            case
+            for case in cases
+            if case.get("campaign_id") == campaign_id or str(case.get("user_agent") or "") in member_set
+        ]
+    else:
+        rows = cases
+    if not rows:
+        return "UA mix not established"
+    counts: dict[str, int] = {}
+    for case in rows:
+        parsed = (case.get("ua_plausibility") or {}).get("parsed") or {}
+        browser = parsed.get("browser_family")
+        if browser and str(browser).lower() not in {"unknown", "other"}:
+            label = str(browser)
+        else:
+            label = _parsed_ua_label(case).split("/", 1)[0]
+        counts[label] = counts.get(label, 0) + 1
+    parts = [
+        f"{label} x{count}"
+        for label, count in sorted(counts.items(), key=lambda item: item[1], reverse=True)[:3]
+    ]
+    return ", ".join(parts)
+
+
+def _story_primary_finding(
+    campaigns: list[dict[str, Any]],
+    cases: list[dict[str, Any]],
+    top_pattern: str,
+    top_surface: str,
+    audience: str,
+) -> dict[str, Any]:
+    if campaigns:
+        campaign = campaigns[0]
+        campaign_cases = [
+            case
+            for case in cases
+            if case.get("campaign_id") == campaign.get("campaign_id")
+            or str(case.get("user_agent") or "") in set(str(value) for value in campaign.get("leads") or [])
+        ]
+        classification = _story_classification(campaign)
+        return {
+            "eyebrow": "Primary finding",
+            "title": str(campaign.get("campaign_id") or "Linked campaign"),
+            "summary": (
+                f"{_count_label(len(campaign.get('leads') or []), 'member')} linked by campaign evidence "
+                f"with {_fmt_num(campaign.get('total_requests'))} requests."
+            ),
+            "classification": classification["summary"],
+            "rows": [
+                {"label": "Members", "value": _count_label(len(campaign.get("leads") or []), "member")},
+                {"label": "UA / browser mix", "value": _story_ua_mix(campaign_cases or cases, campaign)},
+                {"label": "Timing pattern", "value": campaign.get("temporal_pattern_label") or top_pattern},
+                {"label": "Surface", "value": top_surface},
+                {"label": "Fan-out lower bound", "value": _story_fanout_lower_bound(campaign_cases or cases)},
+                {"label": "Request volume", "value": _fmt_num(campaign.get("total_requests"))},
+            ],
+            "impact": _print_impact_block(campaign.get("impact_assessment")),
+        }
+    top = cases[0] if cases else {}
+    classification = _story_classification(top)
+    return {
+        "eyebrow": "Primary finding",
+        "title": _parsed_ua_label(top) if top else "No campaign established",
+        "summary": (
+            f"{_parsed_ua_label(top)} is the highest-volume lead with {_fmt_num(top.get('requests'))} requests."
+            if top
+            else "No scraper leads were supplied."
+        ),
+        "classification": classification["summary"],
+        "rows": [
+            {"label": "Members", "value": "No linked campaign"},
+            {"label": "UA / browser mix", "value": _story_ua_mix(cases)},
+            {"label": "Timing pattern", "value": top_pattern},
+            {"label": "Surface", "value": top_surface},
+            {"label": "Fan-out lower bound", "value": _story_fanout_lower_bound(cases)},
+            {"label": "Request volume", "value": _fmt_num(top.get("requests")) if top else "unavailable"},
+        ],
+        "impact": _print_impact_block(top.get("impact_assessment") if top else {}),
+    }
+
+
+def _story_secondary_finding(
+    ua_families: list[dict[str, Any]], cases: list[dict[str, Any]], audience: str
+) -> dict[str, Any]:
+    if ua_families:
+        family = sorted(ua_families, key=lambda row: float(row.get("total_requests") or 0), reverse=True)[0]
+        classification = _story_classification(family)
+        if classification["confidence"] == "confidence unavailable" and family.get("recommended_actions"):
+            action = family["recommended_actions"][0]
+            category = action.get("threat_category_label") or "Evidence bounded"
+            confidence = action.get("threat_confidence_display") or "unavailable"
+            classification = {
+                "category": category,
+                "confidence": f"confidence {confidence}" if confidence != "unavailable" else "confidence unavailable",
+                "summary": f"{category}; confidence {confidence}" if confidence != "unavailable" else category,
+            }
+        version = family.get("version_range_display") or "unavailable"
+        if family.get("version_count"):
+            version = f"{version}; {family.get('version_count')} versions"
+        return {
+            "eyebrow": "Secondary finding",
+            "title": str(family.get("family_id") or "UA family"),
+            "summary": "Version rotation indicates an operator-controlled UA template rather than a single static client.",
+            "classification": classification["summary"],
+            "rows": [
+                {"label": "Top UA family", "value": str(family.get("family_id") or "UA family")},
+                {"label": "Version range", "value": version},
+                {"label": "Requests", "value": family.get("total_requests_display") or _fmt_num(family.get("total_requests"))},
+            ],
+            "impact": _print_impact_block(family.get("impact_assessment")),
+        }
+    top = cases[0] if cases else {}
+    classification = _story_classification(top)
+    return {
+        "eyebrow": "Secondary finding",
+        "title": _parsed_ua_label(top) if top else "No UA family",
+        "summary": (
+            "No parameterized UA-family rotation was established in the supplied artifact."
+            if top
+            else "No parameterized UA-family rotation was established in the supplied artifact."
+        ),
+        "classification": classification["summary"],
+        "rows": [
+            {"label": "Top UA family", "value": "Not established"},
+            {"label": "Version range", "value": "Not established"},
+            {"label": "Requests", "value": _fmt_num(top.get("requests")) if top else "unavailable"},
+        ],
+        "impact": _print_impact_block(top.get("impact_assessment") if top else {}),
+    }
+
+
+def _story_independent_leads(cases: list[dict[str, Any]]) -> dict[str, Any]:
+    independent = [
+        case
+        for case in cases
+        if not case.get("campaign_id") and not case.get("ua_family_id") and case.get("tone") in {"escalate", "monitor", "observe"}
+    ]
+    requests = sum(_to_float(case.get("requests")) or 0.0 for case in independent)
+    representatives = [
+        {
+            "label": _parsed_ua_label(case),
+            "evidence": ", ".join((case.get("evidence_flag_labels") or [])[:2]) or "Observed",
+        }
+        for case in independent[:3]
+    ]
+    return {
+        "eyebrow": "Independent leads",
+        "count": len(independent),
+        "count_display": _count_label(len(independent), "lead"),
+        "requests_display": _fmt_num(requests),
+        "summary": (
+            f"{_count_label(len(independent), 'independent lead')} outside campaign and UA-family groupings "
+            f"accounts for {_fmt_num(requests)} requests."
+        ),
+        "representatives": representatives,
+        "impact": _print_impact_block(
+            {
+                "requests": requests,
+                "bytes": sum(_to_float(case.get("bytes")) or 0.0 for case in independent),
+                "request_share": sum(
+                    _to_float((case.get("impact_assessment") or {}).get("request_share")) or 0.0
+                    for case in independent
+                ),
+                "byte_share": sum(
+                    _to_float((case.get("impact_assessment") or {}).get("byte_share")) or 0.0
+                    for case in independent
+                ),
+                "trend_severity": "mixed" if len(independent) > 1 else ((independent[0].get("impact_assessment") or {}).get("trend_severity") if independent else "stable"),
+            }
+        ),
+    }
+
+
+def _cover_threat_headline(
+    campaigns: list[dict[str, Any]],
+    ua_families: list[dict[str, Any]],
+    cases: list[dict[str, Any]],
+    artifact_classification: dict[str, Any] | None,
+) -> str:
+    source: dict[str, Any] | None = campaigns[0] if campaigns else (ua_families[0] if ua_families else (cases[0] if cases else None))
+    classification = _story_classification(source or {"threat_classification": artifact_classification or {}})
+    requests = 0.0
+    if campaigns:
+        requests = sum(_to_float(campaign.get("total_requests")) or 0.0 for campaign in campaigns)
+    elif ua_families:
+        requests = sum(_to_float(family.get("total_requests")) or 0.0 for family in ua_families)
+    else:
+        requests = sum(_to_float(case.get("requests")) or 0.0 for case in cases)
+    member_count = sum(len(campaign.get("leads") or []) for campaign in campaigns)
+    if not member_count:
+        member_count = sum(_to_float(family.get("member_count")) or 0.0 for family in ua_families)
+    noun = "operation" if campaigns else "lead set"
+    return (
+        f"Coordinated forged-UA {noun} consistent with {classification['category']}; "
+        f"{_count_label(len(campaigns), 'campaign')}, {_count_label(int(member_count), 'member')}, "
+        f"{_count_label(len(cases), 'lead')}, {_fmt_num(requests)} requests."
+    )
+
+
+def _print_bot_manager_summary(context: dict[str, Any]) -> dict[str, str] | None:
+    if not context.get("available"):
+        return None
+    aggregate = context.get("aggregate") or {}
+    exact_ua = context.get("exact_ua") or {}
+    parts = []
+    if aggregate.get("available"):
+        parts.append(f"{aggregate.get('total_requests_display')} aggregate Bot Manager requests")
+    if exact_ua.get("available"):
+        parts.append(f"{exact_ua.get('total_requests_display')} exact-UA requests")
+    action_mix = aggregate.get("action_class_mix") or []
+    if action_mix:
+        top = action_mix[0]
+        parts.append(
+            f"top action {str(top.get('value') or 'unknown').replace('_', ' ')} "
+            f"({_fmt_tiny_pct(top.get('share_pct'))})"
+        )
+    return {
+        "label": "Bot Manager context",
+        "text": "; ".join(parts) or context.get("summary") or "Bot Manager context supplied",
+        "caveat": context.get("caveat")
+        or "Operational enrichment only; not independent classification evidence.",
+    }
+
+
+def _print_bot_manager_stack(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    classes = ["allow", "challenge", "deny", "monitor", "other"]
+    stack = []
+    legend = []
+    for idx, row in enumerate(rows[:5]):
+        css_class = classes[idx] if idx < len(classes) else "other"
+        share = _to_float(row.get("share_pct")) or 0.0
+        label = str(row.get("value") or "unknown").replace("_", " ").title()
+        stack.append(
+            {
+                "class": css_class,
+                "flex": max(share, 1.0),
+                "label": label,
+                "show_label": share >= 8.0,
+                "min_width": "16px" if share > 0 else "",
+            }
+        )
+        legend.append(
+            {
+                "class": css_class,
+                "label": label,
+                "value": f"{_fmt_num(row.get('requests'))} ({_fmt_tiny_pct(row.get('share_pct'))})",
+                "delta": "",
+            }
+        )
+    return stack, legend
+
+
+def _print_bot_manager_policy_rows(rows: list[dict[str, Any]], limit: int = 6) -> list[dict[str, str]]:
+    return [
+        {
+            "rule": str(row.get("value") or "unknown"),
+            "requests": _fmt_num(row.get("requests")),
+            "share": _fmt_tiny_pct(row.get("share_pct")),
+            "delta": "",
+            "delta_class": "ink-3",
+        }
+        for row in rows[:limit]
+    ]
+
+
+def _print_bot_manager_type_rows(rows: list[dict[str, Any]], limit: int = 5) -> list[dict[str, Any]]:
+    out = []
+    for row in rows[:limit]:
+        share = _to_float(row.get("share_pct")) or 0.0
+        out.append(
+            {
+                "name": str(row.get("value") or "unknown").replace("_", " ").title(),
+                "requests": _fmt_num(row.get("requests")),
+                "share": _fmt_tiny_pct(row.get("share_pct")),
+                "rate_429": "n/a",
+                "rate_5xx": "n/a",
+                "flagged": False,
+                "bar_width": f"{max(min(share, 100.0), 1.0):.1f}%",
+                "min_width": "4px",
+            }
+        )
+    return out
+
+
+def _classification_technique_rows(ctx: dict[str, Any], limit: int = 6) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, str], dict[str, Any]] = {}
     sources = [
         *(ctx.get("campaigns") or []),
         *(ctx.get("ua_families") or []),
@@ -1152,49 +2304,43 @@ def _classification_technique_rows(ctx: dict[str, Any], limit: int = 8) -> list[
         mapping = primary.get("attack_mapping") or {}
         category = str(primary.get("category") or "")
         evidence = "; ".join(str(item) for item in (primary.get("trigger_evidence") or [])[:2])
+        tactics = ", ".join(mapping.get("mitre_tactics") or []) or "ATT&CK"
+        key = (_label(category), tactics)
+        row = grouped.setdefault(
+            key,
+            {
+                "tid": "",
+                "technique_ids": [],
+                "tactic": tactics,
+                "name": _label(category),
+                "evidence_html": (
+                    f"Consistent with observed {category.replace('_', ' ')} signal only; "
+                    f"not attribution. {evidence}"
+                ),
+                "span_full": False,
+            },
+        )
         for technique in mapping.get("mitre_techniques") or []:
-            key = ("mitre", str(technique))
-            if key in seen:
+            tid = str(technique)
+            if tid in row["technique_ids"]:
                 continue
-            seen.add(key)
-            rows.append(
-                {
-                    "tid": str(technique),
-                    "tactic": ", ".join(mapping.get("mitre_tactics") or []) or "ATT&CK",
-                    "name": _label(category),
-                    "evidence_html": (
-                        f"Consistent with observed {category.replace('_', ' ')} signal only; "
-                        f"not attribution. {evidence}"
-                    ),
-                    "span_full": False,
-                }
-            )
+            row["technique_ids"].append(tid)
         for technique in mapping.get("hdx_techniques") or []:
-            key = ("hdx", str(technique))
-            if key in seen:
+            tid = str(technique)
+            if tid in row["technique_ids"]:
                 continue
-            seen.add(key)
-            rows.append(
-                {
-                    "tid": str(technique),
-                    "tactic": "Hydrolix",
-                    "name": _label(category),
-                    "evidence_html": (
-                        f"Hydrolix technique consistent with observed {category.replace('_', ' ')} signal only; "
-                        f"not attribution. {evidence}"
-                    ),
-                    "span_full": False,
-                }
-            )
-        if len(rows) >= limit:
-            return rows[:limit]
-    return rows[:limit]
+            row["technique_ids"].append(tid)
+    rows = list(grouped.values())[:limit]
+    for row in rows:
+        row["tid"] = ", ".join(row["technique_ids"]) or "Technique unavailable"
+    return rows
 
 
 def _print_report(ctx: dict[str, Any]) -> dict[str, Any]:
     scope = ctx.get("scope") or {}
     summary = ctx.get("deterministic_summary") or {}
     campaigns = ctx.get("campaigns") or []
+    ua_families = ctx.get("ua_families") or []
     cases = ctx.get("scraper_cases") or []
     risk = _risk_value(summary, campaigns, cases)
     severity = summary.get("severity_level") or "low"
@@ -1215,6 +2361,7 @@ def _print_report(ctx: dict[str, Any]) -> dict[str, Any]:
     actors = _print_actor_rows(cases)
     findings = ctx.get("threat_findings") or []
     primary = ctx.get("primary_concern") or {}
+    bot_manager = ctx.get("bot_manager_context") or {}
     timing_count = sum(1 for case in cases if isinstance(case, dict) and case.get("temporal_regularity"))
     top_pattern = (
         _label(str(campaigns[0].get("temporal_pattern") or "not_established"))
@@ -1226,6 +2373,21 @@ def _print_report(ctx: dict[str, Any]) -> dict[str, Any]:
         if campaigns
         else None
     ) or "No campaign surface"
+    campaign_descriptor = _print_campaign_descriptor(campaigns, cases, top_pattern, top_surface)
+    evidence_boundaries, partial_boundaries = _print_boundary_rows(ctx, cases)
+    audience = ctx.get("headline") or _subject_label(scope)
+    story_primary = _story_primary_finding(campaigns, cases, top_pattern, top_surface, audience)
+    story_secondary = _story_secondary_finding(ua_families, cases, audience)
+    story_independent = _story_independent_leads(cases)
+    cover_headline = _cover_threat_headline(
+        campaigns,
+        ua_families,
+        cases,
+        ctx.get("threat_classification") if isinstance(ctx.get("threat_classification"), dict) else None,
+    )
+    hunt_impact = (ctx.get("impact_assessment") or {}).get("hunt") if isinstance(ctx.get("impact_assessment"), dict) else {}
+    if cover_headline and isinstance(hunt_impact, dict) and hunt_impact.get("request_share") is not None:
+        cover_headline = cover_headline.rstrip(".") + f" ({hunt_impact.get('request_share_display')} of window traffic)."
     return {
         "customer": ctx.get("headline") or _subject_label(scope),
         "meta": {"schema": SCHEMA},
@@ -1236,7 +2398,7 @@ def _print_report(ctx: dict[str, Any]) -> dict[str, Any]:
             "confidence": (summary.get("confidence_label") or "Evidence bounded").upper(),
             "confidence_total": 5,
             "confidence_filled": 4 if "Conservative" in summary.get("confidence_label", "") else 3,
-            "prose_html": summary.get("summary") or "Threat hunt evidence is bounded by supplied artifacts.",
+            "prose_html": cover_headline or summary.get("summary") or "Threat hunt evidence is bounded by supplied artifacts.",
             "bands": [
                 {"label": "Observe", "is_critical": False},
                 {"label": "Monitor", "is_critical": False},
@@ -1253,6 +2415,18 @@ def _print_report(ctx: dict[str, Any]) -> dict[str, Any]:
             "band_label": band_label,
             "band_position_pct": _band_position(severity),
         },
+        "cover_threat_headline": cover_headline,
+        "cover_impact": _cover_impact_panel(ctx.get("impact_assessment") or {}, campaigns, ua_families, cases),
+        "story_page": {
+            "eyebrow": "Threat Hunt Story",
+            "screen_label": "Story",
+            "headline": "What the hunt found",
+            "lede_html": "The print story rolls the strongest campaign, UA-family rotation, and independent leads into one analyst-readable sequence.",
+            "footer_label": "Story",
+        },
+        "story_primary_finding": story_primary,
+        "story_secondary_finding": story_secondary,
+        "story_independent_leads": story_independent,
         "chart": _print_chart(ctx),
         "analyst_assessment": {
             "headline": "Analyst Assessment",
@@ -1270,10 +2444,7 @@ def _print_report(ctx: dict[str, Any]) -> dict[str, Any]:
             "chip_severity": band,
             "headline_html": primary.get("title") or "Threat hunt lead",
             "prose_html": primary.get("summary") or primary.get("boundary") or "",
-            "stats": [
-                {"label": f"Evidence {idx}", "value": str(value), "detail": ""}
-                for idx, value in enumerate((primary.get("evidence") or [])[:3], start=1)
-            ],
+            "stats": _print_primary_concern_stats(campaigns, cases),
         },
         "at_a_glance": {
             "footnote": "Metrics and ranks are deterministic; presentation fields do not change artifact semantics.",
@@ -1338,24 +2509,26 @@ def _print_report(ctx: dict[str, Any]) -> dict[str, Any]:
         "actors_page": {
             "eyebrow": "Scraper Leads",
             "screen_label": "Scraper leads",
-            "headline": "Behavioral scraper cases",
-            "lede_html": "Rows are the highest-volume scraper leads.",
-            "actor_column_label": "UA fingerprint",
+            "headline": "Lead summary",
+            "lede_html": "Rows are shortened for print; full user-agent evidence remains in the source HTML and Markdown artifacts.",
+            "actor_column_label": "UA label",
             "rate_column_label": "Delta vs baseline",
-            "evidence_column_label": "Evidence flags",
-            "basis_column_label": "Family",
+            "evidence_column_label": "Evidence tags",
+            "basis_column_label": "Verdict",
             "footer_label": "Scraper leads",
             "total_flagged": len(cases),
-            "appendix_note": "Rows are truncated for fixed-page print layout.",
+            "appendix_note": "Full UA strings and fan-out caveats are retained outside the fixed-page PDF.",
         },
         "actors": actors,
         "actions_page": {
             "eyebrow": "Recommended Actions",
             "headline": "What to do next",
-            "lede_html": "Threat hunt output preserves evidence boundaries; operational actions require external validation.",
+            "lede_html": "Threat hunt output preserves evidence boundaries; use these as validation-ready control candidates.",
+            "footer_note": "Validate target membership before enforcement and monitor rollback indicators after changes.",
         },
         "actions": _print_actions(ctx.get("recommended_actions") or []),
         "known_traffic": _print_known_traffic(ctx.get("known_traffic") or []),
+        "bot_manager_print_summary": _print_bot_manager_summary(bot_manager),
         "attck_page": {
             "eyebrow": "Methodology",
             "screen_label": "ATT&CK · Methodology",
@@ -1402,6 +2575,7 @@ def _print_report(ctx: dict[str, Any]) -> dict[str, Any]:
                 }
                 for item in (ctx.get("evidence_boundaries") or {}).get("not_established", [])[:3]
             ],
+            "bot_manager_summary": _print_bot_manager_summary(bot_manager),
         },
         "actor_correlation_callouts": [],
         "top_hosts": [],
@@ -1413,8 +2587,15 @@ def _print_report(ctx: dict[str, Any]) -> dict[str, Any]:
             "eyebrow": "Threat Hunt Shape",
             "screen_label": "Evidence shape",
             "footer_label": "Evidence shape",
-            "headline": "How the scraper evidence presented",
-            "lede_html": "Evidence shape is derived from deterministic campaign and lead fields.",
+            "headline": "Findings and evidence boundaries",
+            "lede_html": "What the hunt found, how much customer traffic it represents, and what the supplied evidence does not establish.",
+            "campaign_descriptor": campaign_descriptor,
+            "findings_summary": _print_findings_summary(campaigns, cases, top_pattern, top_surface),
+            "impact_story": _print_impact_story(ctx.get("impact_assessment") or {}, audience),
+            "impact_rows": _print_impact_rows(ctx.get("impact_assessment") or {}),
+            "evidence_distribution": _print_evidence_distribution(cases),
+            "boundaries": evidence_boundaries,
+            "partial_boundaries": partial_boundaries,
             "timeline": [
                 {
                     "time": "Campaigns",
@@ -1450,8 +2631,14 @@ def _print_report(ctx: dict[str, Any]) -> dict[str, Any]:
         },
         "classification": {
             "eyebrow": "Classification and Response",
+            "screen_label": "07 Classification &amp; edge",
             "headline": "Classification and response",
             "lede_html": "Classification evidence is bounded to supplied threat-hunt artifacts.",
+            "cohort_header": "Cohort · Requests · Share · 429% · 5xx%",
+            "action_mix_label": "Edge action mix · What the edge decided",
+            "policy_label": "Top deny rules · Which rules fired",
+            "policy_column_label": "Deny rule",
+            "footer_label": "Classification &amp; edge response",
         },
         "cohorts": [],
         "edge_action_meta_html": "No edge-action mix supplied",
@@ -1467,11 +2654,13 @@ def _print_report(ctx: dict[str, Any]) -> dict[str, Any]:
             "comparison_rows": [],
         },
         "print_sections": {
-            "actions": bool(ctx.get("recommended_actions")),
+            "actions": True,
             "classification": False,
             "browser_age": False,
+            "score_availability": False,
         },
         "page_numbers": {
+            "actions": "03",
             "attack_shape": "04",
             "actors": "05",
             "methodology": "06",
@@ -1484,13 +2673,39 @@ def _print_report(ctx: dict[str, Any]) -> dict[str, Any]:
         "methodology": {
             "prose_html": "Deterministic threat-hunt artifact rendered through the incident fixed-letter print tooling.",
             "window_summary_html": "The report preserves the original bot_threat_hunt.v3 artifact semantics.",
+            "analysis_rows": [
+                {
+                    "analysis": "Traffic and byte-share impact",
+                    "helps_identify": "Identifies which findings consume the largest share of total requests and bytes in the window.",
+                },
+                {
+                    "analysis": "Baseline trajectory comparison",
+                    "helps_identify": "Identifies new entrants, growing pressure, stable activity, or declining share versus baseline.",
+                },
+                {
+                    "analysis": "Campaign linkage and coordination",
+                    "helps_identify": "Identifies UA fingerprints that move together through shared IPs, paths, timing, or surface patterns.",
+                },
+                {
+                    "analysis": "UA plausibility and family rotation",
+                    "helps_identify": "Identifies future-dated, structurally unusual, or templated browser versions consistent with automation.",
+                },
+                {
+                    "analysis": "Endpoint, fan-out, and timing evidence",
+                    "helps_identify": "Identifies focused route pressure, broad client distribution, and regular request cadence.",
+                },
+                {
+                    "analysis": "Evidence-boundary review",
+                    "helps_identify": "Identifies what remains unproven, including operator identity, malicious intent, and cross-customer reuse.",
+                },
+            ],
             "metadata": [
                 {"label": "Schema", "value": SCHEMA},
                 {"label": "Cluster", "value": scope.get("cluster") or ""},
                 {"label": "Database", "value": scope.get("database") or ""},
             ],
         },
-        "page_count": 7,
+        "page_count": 6,
     }
 
 
@@ -1546,6 +2761,514 @@ def post_prepare(ctx: dict[str, Any]) -> None:
     print_report = _print_report(ctx)
     ctx["print_report"] = print_report
     ctx.update(print_report)
+
+
+def _window_pretty(window: Any) -> str:
+    if not isinstance(window, dict):
+        return "window unavailable"
+    start = window.get("start") or window.get("from")
+    end = window.get("end") or window.get("to")
+    if start and end:
+        return f"{start} to {end}"
+    return str(window.get("pretty") or window.get("label") or "window unavailable")
+
+
+def _add_unique(values: list[str], value: Any) -> None:
+    text = str(value or "").strip()
+    if text and text not in values:
+        values.append(text)
+
+
+def _target_values(action: dict[str, Any]) -> dict[str, Any]:
+    targets = action.get("target_values") if isinstance(action.get("target_values"), dict) else {}
+    return targets
+
+
+def _action_primary_target(action: dict[str, Any]) -> tuple[str, str]:
+    targets = _target_values(action)
+    if targets.get("campaign_id"):
+        return "Campaign ID", str(targets["campaign_id"])
+    if targets.get("ua_family_id"):
+        return "UA family", str(targets["ua_family_id"])
+    if targets.get("ua_family_template"):
+        return "UA family", str(targets["ua_family_template"])
+    uas = targets.get("user_agents") or []
+    if uas:
+        return "User agent", str(uas[0])
+    endpoints = targets.get("endpoint_prefixes") or []
+    if endpoints:
+        return "Endpoint", str(endpoints[0])
+    return _label(str(action.get("scope") or "target")), "selected target"
+
+
+def _action_secondary_targets(action: dict[str, Any]) -> list[dict[str, str]]:
+    targets = _target_values(action)
+    rows: list[dict[str, str]] = []
+    primary_kind, primary_value = _action_primary_target(action)
+    for ua in targets.get("user_agents") or []:
+        if primary_kind == "User agent" and str(ua) == primary_value:
+            continue
+        rows.append({"kind": "User agent", "value": str(ua)})
+    for endpoint in targets.get("endpoint_prefixes") or []:
+        if primary_kind == "Endpoint" and str(endpoint) == primary_value:
+            continue
+        rows.append({"kind": "Endpoint", "value": str(endpoint)})
+    return rows[:6]
+
+
+def _attack_labels(source: dict[str, Any]) -> list[str]:
+    classification = source.get("threat_classification") or {}
+    primary = classification.get("primary") if isinstance(classification, dict) else {}
+    mapping = primary.get("attack_mapping") if isinstance(primary, dict) else {}
+    if not isinstance(mapping, dict):
+        return []
+    labels = [
+        *(str(value) for value in mapping.get("mitre_techniques") or []),
+        *(str(value) for value in mapping.get("hdx_techniques") or []),
+    ]
+    out: list[str] = []
+    for label in labels:
+        _add_unique(out, label)
+    return out
+
+
+def _classification_label(source: dict[str, Any]) -> str | None:
+    classification = source.get("threat_classification") or {}
+    primary = classification.get("primary") if isinstance(classification, dict) else {}
+    if not isinstance(primary, dict):
+        return None
+    category = primary.get("category_label") or _label(str(primary.get("category") or "evidence_bounded"))
+    confidence = primary.get("confidence_display")
+    if confidence and confidence != "unavailable":
+        return f"{category} · {confidence}"
+    return category
+
+
+def _lead_ui(case: dict[str, Any]) -> dict[str, Any]:
+    impact = case.get("impact_assessment") or {}
+    ua = str(case.get("user_agent") or "unknown UA")
+    baseline = case.get("baseline_comparison") or _baseline_comparison(case)
+    timing = case.get("timing") or {}
+    ua_view = case.get("ua_plausibility") or {}
+    return {
+        "user_agent": ua,
+        "verdict_label": case.get("verdict_label") or "Lead",
+        "tone": case.get("tone") or "observe",
+        "requests": case.get("requests_display") or _fmt_num(case.get("requests")),
+        "baseline": case.get("baseline_display") or _fmt_num(case.get("baseline_requests")),
+        "delta": baseline.get("display") or "unavailable",
+        "delta_signed": baseline.get("delta_display") or "unavailable",
+        "delta_dir": "up" if (_to_float(baseline.get("delta")) or 0) >= 0 else "down",
+        "share": impact.get("request_share_display") or "unavailable",
+        "bytes": impact.get("bytes_display") or case.get("bytes_display") or "unavailable",
+        "campaign": case.get("campaign_id"),
+        "ua_anomaly": f"{ua_view.get('verdict_label') or 'Unavailable'} · {ua_view.get('reason') or ua_view.get('trigger_reason') or 'no trigger'}",
+        "ua_anomaly_tone": "escalate"
+        if ua_view.get("verdict") == "confirmed"
+        else "monitor"
+        if ua_view.get("verdict") == "elevated"
+        else "low",
+        "timing": timing.get("metric_line") or timing.get("summary") or "Timing unavailable",
+        "timing_tone": "monitor" if timing.get("status") == "regular" else "low",
+        "classification": _classification_label(case),
+        "attack": (_attack_labels(case) or [None])[0],
+        "evidence": case.get("evidence_flag_labels") or [],
+    }
+
+
+def _endpoint_path(row: dict[str, Any]) -> str | None:
+    value = row.get("endpoint_prefix") or row.get("request_path") or row.get("path") or row.get("value")
+    return str(value) if value else None
+
+
+def _campaign_ui(campaigns: list[dict[str, Any]]) -> dict[str, Any]:
+    campaign = campaigns[0] if campaigns else {}
+    endpoints = []
+    for row in campaign.get("endpoint_targets") or []:
+        if not isinstance(row, dict):
+            continue
+        path = _endpoint_path(row)
+        if not path:
+            continue
+        endpoints.append(
+            {
+                "path": path,
+                "category": row.get("category") or ",".join(row.get("markers") or []) or "endpoint",
+                "requests": _fmt_num(row.get("requests")),
+                "share": _fmt_pct(row.get("share_pct") if row.get("share_pct") is not None else row.get("request_share_pct")),
+            }
+        )
+    ua_summary = campaign.get("ua_plausibility_summary") or {}
+    endpoint_summary = campaign.get("endpoint_evidence_summary") or {}
+    attack = _attack_labels(campaign)
+    return {
+        "id": str(campaign.get("campaign_id") or "No linked campaign"),
+        "verdict_label": campaign.get("verdict_label") or "Evidence bounded",
+        "tone": campaign.get("tone") or "observe",
+        "sophistication": _label(str(campaign.get("sophistication") or "not_established")),
+        "pattern": campaign.get("temporal_pattern_label") or _label(str(campaign.get("temporal_pattern") or "not_established")),
+        "requests": campaign.get("total_requests_display") or _fmt_num(campaign.get("total_requests")),
+        "baseline": campaign.get("baseline_requests_display") or _fmt_num(campaign.get("baseline_requests")),
+        "delta": campaign.get("baseline_delta_display") or "unavailable",
+        "members": len(campaign.get("leads") or []),
+        "ips": campaign.get("unique_client_ips") or 0,
+        "asns": campaign.get("unique_asns") or 0,
+        "countries": campaign.get("unique_countries") or 0,
+        "ua_confirmed": ua_summary.get("confirmed_count") or 0,
+        "ua_elevated": ua_summary.get("elevated_count") or 0,
+        "confirmed_endpoint_members": endpoint_summary.get("confirmed_member_count") or 0,
+        "unconfirmed_endpoint_members": endpoint_summary.get("unconfirmed_member_count") or 0,
+        "forged_ua_candidate": bool(campaign.get("forged_ua_candidate") or ua_summary.get("confirmed_count")),
+        "classification": _classification_label(campaign) or "Evidence bounded",
+        "attack": attack or ["Technique unavailable"],
+        "endpoint_targets": endpoints,
+        "ua_members": [str(value) for value in campaign.get("leads") or []],
+    }
+
+
+def _impact_tiles_ui(ctx: dict[str, Any]) -> list[dict[str, str]]:
+    tiles = []
+    for tile in ctx.get("impact_tiles") or []:
+        tiles.append(
+            {
+                "label": str(tile.get("label") or ""),
+                "value": str(tile.get("value") or ""),
+                "delta": str(tile.get("caption") or tile.get("delta") or ""),
+                "tone": str(tile.get("tone") or "observe"),
+            }
+        )
+    return tiles
+
+
+def _impact_rows_ui(ctx: dict[str, Any]) -> list[dict[str, str]]:
+    assessment = ctx.get("impact_assessment") if isinstance(ctx.get("impact_assessment"), dict) else {}
+    hunt = assessment.get("hunt") if isinstance(assessment.get("hunt"), dict) else {}
+    if not hunt:
+        return []
+    return _explicit_impact_rows(hunt)
+
+
+def _hunt_impact_pattern_note(hunt: dict[str, Any]) -> dict[str, Any] | None:
+    request_share = _to_float(hunt.get("request_share"))
+    response_share = _to_float(hunt.get("response_body_byte_share"))
+    if request_share is None or response_share is None or request_share <= 0:
+        return None
+    ratio = response_share / request_share
+    if ratio > 0.75:
+        return None
+    return {
+        "text": (
+            f"The hit share is higher than response-byte share ({_fmt_share(request_share)} hits vs "
+            f"{_fmt_share(response_share)} response bytes), so this scope produces many "
+            f"lighter-than-average requests. That pattern is consistent with API enumeration or "
+            f"harvest-style scraping when paired with endpoint targeting, timing regularity, UA "
+            f"rotation, or fan-out evidence; treat it as supporting evidence, not a standalone "
+            f"scraper signature."
+        ),
+        "links": [
+            {
+                "label": "OWASP OAT-011 Scraping",
+                "url": "https://owasp.org/www-project-automated-threats-to-web-applications/assets/oats/EN/OAT-011_Scraping",
+            },
+            {
+                "label": "OWASP Bot Management Cheat Sheet",
+                "url": "https://cheatsheetseries.owasp.org/cheatsheets/Bot_Management_and_Anti-Automation_Cheat_Sheet.html",
+            },
+            {
+                "label": "F5 scraper behavior patterns",
+                "url": "https://www.f5.com/labs/articles/threat-intelligence/how-to-identify-and-stop-scrapers",
+            },
+        ],
+    }
+
+
+def _hunt_impact_ui(ctx: dict[str, Any]) -> dict[str, Any] | None:
+    assessment = ctx.get("impact_assessment") if isinstance(ctx.get("impact_assessment"), dict) else {}
+    hunt = assessment.get("hunt") if isinstance(assessment.get("hunt"), dict) else {}
+    if not hunt:
+        return None
+    view = _impact_view(hunt)
+    return {
+        "eyebrow": "Hunt impact",
+        "scope": ctx.get("headline") or _subject_label(ctx.get("scope") or {}),
+        "rows": [
+            {
+                "label": "Hits",
+                "value": view["requests_display"],
+                "share": view["request_share_display"],
+                "denom": "of window HTTP requests",
+            },
+            {
+                "label": "Hydrolix log ingest",
+                "value": _fmt_bytes_long(hunt.get("hydrolix_log_ingest_bytes")),
+                "share": view["hydrolix_log_ingest_byte_share_display"],
+                "denom": "of customer log volume - TrafficPeak retention cost",
+            },
+            {
+                "label": "Response body",
+                "value": _fmt_bytes_long(hunt.get("response_body_bytes")),
+                "share": view["response_body_byte_share_display"],
+                "denom": "response data copied to scrapers",
+            },
+            {
+                "label": "Akamai-billed",
+                "value": _fmt_bytes_long(hunt.get("akamai_billed_bytes")),
+                "share": view["akamai_billed_byte_share_display"],
+                "denom": "of CDN billed bandwidth",
+            },
+        ],
+        "footnote": _hydrolix_ingest_note(assessment),
+        "pattern_note": _hunt_impact_pattern_note(hunt),
+    }
+
+
+def _iocs_from_context(ctx: dict[str, Any]) -> dict[str, list[str]]:
+    uas: list[str] = []
+    endpoints: list[str] = []
+    ips: list[str] = []
+    asns: list[str] = []
+
+    for action in ctx.get("recommended_actions") or []:
+        targets = _target_values(action)
+        for ua in targets.get("user_agents") or []:
+            _add_unique(uas, ua)
+        for endpoint in targets.get("endpoint_prefixes") or []:
+            _add_unique(endpoints, endpoint)
+    for campaign in ctx.get("campaigns") or []:
+        for ua in campaign.get("leads") or []:
+            _add_unique(uas, ua)
+        for row in campaign.get("endpoint_targets") or []:
+            if isinstance(row, dict):
+                _add_unique(endpoints, _endpoint_path(row))
+        for key in ("client_ips", "ip_samples", "shared_ip_samples"):
+            for ip in campaign.get(key) or []:
+                _add_unique(ips, ip)
+        if campaign.get("asn"):
+            _add_unique(asns, campaign.get("asn"))
+    for case in ctx.get("scraper_cases") or []:
+        _add_unique(uas, case.get("user_agent"))
+        for row in case.get("endpoint_targets") or []:
+            if isinstance(row, dict):
+                _add_unique(endpoints, _endpoint_path(row))
+        for key in ("client_ips", "ip_samples", "shared_ip_samples"):
+            for ip in case.get(key) or []:
+                _add_unique(ips, ip)
+        if case.get("asn"):
+            _add_unique(asns, case.get("asn"))
+    for row in (ctx.get("infrastructure") or {}).get("asn_rollups") or []:
+        if not isinstance(row, dict):
+            continue
+        _add_unique(asns, row.get("asn") or row.get("autonomous_system_number"))
+    return {
+        "user_agents": uas,
+        "endpoints": endpoints,
+        "client_ips": ips,
+        "asns": asns,
+    }
+
+
+def _exports_for_ui(data: dict[str, Any]) -> dict[str, str]:
+    payload = {
+        "report": "threat_hunt",
+        "schema_version": data["meta"]["schema"],
+        "window": data["meta"]["window_current"],
+        "verdict": {
+            "level": data["verdict"]["level"],
+            "confidence": data["verdict"]["confidence"],
+        },
+        "campaign": {
+            "id": data["campaign"]["id"],
+            "classification": data["campaign"]["classification"],
+            "attack": data["campaign"]["attack"],
+        },
+        "iocs": data["iocs"],
+    }
+    ua_expr = [f'(http.user_agent eq "{ua}")' for ua in data["iocs"]["user_agents"][:8]]
+    endpoint_lines = [f'    "{path}",' for path in data["iocs"]["endpoints"]]
+    waf_snippet = (
+        "# WAF expression - block-or-challenge candidates\n"
+        "# Generated from bot_threat_hunt.v3\n\n"
+        + "\nor ".join(ua_expr)
+    )
+    if endpoint_lines:
+        waf_snippet += (
+            "\nor (\n  http.request.uri.path in {\n"
+            + "\n".join(endpoint_lines)
+            + "\n  }\n  and cf.bot_management.score < 30\n)\n"
+        )
+    return {
+        "json": json.dumps(payload, indent=2, sort_keys=True),
+        "ua_list": "\n".join(data["iocs"]["user_agents"]),
+        "endpoint_list": "\n".join(data["iocs"]["endpoints"]),
+        "waf_snippet": waf_snippet,
+    }
+
+
+def _action_source_confidence(action: dict[str, Any], ctx: dict[str, Any]) -> dict[str, str]:
+    targets = action.get("target_values") if isinstance(action.get("target_values"), dict) else {}
+    qualifiers: list[str] = []
+
+    if action.get("scope") == "campaign" and targets.get("campaign_id"):
+        campaign_id = str(targets["campaign_id"])
+        campaign = next(
+            (
+                row
+                for row in ctx.get("campaigns") or []
+                if str(row.get("campaign_id") or "") == campaign_id
+            ),
+            {},
+        )
+        member_set = {str(ua) for ua in campaign.get("leads") or []}
+        qualifiers = [
+            str(((case.get("confidence_assessment") or {}).get("qualifier") or "unavailable"))
+            for case in ctx.get("scraper_cases") or []
+            if str(case.get("user_agent") or "") in member_set
+        ]
+    elif action.get("scope") == "ua_family":
+        members = {str(ua) for ua in targets.get("user_agents") or []}
+        qualifiers = [
+            str(((case.get("confidence_assessment") or {}).get("qualifier") or "unavailable"))
+            for case in ctx.get("scraper_cases") or []
+            if str(case.get("user_agent") or "") in members
+        ]
+    else:
+        uas = {str(ua) for ua in targets.get("user_agents") or []}
+        qualifiers = [
+            str(((case.get("confidence_assessment") or {}).get("qualifier") or "unavailable"))
+            for case in ctx.get("scraper_cases") or []
+            if str(case.get("user_agent") or "") in uas
+        ]
+
+    high_partial = sum(1 for qualifier in qualifiers if qualifier in {"high", "partial"})
+    low_unavailable = sum(1 for qualifier in qualifiers if qualifier not in {"high", "partial"})
+    if high_partial and low_unavailable:
+        label = f"mixed confidence: {high_partial} high/partial, {low_unavailable} validate first"
+        bucket = "response" if action.get("tier") != "tier_4" else "validate"
+    elif high_partial:
+        label = "high/partial confidence"
+        bucket = "response" if action.get("tier") != "tier_4" else "validate"
+    elif qualifiers:
+        label = "low/unavailable confidence - validate first"
+        bucket = "validate"
+    else:
+        label = "scope-level action - validate current membership"
+        bucket = "validate"
+    return {"label": label, "bucket": bucket}
+
+
+def _action_groups(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    response = [action for action in actions if action.get("confidence_bucket") == "response"]
+    validate = [action for action in actions if action.get("confidence_bucket") != "response"]
+    groups = []
+    if response:
+        groups.append(
+            {
+                "title": "Impact-backed response candidates",
+                "lede": (
+                    "These actions are tied to high/partial confidence evidence. Validate current membership "
+                    "before enforcement; Hunt impact totals use the same confidence boundary."
+                ),
+                "actions": response,
+            }
+        )
+    if validate:
+        groups.append(
+            {
+                "title": "Monitor / validate before enforcement",
+                "lede": (
+                    "These lower-confidence or mixed-scope items stay in the queue for revalidation, watchlisting, "
+                    "or challenge-first handling. Do not treat them as part of the Hunt impact total."
+                ),
+                "actions": validate,
+            }
+        )
+    return groups
+
+
+def _threat_hunt_ui(ctx: dict[str, Any]) -> dict[str, Any]:
+    scope = ctx.get("scope") or {}
+    summary = ctx.get("deterministic_summary") or {}
+    campaign = _campaign_ui(ctx.get("campaigns") or [])
+    iocs = _iocs_from_context(ctx)
+    data = {
+        "meta": {
+            "customer": ctx.get("headline") or _subject_label(scope),
+            "cluster": scope.get("cluster") or "",
+            "schema": SCHEMA,
+            "generated_at": ctx.get("generated_at"),
+            "window_current": {"pretty": _window_pretty((ctx.get("windows") or {}).get("current"))},
+            "window_baseline": {"pretty": _window_pretty((ctx.get("windows") or {}).get("baseline"))},
+        },
+        "verdict": {
+            "level": summary.get("severity_level") or "low",
+            "level_label": summary.get("level_label") or "Evidence bounded",
+            "confidence": summary.get("confidence") or "bounded",
+            "confidence_label": summary.get("confidence_label") or "Evidence bounded",
+            "ladder": [
+                {**step, "id": step.get("id") or step.get("key") or "observe"}
+                for step in (ctx.get("severity_ladder") or [])
+            ],
+            "summary": summary.get("summary") or "Threat hunt evidence is bounded by supplied artifacts.",
+        },
+        "impact_tiles": _impact_tiles_ui(ctx),
+        "impact_rows": _impact_rows_ui(ctx),
+        "impact_note": _hydrolix_ingest_note(ctx.get("impact_assessment")),
+        "hunt_impact": _hunt_impact_ui(ctx),
+        "actions": [],
+        "leads": [_lead_ui(case) for case in (ctx.get("lead_cards") or [])],
+        "campaign_count": len(ctx.get("campaigns") or []),
+        "campaign": campaign,
+        "infra": {
+            "available": bool((ctx.get("infrastructure") or {}).get("asn_rollups")),
+            "note": (
+                "GeoIP / ASN enrichment was not supplied; IP and ASN pivots require enrichment in the source pipeline."
+                if not iocs["client_ips"] and not iocs["asns"]
+                else "Infrastructure enrichment is included where supplied by the artifact."
+            ),
+            "stats": [
+                {"value": len(iocs["asns"]), "label": "ASNs identified"},
+                {"value": campaign.get("countries", 0), "label": "Countries"},
+                {"value": len(iocs["client_ips"]) or campaign.get("ips", 0), "label": "Distinct IPs"},
+            ],
+        },
+        "boundaries": {
+            "observed": (ctx.get("evidence_boundaries") or {}).get("observed") or [],
+            "not_established": (ctx.get("evidence_boundaries") or {}).get("not_established") or [],
+        },
+        "iocs": iocs,
+    }
+    for action in ctx.get("recommended_actions") or []:
+        target_kind, target_value = _action_primary_target(action)
+        impact = action.get("estimated_observed_window_impact") or {}
+        confidence_scope = _action_source_confidence(action, ctx)
+        data["actions"].append(
+            {
+                "ordinal": len(data["actions"]) + 1,
+                "tier": action.get("tier") or "tier_4",
+                "tier_label": action.get("tier_label") or _label(str(action.get("tier") or "tier_4")),
+                "scope": action.get("scope") or "lead",
+                "scope_label": action.get("scope_label") or _label(str(action.get("scope") or "lead")),
+                "action_type": action.get("action_type_label") or _label(str(action.get("action_type") or "monitor")),
+                "wording": action.get("wording_label") or _label(str(action.get("enforcement_wording") or "challenge_first")),
+                "target_kind": target_kind,
+                "target_value": target_value,
+                "target_secondary": _action_secondary_targets(action),
+                "impact_requests": action.get("impact_requests_display") or _fmt_num(impact.get("requests")),
+                "impact_share": action.get("impact_request_share_display") or _fmt_share(impact.get("request_share")),
+                "impact_bytes": action.get("impact_bytes_display") or _fmt_bytes(impact.get("bytes")),
+                "impact_byte_share": action.get("impact_byte_share_display") or _fmt_share(impact.get("byte_share")),
+                "classification": action.get("threat_category_label"),
+                "confidence": action.get("threat_confidence_display"),
+                "confidence_scope": confidence_scope["label"],
+                "confidence_bucket": confidence_scope["bucket"],
+                "attack": _attack_labels(action),
+                "reasons": [_label(str(flag)) for flag in action.get("supporting_evidence") or []],
+                "caveat": action.get("false_positive_caveat") or action.get("threat_action_modifier") or "Validate target membership before enforcement.",
+            }
+        )
+    data["action_groups"] = _action_groups(data["actions"])
+    data["exports"] = _exports_for_ui(data)
+    return data
 
 
 def _edge_narrative(edge: dict[str, Any]) -> str:
@@ -1604,7 +3327,9 @@ def prepare(artifact: dict[str, Any]) -> dict[str, Any]:
                     _label(str(flag)) for flag in case.get("missing_evidence") or []
                 ],
                 "requests_display": _fmt_num(case.get("requests")),
+                "bytes_display": _fmt_num(case.get("bytes")),
                 "baseline_display": _fmt_num(case.get("baseline_requests")),
+                "impact_assessment": _impact_view(case.get("impact_assessment")),
                 "request_delta_display": baseline_comparison["delta_display"],
                 "baseline_delta_display": baseline_comparison["display"],
                 "baseline_delta_class": baseline_comparison["class"],
@@ -1615,6 +3340,7 @@ def prepare(artifact: dict[str, Any]) -> dict[str, Any]:
                 "endpoint_evidence": endpoint_evidence,
                 "ua_plausibility": ua_plausibility,
                 "fanout_enrichment": fanout,
+                "bot_manager_context": _bot_manager_source_view(case.get("bot_manager_context")),
                 "threat_classification": threat_classification,
                 "confidence_assessment": confidence,
                 "recommended_actions": [
@@ -1648,7 +3374,9 @@ def prepare(artifact: dict[str, Any]) -> dict[str, Any]:
                 "tone": _tone(str(campaign.get("verdict", "not_enough_data"))),
                 "temporal_pattern_label": _label(str(campaign.get("temporal_pattern", "not_established"))),
                 "total_requests_display": _fmt_num(campaign.get("total_requests")),
+                "bytes_display": _fmt_num(campaign.get("bytes")),
                 "baseline_requests_display": _fmt_num(campaign.get("baseline_requests")),
+                "impact_assessment": _impact_view(campaign.get("impact_assessment")),
                 "baseline_delta_display": baseline_comparison["display"],
                 "baseline_delta_class": baseline_comparison["class"],
                 "drilldown_coverage_summary": drilldown_coverage_summary,
@@ -1703,12 +3431,24 @@ def prepare(artifact: dict[str, Any]) -> dict[str, Any]:
     deterministic_summary = _build_deterministic_summary(
         artifact, campaigns, scraper_cases
     )
+    bot_manager_context = _bot_manager_context_view(artifact.get("bot_manager_context"))
     recommended_actions = [
         _action_view(action)
         for action in artifact.get("recommended_actions") or []
         if isinstance(action, dict)
     ]
-    return {
+    impact_assessment = artifact.get("impact_assessment") if isinstance(artifact.get("impact_assessment"), dict) else {}
+    impact_view = {
+        **impact_assessment,
+        "hunt": _impact_view(impact_assessment.get("hunt") if isinstance(impact_assessment.get("hunt"), dict) else {}),
+        "tiers": {
+            tier: _impact_view(value if isinstance(value, dict) else {})
+            for tier, value in (impact_assessment.get("tiers") or {}).items()
+            if isinstance(impact_assessment.get("tiers"), dict)
+        },
+        "cost_config": impact_assessment.get("cost_config") if isinstance(impact_assessment.get("cost_config"), dict) else None,
+    }
+    ctx = {
         "artifact": artifact,
         "title": "Threat Hunt",
         "report_type": REPORT_TYPE,
@@ -1728,7 +3468,11 @@ def prepare(artifact: dict[str, Any]) -> dict[str, Any]:
         "ua_families": ua_families,
         "scraper_cases": scraper_cases,
         "known_traffic": known_traffic,
+        "bot_manager_context": bot_manager_context,
+        "threat_classification": _classification_view(artifact.get("threat_classification")),
         "recommended_actions": recommended_actions,
+        "impact_assessment": impact_view,
+        "impact_note": _hydrolix_ingest_note(impact_view),
         "deterministic_summary": deterministic_summary,
         "severity_ladder": _severity_ladder(
             deterministic_summary["severity_level"]
@@ -1765,3 +3509,5 @@ def prepare(artifact: dict[str, Any]) -> dict[str, Any]:
             "reasons": deterministic_summary["reasons"],
         },
     }
+    ctx["threat_hunt_ui"] = _threat_hunt_ui(ctx)
+    return ctx

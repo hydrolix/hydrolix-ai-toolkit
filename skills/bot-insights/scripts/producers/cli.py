@@ -60,6 +60,7 @@ from producers.threat_hunt import (
     export_background_ua_sample,
     export_baseline_ua_timeseries,
     export_fanout_enrichment,
+    export_hydrolix_usagemeter_ingest_estimate,
     export_raw_actor_fixtures,
 )
 from producers.sql.control_review import (
@@ -283,6 +284,34 @@ def parse_args() -> argparse.Namespace:
         help="Directory containing threat_hunt raw actor JSON exports.",
     )
     parser.add_argument(
+        "--hydrolix-log-ingest-bytes-column",
+        help=(
+            "Optional akamai.logs column to sum as Hydrolix log ingest bytes "
+            "for threat_hunt raw actor exports. When omitted, the ingest lane "
+            "is rendered as unavailable instead of inferred from response or "
+            "CDN-billed bytes."
+        ),
+    )
+    parser.add_argument(
+        "--hydrolix-log-ingest-usagemeter-in",
+        help=(
+            "Optional local hydro.logs usagemeter JSON/CSV artifact for threat_hunt "
+            "Hydrolix ingest estimates."
+        ),
+    )
+    parser.add_argument(
+        "--hydrolix-log-ingest-usagemeter-project-deployment-id",
+        help=(
+            "Project deployment id used to export hydro.logs usagemeter rows, "
+            "for example expediagroup__akamai."
+        ),
+    )
+    parser.add_argument(
+        "--hydrolix-log-ingest-usagemeter-table-name",
+        default="logs",
+        help="hydro.logs table_name value for the raw customer log table. Default: logs.",
+    )
+    parser.add_argument(
         "--geoip-asn-v4",
         help="Optional threat_hunt IPv4 GeoIP/ASN JSON or CSV enrichment file.",
     )
@@ -387,6 +416,35 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--edge-response-in",
         help="Optional threat_hunt edge/Bot/SIEM coverage JSON or CSV artifact.",
+    )
+    parser.add_argument(
+        "--bot-manager-context-in",
+        help=(
+            "Optional aggregate threat_hunt Bot Manager context JSON or CSV artifact "
+            "from bi_siem_policy_summary_* rows. Display-only enrichment."
+        ),
+    )
+    parser.add_argument(
+        "--bot-manager-siem-summary-in",
+        dest="bot_manager_context_in",
+        help=(
+            "Alias for --bot-manager-context-in. Accepts aggregate "
+            "bi_siem_policy_summary_* context rows."
+        ),
+    )
+    parser.add_argument(
+        "--bot-manager-exact-ua-in",
+        help=(
+            "Optional exact-UA Bot Manager or edge export JSON or CSV artifact. "
+            "Rows are attached only to matching user_agent values for display."
+        ),
+    )
+    parser.add_argument(
+        "--cost-estimate-config",
+        help=(
+            "Optional threat_hunt JSON cost assumptions file. When enabled, "
+            "adds CDN egress low/high estimates derived from observed bytes."
+        ),
     )
     parser.add_argument(
         "--analyst-notes",
@@ -526,6 +584,9 @@ def main() -> int:
         local_flags = {
             "--summary-parquet-glob": args.summary_parquet_glob,
             "--raw-actor-dir": args.raw_actor_dir,
+            "--hydrolix-log-ingest-bytes-column": args.hydrolix_log_ingest_bytes_column,
+            "--hydrolix-log-ingest-usagemeter-in": args.hydrolix_log_ingest_usagemeter_in,
+            "--hydrolix-log-ingest-usagemeter-project-deployment-id": args.hydrolix_log_ingest_usagemeter_project_deployment_id,
             "--geoip-asn-v4": args.geoip_asn_v4,
             "--geoip-asn-v6": args.geoip_asn_v6,
             "--cooccurrence-in": args.cooccurrence_in,
@@ -538,6 +599,9 @@ def main() -> int:
             "--background-ua-sample-in": args.background_ua_sample_in,
             "--baseline-ua-timeseries-in": args.baseline_ua_timeseries_in,
             "--edge-response-in": args.edge_response_in,
+            "--bot-manager-context-in": args.bot_manager_context_in,
+            "--bot-manager-exact-ua-in": args.bot_manager_exact_ua_in,
+            "--cost-estimate-config": args.cost_estimate_config,
         }
         supplied = [flag for flag, value in local_flags.items() if value]
         if supplied:
@@ -590,7 +654,23 @@ def main() -> int:
                 cluster=args.cluster,
                 database=args.database,
                 top_n=args.top_n,
+                hydrolix_log_ingest_bytes_column=args.hydrolix_log_ingest_bytes_column,
             )
+        hydrolix_log_ingest_usagemeter_in = args.hydrolix_log_ingest_usagemeter_in
+        if (
+            hydrolix_log_ingest_usagemeter_in is None
+            and args.hydrolix_log_ingest_usagemeter_project_deployment_id
+        ):
+            usagemeter_path = sample_dir / "threat_hunt-hydrolix-usagemeter.json"
+            export_hydrolix_usagemeter_ingest_estimate(
+                output=str(usagemeter_path),
+                start=args.start,
+                end=args.end,
+                cluster=args.cluster,
+                project_deployment_id=args.hydrolix_log_ingest_usagemeter_project_deployment_id,
+                table_name=args.hydrolix_log_ingest_usagemeter_table_name,
+            )
+            hydrolix_log_ingest_usagemeter_in = str(usagemeter_path)
         fanout_strategy = args.fanout_strategy
         if args.ua_fanout_query in {"summary_hour", "logs_probe", "skip"}:
             fanout_strategy = args.ua_fanout_query
@@ -718,6 +798,12 @@ def main() -> int:
             baseline_ua_timeseries_in=baseline_ua_timeseries_in,
             baseline_significance_query=args.baseline_significance_query,
             edge_response_in=args.edge_response_in,
+            bot_manager_context_in=args.bot_manager_context_in,
+            bot_manager_exact_ua_in=args.bot_manager_exact_ua_in,
+            cost_estimate_config=args.cost_estimate_config,
+            hydrolix_log_ingest_usagemeter_in=hydrolix_log_ingest_usagemeter_in,
+            hydrolix_log_ingest_project_deployment_id=args.hydrolix_log_ingest_usagemeter_project_deployment_id,
+            hydrolix_log_ingest_table_name=args.hydrolix_log_ingest_usagemeter_table_name,
         )
         artifact_path.write_text(
             json.dumps(artifact, indent=2, sort_keys=True) + "\n",

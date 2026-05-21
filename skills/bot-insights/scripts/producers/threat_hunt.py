@@ -235,9 +235,15 @@ def read_rows_from_glob(pattern: str) -> list[dict[str, Any]]:
 
 def _normalize_summary_row(row: dict[str, Any]) -> dict[str, Any]:
     requests = _num(_first(row, ("requests", "request_count", "count", "hits")))
-    bytes_value = _num(
-        _first(row, ("bytes", "response_bytes", "total_bytes", "egress_bytes", "sum_totalBytes"))
+    response_body_bytes = _num(_first(row, ("response_body_bytes", "response_bytes", "bytes")))
+    akamai_billed_bytes = _num(_first(row, ("akamai_billed_bytes", "totalBytes", "sum_totalBytes")))
+    hydrolix_log_ingest_bytes_raw = _first(row, ("hydrolix_log_ingest_bytes",))
+    hydrolix_log_ingest_bytes = (
+        _num(hydrolix_log_ingest_bytes_raw)
+        if hydrolix_log_ingest_bytes_raw not in (None, "")
+        else None
     )
+    bytes_value = response_body_bytes
     if not requests:
         requests = _num(_first(row, ("cnt_all",)))
     status_429 = _num(_first(row, ("status_429", "requests_429", "429", "rate_limited_requests", "req_429")))
@@ -260,6 +266,9 @@ def _normalize_summary_row(row: dict[str, Any]) -> dict[str, Any]:
         "human_requests": _num(_first(row, ("human_requests", "browser_requests"))),
         "requests": requests,
         "bytes": bytes_value,
+        "response_body_bytes": response_body_bytes,
+        "akamai_billed_bytes": akamai_billed_bytes,
+        "hydrolix_log_ingest_bytes": hydrolix_log_ingest_bytes,
         "status_429": status_429,
         "status_5xx": status_5xx,
     }
@@ -287,7 +296,14 @@ def _load_actor_file(path: Path, actor_type: str, period: str) -> list[dict[str,
                 "actor_type": actor_type,
                 "value": str(actor_value),
                 "requests": _num(_first(row, ("requests", "request_count", "count", "hits"))),
-                "bytes": _num(_first(row, ("bytes", "response_bytes", "total_bytes"))),
+                "bytes": _num(_first(row, ("bytes", "response_body_bytes", "response_bytes"))),
+                "response_body_bytes": _num(_first(row, ("response_body_bytes", "response_bytes", "bytes"))),
+                "akamai_billed_bytes": _num(_first(row, ("akamai_billed_bytes", "totalBytes", "sum_totalBytes"))),
+                "hydrolix_log_ingest_bytes": (
+                    _num(_first(row, ("hydrolix_log_ingest_bytes",)))
+                    if _first(row, ("hydrolix_log_ingest_bytes",)) not in (None, "")
+                    else None
+                ),
                 "status_429": _num(_first(row, ("status_429", "requests_429", "429", "req_429"))),
                 "status_5xx": _num(_first(row, ("status_5xx", "requests_5xx", "5xx", "req_5xx"))),
                 "country": str(_first(row, ("country", "country_code", "client_country"), "")),
@@ -372,7 +388,9 @@ def _raw_actor_sql(
     start: datetime,
     end: datetime,
     top_n: int,
-    bytes_column: str = "bytes",
+    response_body_bytes_column: str = "bytes",
+    akamai_billed_bytes_column: str = "totalBytes",
+    hydrolix_log_ingest_bytes_column: str | None = None,
     path_column: str = "reqPath",
 ) -> str:
     if actor_type == "client_ip":
@@ -382,22 +400,70 @@ def _raw_actor_sql(
     else:
         raise AssertionError(actor_type)
     value_field = _actor_value_field(actor_type)
+    hydrolix_expr = (
+        f"sum({hydrolix_log_ingest_bytes_column})"
+        if hydrolix_log_ingest_bytes_column
+        else "CAST(NULL, 'Nullable(Float64)')"
+    )
     return f"""
 SELECT
-  {value_expr} AS {value_field},
-  count() AS requests,
-  sum({bytes_column}) AS bytes,
-  countIf(statusCode = 429) AS status_429,
-  countIf(statusCode BETWEEN 500 AND 599) AS status_5xx,
-  any(country) AS country,
-  any({path_column}) AS request_path
-FROM {database}.logs
-WHERE reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC')
-  AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')
-  AND nullIf({value_expr}, '') IS NOT NULL
-GROUP BY {value_field}
+  {value_field},
+  requests,
+  response_body_bytes,
+  response_body_bytes AS bytes,
+  akamai_billed_bytes,
+  hydrolix_log_ingest_bytes,
+  status_429,
+  status_5xx,
+  country,
+  request_path
+FROM (
+  SELECT
+    {value_expr} AS {value_field},
+    count() AS requests,
+    sum({response_body_bytes_column}) AS response_body_bytes,
+    sum({akamai_billed_bytes_column}) AS akamai_billed_bytes,
+    {hydrolix_expr} AS hydrolix_log_ingest_bytes,
+    countIf(statusCode = 429) AS status_429,
+    countIf(statusCode BETWEEN 500 AND 599) AS status_5xx,
+    any(country) AS country,
+    any({path_column}) AS request_path
+  FROM {database}.logs
+  WHERE reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC')
+    AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')
+    AND nullIf({value_expr}, '') IS NOT NULL
+  GROUP BY {value_field}
+)
 ORDER BY requests DESC
 LIMIT {int(top_n)}
+""".strip()
+
+
+def _hydrolix_usagemeter_sql(
+    *,
+    start: datetime,
+    end: datetime,
+    project_deployment_id: str,
+    table_name: str,
+) -> str:
+    return f"""
+SELECT
+  'hydro.logs usagemeter' AS source,
+  {sql_literal(project_deployment_id)} AS project_deployment_id,
+  {sql_literal(table_name)} AS table_name,
+  min(timestamp) AS metadata_window_start,
+  max(timestamp) AS metadata_window_end,
+  sum(toUInt64OrZero(toString(rows))) AS rows,
+  sum(toUInt64OrZero(catchall['billing_bytes'])) AS billing_bytes,
+  sum(toUInt64OrZero(toString(bytes))) AS raw_usage_bytes,
+  billing_bytes / nullIf(rows, 0) AS billing_bytes_per_row,
+  raw_usage_bytes / nullIf(rows, 0) AS raw_usage_bytes_per_row
+FROM hydro.logs
+WHERE timestamp >= toDateTime('{sql_ts(start)}', 'UTC')
+  AND timestamp < toDateTime('{sql_ts(end)}', 'UTC')
+  AND message = 'Reported usage.'
+  AND table_name = {sql_literal(table_name)}
+  AND catchall['project_deployment_id'] = {sql_literal(project_deployment_id)}
 """.strip()
 
 
@@ -421,14 +487,27 @@ def _merge_actor_rows(
                 "value": value,
                 "requests": 0.0,
                 "bytes": 0.0,
+                "response_body_bytes": 0.0,
+                "akamai_billed_bytes": 0.0,
+                "hydrolix_log_ingest_bytes": None,
                 "status_429": 0.0,
                 "status_5xx": 0.0,
                 "country": "",
                 "request_path": "",
             },
         )
-        for key in ("requests", "bytes", "status_429", "status_5xx"):
-            cell[key] += _num(_first(row, (key, "request_count", "count", "hits")))
+        cell["requests"] += _num(_first(row, ("requests", "request_count", "count", "hits")))
+        response_body_bytes = _num(_first(row, ("response_body_bytes", "response_bytes", "bytes")))
+        cell["response_body_bytes"] += response_body_bytes
+        cell["bytes"] += _num(_first(row, ("bytes", "response_body_bytes", "response_bytes"), response_body_bytes))
+        cell["akamai_billed_bytes"] += _num(_first(row, ("akamai_billed_bytes", "totalBytes", "sum_totalBytes")))
+        hydrolix_value = _first(row, ("hydrolix_log_ingest_bytes",))
+        if hydrolix_value not in (None, ""):
+            cell["hydrolix_log_ingest_bytes"] = (
+                _num(cell["hydrolix_log_ingest_bytes"]) + _num(hydrolix_value)
+            )
+        cell["status_429"] += _num(_first(row, ("status_429", "requests_429", "429", "req_429")))
+        cell["status_5xx"] += _num(_first(row, ("status_5xx", "requests_5xx", "5xx", "req_5xx")))
         country = str(_first(row, ("country", "country_code"), "")).strip()
         if country:
             countries[value].add(country)
@@ -440,8 +519,8 @@ def _merge_actor_rows(
             cell["country"] = sorted(countries[value])[0]
         if paths[value]:
             cell["request_path"] = sorted(paths[value])[0]
-        for key in ("requests", "bytes", "status_429", "status_5xx"):
-            if float(cell[key]).is_integer():
+        for key in ("requests", "bytes", "response_body_bytes", "akamai_billed_bytes", "hydrolix_log_ingest_bytes", "status_429", "status_5xx"):
+            if cell[key] is not None and float(cell[key]).is_integer():
                 cell[key] = int(cell[key])
     return sorted(
         cells.values(),
@@ -743,6 +822,7 @@ def export_raw_actor_fixtures(
     cluster: str,
     database: str = "akamai",
     top_n: int = DEFAULT_COOCCURRENCE_TOP_N,
+    hydrolix_log_ingest_bytes_column: str | None = None,
 ) -> Path:
     output_dir = Path(actor_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -771,6 +851,7 @@ def export_raw_actor_fixtures(
                             start=chunk_start,
                             end=chunk_end,
                             top_n=top_n,
+                            hydrolix_log_ingest_bytes_column=hydrolix_log_ingest_bytes_column,
                         ),
                         chunk_output,
                     )
@@ -782,6 +863,30 @@ def export_raw_actor_fixtures(
                     encoding="utf-8",
                 )
     return output_dir
+
+
+def export_hydrolix_usagemeter_ingest_estimate(
+    *,
+    output: str,
+    start: str,
+    end: str,
+    cluster: str,
+    project_deployment_id: str,
+    table_name: str = "logs",
+) -> Path:
+    output_path = Path(output).expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    _run_mux_export(
+        cluster,
+        _hydrolix_usagemeter_sql(
+            start=parse_time(start, "start"),
+            end=parse_time(end, "end"),
+            project_deployment_id=project_deployment_id,
+            table_name=table_name,
+        ),
+        output_path,
+    )
+    return output_path
 
 
 def _mux_export_command() -> list[str]:
@@ -1764,8 +1869,19 @@ def _sum_period(rows: Iterable[dict[str, Any]], period: str) -> dict[str, float]
     for row in rows:
         if row.get("period") != period:
             continue
-        for key in ("requests", "bytes", "status_429", "status_5xx", "bot_requests", "human_requests"):
+        for key in (
+            "requests",
+            "bytes",
+            "response_body_bytes",
+            "akamai_billed_bytes",
+            "status_429",
+            "status_5xx",
+            "bot_requests",
+            "human_requests",
+        ):
             totals[key] += _num(row.get(key))
+        if row.get("hydrolix_log_ingest_bytes") not in (None, ""):
+            totals["hydrolix_log_ingest_bytes"] += _num(row.get("hydrolix_log_ingest_bytes"))
     return dict(totals)
 
 
@@ -1785,6 +1901,467 @@ def _metric_delta(name: str, current: dict[str, float], baseline: dict[str, floa
         "absolute_delta": cur - base,
         "pct_change": _pct(cur - base, base),
     }
+
+
+def _load_cost_estimate_config(path_value: str | None) -> dict[str, Any] | None:
+    if not path_value:
+        return None
+    path = Path(path_value).expanduser().resolve()
+    if path.suffix.lower() != ".json":
+        raise SystemExit("--cost-estimate-config accepts JSON files only.")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"--cost-estimate-config is not valid JSON: {path}") from exc
+    if not isinstance(value, dict):
+        raise SystemExit("--cost-estimate-config must contain a JSON object.")
+    if not value.get("enabled"):
+        return None
+    return {
+        "enabled": True,
+        "egress_rate_low_per_gb": _num(value.get("egress_rate_low_per_gb")),
+        "egress_rate_high_per_gb": _num(value.get("egress_rate_high_per_gb")),
+        "basis_label": str(value.get("basis_label") or "CDN egress estimate"),
+        "disclaimer": str(value.get("disclaimer") or "Estimated from observed response bytes and configured egress rates."),
+    }
+
+
+def _hydrolix_usagemeter_estimate_from_rows(
+    rows: list[dict[str, Any]],
+    *,
+    project_deployment_id: str | None,
+    table_name: str | None,
+    metadata_window: dict[str, str] | None,
+) -> dict[str, Any]:
+    total_rows = 0.0
+    billing_bytes = 0.0
+    raw_usage_bytes = 0.0
+    window_start = None
+    window_end = None
+    for row in rows:
+        total_rows += _num(_first(row, ("rows", "usage_rows", "row_count")))
+        billing_bytes += _num(_first(row, ("billing_bytes", "sum_billing_bytes")))
+        raw_usage_bytes += _num(_first(row, ("raw_usage_bytes", "bytes", "sum_bytes")))
+        window_start = window_start or _first(row, ("metadata_window_start", "window_start", "start"))
+        window_end = window_end or _first(row, ("metadata_window_end", "window_end", "end"))
+        project_deployment_id = project_deployment_id or _first(row, ("project_deployment_id",))
+        table_name = table_name or _first(row, ("table_name",))
+    if total_rows <= 0 or billing_bytes <= 0:
+        return {
+            "availability": "not_available",
+            "source": "hydro.logs usagemeter",
+            "estimated": True,
+            "reason": "No Hydrolix usagemeter rows with positive rows and billing_bytes were supplied.",
+        }
+    billing_bytes_per_row = billing_bytes / total_rows
+    raw_usage_bytes_per_row = raw_usage_bytes / total_rows if raw_usage_bytes > 0 else None
+    return {
+        "availability": "available",
+        "source": "hydro.logs usagemeter",
+        "estimated": True,
+        "metric": "billing_bytes_per_row",
+        "project_deployment_id": str(project_deployment_id or ""),
+        "table_name": str(table_name or "logs"),
+        "metadata_window": metadata_window
+        or {
+            "start": str(window_start or ""),
+            "end": str(window_end or ""),
+        },
+        "rows": total_rows,
+        "billing_bytes": billing_bytes,
+        "raw_usage_bytes": raw_usage_bytes,
+        "billing_bytes_per_row": billing_bytes_per_row,
+        "raw_usage_bytes_per_row": raw_usage_bytes_per_row,
+    }
+
+
+def _load_hydrolix_usagemeter_estimate(
+    path_value: str | None,
+    *,
+    project_deployment_id: str | None,
+    table_name: str | None,
+    metadata_window: dict[str, str] | None,
+) -> dict[str, Any] | None:
+    if not path_value:
+        return None
+    rows = _read_optional_rows(path_value)
+    if not rows:
+        return {
+            "availability": "not_available",
+            "source": "hydro.logs usagemeter",
+            "estimated": True,
+            "reason": "Hydrolix usagemeter input was empty.",
+        }
+    return _hydrolix_usagemeter_estimate_from_rows(
+        rows,
+        project_deployment_id=project_deployment_id,
+        table_name=table_name,
+        metadata_window=metadata_window,
+    )
+
+
+def _apply_hydrolix_ingest_estimate(
+    rows: list[dict[str, Any]],
+    actor_rows: list[dict[str, Any]],
+    estimate: dict[str, Any] | None,
+) -> None:
+    if not estimate or estimate.get("availability") != "available":
+        return
+    bytes_per_row = _num(estimate.get("billing_bytes_per_row"))
+    if bytes_per_row <= 0:
+        return
+    for row in rows:
+        if row.get("hydrolix_log_ingest_bytes") in (None, ""):
+            row["hydrolix_log_ingest_bytes"] = _num(row.get("requests")) * bytes_per_row
+    for row in actor_rows:
+        if row.get("hydrolix_log_ingest_bytes") in (None, ""):
+            row["hydrolix_log_ingest_bytes"] = _num(row.get("requests")) * bytes_per_row
+
+
+def _share_fraction(part: float, whole: float) -> float | None:
+    if whole <= 0:
+        return None
+    return part / whole
+
+
+def _share_severity(share: float | None) -> str:
+    value = share if share is not None else 0.0
+    if value > 0.20:
+        return "dominant"
+    if value > 0.05:
+        return "significant"
+    if value > 0.01:
+        return "moderate"
+    return "minor"
+
+
+def _trend_severity(current_share: float | None, baseline_share: float | None) -> str:
+    current_value = current_share if current_share is not None else 0.0
+    baseline_value = baseline_share if baseline_share is not None else 0.0
+    if baseline_value <= 0:
+        return "new_entrant" if current_value > 0.001 else "stable"
+    ratio = current_value / baseline_value
+    if ratio >= 2.0:
+        return "accelerating"
+    if ratio > 1.10:
+        return "growing"
+    if ratio < 0.90:
+        return "declining"
+    return "stable"
+
+
+def _share_direction(current_share: float | None, baseline_share: float | None) -> str:
+    current_value = current_share if current_share is not None else 0.0
+    baseline_value = baseline_share if baseline_share is not None else 0.0
+    if current_value > baseline_value * 1.05:
+        return "growing_share"
+    if current_value < baseline_value * 0.95:
+        return "shrinking_share"
+    return "stable_share"
+
+
+BYTE_LANE_FIELDS = (
+    "hydrolix_log_ingest_bytes",
+    "response_body_bytes",
+    "akamai_billed_bytes",
+)
+
+
+def _sum_optional_lane(rows: Iterable[dict[str, Any]], field: str) -> float | None:
+    total = 0.0
+    available = False
+    for row in rows:
+        value = row.get(field)
+        if value in (None, ""):
+            continue
+        total += _num(value)
+        available = True
+    return total if available else None
+
+
+def _lane_share(part: float | None, whole: float | None) -> float | None:
+    if part is None or whole is None:
+        return None
+    return _share_fraction(part, whole)
+
+
+_IMPACT_INTERPRETIVE_FRAGMENTS = {
+    ("dominant", "new_entrant"): "Dominant current-window share with no comparable baseline footprint.",
+    ("dominant", "accelerating"): "Dominant traffic share that expanded sharply from baseline.",
+    ("dominant", "growing"): "Dominant traffic share that is still growing versus baseline.",
+    ("significant", "new_entrant"): "Significant current-window share from a baseline-new lead.",
+    ("significant", "accelerating"): "Significant traffic share with a sharp share increase versus baseline.",
+    ("significant", "growing"): "Significant traffic share that increased versus baseline.",
+    ("moderate", "new_entrant"): "Moderate current-window share that was absent from baseline.",
+    ("moderate", "accelerating"): "Moderate traffic share with sharp relative growth versus baseline.",
+    ("moderate", "growing"): "Moderate traffic share that grew versus baseline.",
+    ("minor", "new_entrant"): "Small current-window share, but newly visible versus baseline.",
+}
+
+
+def _impact_for_totals(
+    *,
+    scope: str,
+    requests: float,
+    baseline_requests: float,
+    bytes_value: float,
+    baseline_bytes: float,
+    hydrolix_log_ingest_bytes: float | None,
+    baseline_hydrolix_log_ingest_bytes: float | None,
+    response_body_bytes: float | None,
+    baseline_response_body_bytes: float | None,
+    akamai_billed_bytes: float | None,
+    baseline_akamai_billed_bytes: float | None,
+    current_totals: dict[str, float],
+    baseline_totals: dict[str, float],
+    cost_config: dict[str, Any] | None,
+    user_agents: Iterable[str] | None = None,
+) -> dict[str, Any]:
+    current_requests_total = _num(current_totals.get("requests"))
+    baseline_requests_total = _num(baseline_totals.get("requests"))
+    current_bytes_total = _num(current_totals.get("bytes"))
+    baseline_bytes_total = _num(baseline_totals.get("bytes"))
+    current_hydrolix_total = (
+        _num(current_totals.get("hydrolix_log_ingest_bytes"))
+        if current_totals.get("hydrolix_log_ingest_bytes") not in (None, "")
+        else None
+    )
+    baseline_hydrolix_total = (
+        _num(baseline_totals.get("hydrolix_log_ingest_bytes"))
+        if baseline_totals.get("hydrolix_log_ingest_bytes") not in (None, "")
+        else None
+    )
+    current_response_total = _num(current_totals.get("response_body_bytes"))
+    baseline_response_total = _num(baseline_totals.get("response_body_bytes"))
+    current_akamai_total = _num(current_totals.get("akamai_billed_bytes"))
+    baseline_akamai_total = _num(baseline_totals.get("akamai_billed_bytes"))
+    request_share = _share_fraction(requests, current_requests_total)
+    baseline_request_share = _share_fraction(baseline_requests, baseline_requests_total)
+    byte_share = _share_fraction(bytes_value, current_bytes_total)
+    baseline_byte_share = _share_fraction(baseline_bytes, baseline_bytes_total)
+    trend = _trend_severity(request_share, baseline_request_share)
+    severity = _share_severity(request_share)
+    impact = {
+        "scope": scope,
+        "user_agents": sorted({str(ua) for ua in (user_agents or []) if str(ua)}),
+        "requests": requests,
+        "baseline_requests": baseline_requests,
+        "request_delta": requests - baseline_requests,
+        "request_share": request_share,
+        "baseline_request_share": baseline_request_share,
+        "request_share_delta": (
+            request_share - baseline_request_share
+            if request_share is not None and baseline_request_share is not None
+            else None
+        ),
+        "request_share_ratio": (
+            request_share / baseline_request_share
+            if request_share is not None and baseline_request_share not in (None, 0)
+            else None
+        ),
+        "bytes": bytes_value,
+        "baseline_bytes": baseline_bytes,
+        "byte_share": byte_share,
+        "baseline_byte_share": baseline_byte_share,
+        "hydrolix_log_ingest_bytes": hydrolix_log_ingest_bytes,
+        "baseline_hydrolix_log_ingest_bytes": baseline_hydrolix_log_ingest_bytes,
+        "hydrolix_log_ingest_byte_share": _lane_share(hydrolix_log_ingest_bytes, current_hydrolix_total),
+        "baseline_hydrolix_log_ingest_byte_share": _lane_share(
+            baseline_hydrolix_log_ingest_bytes, baseline_hydrolix_total
+        ),
+        "response_body_bytes": response_body_bytes,
+        "baseline_response_body_bytes": baseline_response_body_bytes,
+        "response_body_byte_share": _lane_share(response_body_bytes, current_response_total),
+        "baseline_response_body_byte_share": _lane_share(
+            baseline_response_body_bytes, baseline_response_total
+        ),
+        "akamai_billed_bytes": akamai_billed_bytes,
+        "baseline_akamai_billed_bytes": baseline_akamai_billed_bytes,
+        "akamai_billed_byte_share": _lane_share(akamai_billed_bytes, current_akamai_total),
+        "baseline_akamai_billed_byte_share": _lane_share(
+            baseline_akamai_billed_bytes, baseline_akamai_total
+        ),
+        "share_severity": severity,
+        "trend_severity": trend,
+        "share_direction": _share_direction(request_share, baseline_request_share),
+    }
+    fragment = _IMPACT_INTERPRETIVE_FRAGMENTS.get((severity, trend))
+    if fragment:
+        impact["interpretation"] = fragment
+    if cost_config:
+        gb = bytes_value / 1_000_000_000
+        impact["cost_estimate"] = {
+            "egress_gb_decimal": gb,
+            "low": gb * _num(cost_config.get("egress_rate_low_per_gb")),
+            "high": gb * _num(cost_config.get("egress_rate_high_per_gb")),
+            "basis_label": cost_config.get("basis_label"),
+            "disclaimer": cost_config.get("disclaimer"),
+        }
+    return impact
+
+
+def _impact_for_uas(
+    *,
+    scope: str,
+    user_agents: Iterable[str],
+    case_by_ua: dict[str, dict[str, Any]],
+    current_totals: dict[str, float],
+    baseline_totals: dict[str, float],
+    cost_config: dict[str, Any] | None,
+) -> dict[str, Any]:
+    uas = sorted({str(ua) for ua in user_agents if str(ua) in case_by_ua})
+    return _impact_for_totals(
+        scope=scope,
+        requests=sum(_num(case_by_ua[ua].get("requests")) for ua in uas),
+        baseline_requests=sum(_num(case_by_ua[ua].get("baseline_requests")) for ua in uas),
+        bytes_value=sum(_num(case_by_ua[ua].get("bytes")) for ua in uas),
+        baseline_bytes=sum(_num(case_by_ua[ua].get("baseline_bytes")) for ua in uas),
+        hydrolix_log_ingest_bytes=_sum_optional_lane(
+            (case_by_ua[ua] for ua in uas), "hydrolix_log_ingest_bytes"
+        ),
+        baseline_hydrolix_log_ingest_bytes=_sum_optional_lane(
+            (case_by_ua[ua] for ua in uas), "baseline_hydrolix_log_ingest_bytes"
+        ),
+        response_body_bytes=_sum_optional_lane(
+            (case_by_ua[ua] for ua in uas), "response_body_bytes"
+        ),
+        baseline_response_body_bytes=_sum_optional_lane(
+            (case_by_ua[ua] for ua in uas), "baseline_response_body_bytes"
+        ),
+        akamai_billed_bytes=_sum_optional_lane(
+            (case_by_ua[ua] for ua in uas), "akamai_billed_bytes"
+        ),
+        baseline_akamai_billed_bytes=_sum_optional_lane(
+            (case_by_ua[ua] for ua in uas), "baseline_akamai_billed_bytes"
+        ),
+        current_totals=current_totals,
+        baseline_totals=baseline_totals,
+        cost_config=cost_config,
+        user_agents=uas,
+    )
+
+
+def _attach_impact_assessments(
+    *,
+    current_totals: dict[str, float],
+    baseline_totals: dict[str, float],
+    scraper_cases: list[dict[str, Any]],
+    campaigns: list[dict[str, Any]],
+    ua_families: list[dict[str, Any]],
+    recommended_actions: list[dict[str, Any]],
+    cost_config: dict[str, Any] | None,
+) -> dict[str, Any]:
+    case_by_ua = {str(case.get("user_agent")): case for case in scraper_cases if case.get("user_agent")}
+    for case in scraper_cases:
+        ua = str(case.get("user_agent") or "")
+        case["impact_assessment"] = _impact_for_uas(
+            scope="scraper_case",
+            user_agents=[ua],
+            case_by_ua=case_by_ua,
+            current_totals=current_totals,
+            baseline_totals=baseline_totals,
+            cost_config=cost_config,
+        )
+    for campaign in campaigns:
+        impact = _impact_for_uas(
+            scope="campaign",
+            user_agents=campaign.get("leads") or [],
+            case_by_ua=case_by_ua,
+            current_totals=current_totals,
+            baseline_totals=baseline_totals,
+            cost_config=cost_config,
+        )
+        campaign["impact_assessment"] = impact
+        campaign["bytes"] = impact["bytes"]
+        campaign["baseline_bytes"] = impact["baseline_bytes"]
+        for field in BYTE_LANE_FIELDS:
+            campaign[field] = impact[field]
+            campaign[f"baseline_{field}"] = impact[f"baseline_{field}"]
+    for family in ua_families:
+        impact = _impact_for_uas(
+            scope="ua_family",
+            user_agents=family.get("members") or [],
+            case_by_ua=case_by_ua,
+            current_totals=current_totals,
+            baseline_totals=baseline_totals,
+            cost_config=cost_config,
+        )
+        family["impact_assessment"] = impact
+        family["bytes"] = impact["bytes"]
+        family["baseline_bytes"] = impact["baseline_bytes"]
+        for field in BYTE_LANE_FIELDS:
+            family[field] = impact[field]
+            family[f"baseline_{field}"] = impact[f"baseline_{field}"]
+
+    action_tiers: dict[str, set[str]] = defaultdict(set)
+    for action in recommended_actions:
+        targets = action.get("target_values") if isinstance(action.get("target_values"), dict) else {}
+        uas = sorted({str(ua) for ua in (targets.get("user_agents") or []) if str(ua) in case_by_ua})
+        impact = _impact_for_uas(
+            scope=str(action.get("scope") or "action"),
+            user_agents=uas,
+            case_by_ua=case_by_ua,
+            current_totals=current_totals,
+            baseline_totals=baseline_totals,
+            cost_config=cost_config,
+        )
+        action["impact_assessment"] = impact
+        action["estimated_observed_window_impact"] = {
+            "requests": impact["requests"],
+            "bytes": impact["bytes"],
+            "request_share": impact["request_share"],
+            "byte_share": impact["byte_share"],
+            "hydrolix_log_ingest_bytes": impact["hydrolix_log_ingest_bytes"],
+            "hydrolix_log_ingest_byte_share": impact["hydrolix_log_ingest_byte_share"],
+            "response_body_bytes": impact["response_body_bytes"],
+            "response_body_byte_share": impact["response_body_byte_share"],
+            "akamai_billed_bytes": impact["akamai_billed_bytes"],
+            "akamai_billed_byte_share": impact["akamai_billed_byte_share"],
+        }
+        action_tiers[str(action.get("tier") or "tier_4")].update(uas)
+
+    all_uas = {ua for case in scraper_cases if (ua := str(case.get("user_agent") or ""))}
+    tiers = {
+        tier: _impact_for_uas(
+            scope=tier,
+            user_agents=uas,
+            case_by_ua=case_by_ua,
+            current_totals=current_totals,
+            baseline_totals=baseline_totals,
+            cost_config=cost_config,
+        )
+        for tier, uas in sorted(action_tiers.items())
+    }
+    assessment = {
+        "totals": {
+            "current": {
+                "requests": _num(current_totals.get("requests")),
+                "bytes": _num(current_totals.get("bytes")),
+                "hydrolix_log_ingest_bytes": current_totals.get("hydrolix_log_ingest_bytes"),
+                "response_body_bytes": _num(current_totals.get("response_body_bytes")),
+                "akamai_billed_bytes": _num(current_totals.get("akamai_billed_bytes")),
+            },
+            "baseline": {
+                "requests": _num(baseline_totals.get("requests")),
+                "bytes": _num(baseline_totals.get("bytes")),
+                "hydrolix_log_ingest_bytes": baseline_totals.get("hydrolix_log_ingest_bytes"),
+                "response_body_bytes": _num(baseline_totals.get("response_body_bytes")),
+                "akamai_billed_bytes": _num(baseline_totals.get("akamai_billed_bytes")),
+            },
+        },
+        "hunt": _impact_for_uas(
+            scope="hunt",
+            user_agents=all_uas,
+            case_by_ua=case_by_ua,
+            current_totals=current_totals,
+            baseline_totals=baseline_totals,
+            cost_config=cost_config,
+        ),
+        "tiers": tiers,
+    }
+    if cost_config:
+        assessment["cost_config"] = cost_config
+    return assessment
 
 
 def _rank_dimension(rows: list[dict[str, Any]], field: str, top_n: int) -> list[dict[str, Any]]:
@@ -2429,7 +3006,14 @@ def _fingerprints(
                 "user_agent": value,
                 "requests": _num(row.get("requests")),
                 "bytes": _num(row.get("bytes")),
+                "hydrolix_log_ingest_bytes": row.get("hydrolix_log_ingest_bytes"),
+                "response_body_bytes": _num(row.get("response_body_bytes")),
+                "akamai_billed_bytes": _num(row.get("akamai_billed_bytes")),
                 "baseline_requests": _num(base.get("requests")),
+                "baseline_bytes": _num(base.get("bytes")),
+                "baseline_hydrolix_log_ingest_bytes": base.get("hydrolix_log_ingest_bytes"),
+                "baseline_response_body_bytes": _num(base.get("response_body_bytes")),
+                "baseline_akamai_billed_bytes": _num(base.get("akamai_billed_bytes")),
                 "request_delta": _num(row.get("requests")) - _num(base.get("requests")),
                 "unique_client_ips": len(ip_by_ua[value]) if cooccurrence else None,
                 "unique_asns": len(asn_by_ua[value]) if cooccurrence else None,
@@ -2537,6 +3121,196 @@ def _classification_gap_is_signal(classification: dict[str, Any]) -> bool:
     return coverage is not None and _num(coverage) < 90
 
 
+def _bot_manager_value(row: dict[str, Any], names: Iterable[str]) -> str:
+    value = _first(row, names)
+    if value in (None, ""):
+        return "unknown"
+    return str(value).strip() or "unknown"
+
+
+def _bot_manager_requests(row: dict[str, Any]) -> float:
+    return _num(
+        _first(
+            row,
+            (
+                "requests",
+                "request_count",
+                "count",
+                "hits",
+                "cnt_all",
+                "total_requests",
+                "edge_action_requests",
+            ),
+        )
+    )
+
+
+def _bot_manager_mix(
+    rows: list[dict[str, Any]],
+    names: Iterable[str],
+    *,
+    top_n: int,
+) -> list[dict[str, Any]]:
+    totals: dict[str, float] = defaultdict(float)
+    total_requests = 0.0
+    for row in rows:
+        requests = _bot_manager_requests(row)
+        if requests <= 0:
+            continue
+        total_requests += requests
+        totals[_bot_manager_value(row, names)] += requests
+    ranked = sorted(totals.items(), key=lambda item: (-item[1], item[0]))
+    return [
+        {
+            "rank": rank,
+            "value": value,
+            "requests": requests,
+            "share_pct": _pct(requests, total_requests),
+        }
+        for rank, (value, requests) in enumerate(ranked[:top_n], start=1)
+    ]
+
+
+def _bot_manager_average_score(rows: list[dict[str, Any]]) -> float | None:
+    weighted_score = 0.0
+    weight_total = 0.0
+    for row in rows:
+        score = _first(row, ("avg_bot_score", "average_bot_score", "botScore", "bot_score", "score"))
+        if score in (None, ""):
+            continue
+        weight = _bot_manager_requests(row) or 1.0
+        weighted_score += _num(score) * weight
+        weight_total += weight
+    if weight_total <= 0:
+        return None
+    return weighted_score / weight_total
+
+
+def _normalize_bot_manager_rows(
+    rows: list[dict[str, Any]],
+    *,
+    source: str,
+    source_table: str | None,
+    start: str,
+    end: str,
+    top_n: int,
+) -> dict[str, Any]:
+    total_requests = sum(_bot_manager_requests(row) for row in rows)
+    if not rows:
+        return {
+            "availability": "not_available",
+            "source": source,
+            "source_table": source_table,
+            "window": {"start": start, "end": end},
+            "row_count": 0,
+            "total_requests": 0,
+            "action_class_mix": [],
+            "bot_type_mix": [],
+            "policy_mix": [],
+            "average_bot_score": None,
+        }
+    tables = sorted(
+        {
+            str(_first(row, ("source_table", "table", "_table"), source_table) or "")
+            for row in rows
+            if _first(row, ("source_table", "table", "_table"), source_table)
+        }
+    )
+    return {
+        "availability": "evidence_backed",
+        "source": source,
+        "source_table": source_table,
+        "source_tables": tables,
+        "window": {"start": start, "end": end},
+        "row_count": len(rows),
+        "total_requests": total_requests,
+        "action_class_mix": _bot_manager_mix(
+            rows, ("actionClass", "action_class", "action", "edge_action"), top_n=top_n
+        ),
+        "bot_type_mix": _bot_manager_mix(
+            rows, ("botType", "bot_type", "botCategory", "bot_category"), top_n=top_n
+        ),
+        "policy_mix": _bot_manager_mix(
+            rows, ("policyId", "policy_id", "policyName", "policy_name", "policy"), top_n=top_n
+        ),
+        "average_bot_score": _bot_manager_average_score(rows),
+    }
+
+
+def _bot_manager_context(
+    aggregate_rows: list[dict[str, Any]],
+    exact_ua_rows: list[dict[str, Any]],
+    *,
+    start: str,
+    end: str,
+    top_n: int,
+) -> dict[str, Any]:
+    aggregate = _normalize_bot_manager_rows(
+        aggregate_rows,
+        source="aggregate_siem_policy_summary",
+        source_table="bi_siem_policy_summary_*",
+        start=start,
+        end=end,
+        top_n=top_n,
+    )
+    exact = _normalize_bot_manager_rows(
+        exact_ua_rows,
+        source="exact_ua_export",
+        source_table=None,
+        start=start,
+        end=end,
+        top_n=top_n,
+    )
+    availability = (
+        "evidence_backed"
+        if aggregate["availability"] == "evidence_backed" or exact["availability"] == "evidence_backed"
+        else "not_available"
+    )
+    context = {
+        "module": "bot_manager_context",
+        "availability": availability,
+        "summary": (
+            "Bot Manager operational context is supplied for display only."
+            if availability == "evidence_backed"
+            else "Bot Manager operational context was not supplied."
+        ),
+        "caveat": (
+            "Bot Manager context is operational enrichment, not threat-hunt attribution "
+            "or independent evidence for classification."
+        ),
+        "aggregate": aggregate,
+        "exact_ua": exact,
+        "lead_context_available": exact["availability"] == "evidence_backed",
+    }
+    return context
+
+
+def _attach_bot_manager_lead_context(
+    scraper_cases: list[dict[str, Any]],
+    exact_ua_rows: list[dict[str, Any]],
+    *,
+    start: str,
+    end: str,
+    top_n: int,
+) -> None:
+    rows_by_ua: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in exact_ua_rows:
+        ua = _first(row, ("user_agent", "userAgent", "ua", "request_user_agent"))
+        if ua:
+            rows_by_ua[str(ua)].append(row)
+    for case in scraper_cases:
+        ua = str(case.get("user_agent") or "")
+        rows = rows_by_ua.get(ua, [])
+        case["bot_manager_context"] = _normalize_bot_manager_rows(
+            rows,
+            source="exact_ua_export",
+            source_table=None,
+            start=start,
+            end=end,
+            top_n=top_n,
+        )
+
+
 def _data_limits(
     summary_rows: list[dict[str, Any]],
     actor_rows: list[dict[str, Any]],
@@ -2547,7 +3321,9 @@ def _data_limits(
     iat_samples: list[dict[str, Any]],
     geo: dict[str, dict[str, Any]],
     classification: dict[str, Any],
+    bot_manager_context: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
+    bot_manager_context = bot_manager_context or {}
     checks = [
         ("summary_parquet", bool(summary_rows), "baseline movement and endpoint rankings"),
         ("raw_actor_exports", bool(actor_rows), "exact client IP and user-agent evidence"),
@@ -2562,6 +3338,11 @@ def _data_limits(
         ("iat_samples", bool(iat_samples), "request-level sampled timestamp evidence for inter-arrival timing"),
         ("geoip_asn", bool(geo), "ASN organization and topology enrichment"),
         ("classification_gap", classification.get("availability") != "not_available", "SIEM/Bot/edge coverage"),
+        (
+            "bot_manager_context",
+            bot_manager_context.get("availability") != "not_available",
+            "Bot Manager operational enrichment; informational only and not classification evidence",
+        ),
     ]
     return [
         {
@@ -3530,6 +4311,16 @@ def _build_ua_families(
         member_uas = [str(case.get("user_agent")) for case in members if case.get("user_agent")]
         total_requests = sum(request_counts)
         total_baseline = sum(_num(case.get("baseline_requests")) for case in members)
+        total_bytes = sum(_num(case.get("bytes")) for case in members)
+        total_baseline_bytes = sum(_num(case.get("baseline_bytes")) for case in members)
+        total_hydrolix_log_ingest_bytes = _sum_optional_lane(members, "hydrolix_log_ingest_bytes")
+        total_baseline_hydrolix_log_ingest_bytes = _sum_optional_lane(
+            members, "baseline_hydrolix_log_ingest_bytes"
+        )
+        total_response_body_bytes = _sum_optional_lane(members, "response_body_bytes")
+        total_baseline_response_body_bytes = _sum_optional_lane(members, "baseline_response_body_bytes")
+        total_akamai_billed_bytes = _sum_optional_lane(members, "akamai_billed_bytes")
+        total_baseline_akamai_billed_bytes = _sum_optional_lane(members, "baseline_akamai_billed_bytes")
         common_flags = sorted(
             set.intersection(
                 *[set(str(flag) for flag in case.get("evidence_flags") or []) for case in members]
@@ -3555,6 +4346,14 @@ def _build_ua_families(
                 "versions": versions,
                 "total_requests": total_requests,
                 "total_baseline": total_baseline,
+                "bytes": total_bytes,
+                "baseline_bytes": total_baseline_bytes,
+                "hydrolix_log_ingest_bytes": total_hydrolix_log_ingest_bytes,
+                "baseline_hydrolix_log_ingest_bytes": total_baseline_hydrolix_log_ingest_bytes,
+                "response_body_bytes": total_response_body_bytes,
+                "baseline_response_body_bytes": total_baseline_response_body_bytes,
+                "akamai_billed_bytes": total_akamai_billed_bytes,
+                "baseline_akamai_billed_bytes": total_baseline_akamai_billed_bytes,
                 "request_volume_cv": round(request_cv, 4),
                 "common_evidence": [
                     "Browser user-agent strings share the same template after replacing browser major versions.",
@@ -3857,6 +4656,13 @@ def _scraper_cases(
                 "verdict": _scraper_case_verdict(families),
                 "requests": requests,
                 "bytes": fp.get("bytes"),
+                "hydrolix_log_ingest_bytes": fp.get("hydrolix_log_ingest_bytes"),
+                "response_body_bytes": fp.get("response_body_bytes"),
+                "akamai_billed_bytes": fp.get("akamai_billed_bytes"),
+                "baseline_bytes": fp.get("baseline_bytes"),
+                "baseline_hydrolix_log_ingest_bytes": fp.get("baseline_hydrolix_log_ingest_bytes"),
+                "baseline_response_body_bytes": fp.get("baseline_response_body_bytes"),
+                "baseline_akamai_billed_bytes": fp.get("baseline_akamai_billed_bytes"),
                 "baseline_requests": baseline_requests,
                 "request_delta": fp.get("request_delta"),
                 "unique_client_ips": fp.get("unique_client_ips"),
@@ -3922,6 +4728,12 @@ def build_threat_hunt_artifact(
     baseline_ua_timeseries_in: str | None = None,
     baseline_significance_query: str = "auto",
     edge_response_in: str | None = None,
+    bot_manager_context_in: str | None = None,
+    bot_manager_exact_ua_in: str | None = None,
+    cost_estimate_config: str | None = None,
+    hydrolix_log_ingest_usagemeter_in: str | None = None,
+    hydrolix_log_ingest_project_deployment_id: str | None = None,
+    hydrolix_log_ingest_table_name: str = "logs",
 ) -> dict[str, Any]:
     current_start = parse_time(start, "start")
     current_end = parse_time(end, "end")
@@ -3942,6 +4754,16 @@ def build_threat_hunt_artifact(
     background_rows = _read_optional_rows(background_ua_sample_in)
     baseline_timeseries_rows = _read_optional_rows(baseline_ua_timeseries_in)
     edge_rows = _read_optional_rows(edge_response_in)
+    bot_manager_rows = _read_optional_rows(bot_manager_context_in)
+    bot_manager_exact_rows = _read_optional_rows(bot_manager_exact_ua_in)
+    cost_config = _load_cost_estimate_config(cost_estimate_config)
+    hydrolix_ingest_metadata = _load_hydrolix_usagemeter_estimate(
+        hydrolix_log_ingest_usagemeter_in,
+        project_deployment_id=hydrolix_log_ingest_project_deployment_id,
+        table_name=hydrolix_log_ingest_table_name,
+        metadata_window={"start": start, "end": end} if hydrolix_log_ingest_usagemeter_in else None,
+    )
+    _apply_hydrolix_ingest_estimate(rows, actor_rows, hydrolix_ingest_metadata)
     siem_rows: list[dict[str, Any]] = []
     if ua_fanout_query not in {"auto", "off", "required", "summary_hour", "logs_probe", "skip"}:
         raise SystemExit("--ua-fanout-query must be one of auto, off, required")
@@ -3970,6 +4792,13 @@ def build_threat_hunt_artifact(
     cohorts = _rank_dimension(rows, "traffic_cohort", top_n)
     infra = _infrastructure(actor_rows, cooccurrence, geo, top_n)
     classification = _classification_gap(edge_rows, siem_rows)
+    bot_manager = _bot_manager_context(
+        bot_manager_rows,
+        bot_manager_exact_rows,
+        start=start,
+        end=end,
+        top_n=top_n,
+    )
     scraper_cases = _scraper_cases(
         fingerprints=fingerprints,
         actor_rows=actor_rows,
@@ -3983,6 +4812,13 @@ def build_threat_hunt_artifact(
         window_end=current_end,
         geo=geo,
         classification=classification,
+        top_n=top_n,
+    )
+    _attach_bot_manager_lead_context(
+        scraper_cases,
+        bot_manager_exact_rows,
+        start=start,
+        end=end,
         top_n=top_n,
     )
     scraper_cases, known_traffic = _mark_known_traffic(scraper_cases)
@@ -4007,6 +4843,17 @@ def build_threat_hunt_artifact(
         ua_families=ua_families,
     )
     recommended_actions = _attach_recommended_actions(campaigns, ua_families, scraper_cases)
+    impact_assessment = _attach_impact_assessments(
+        current_totals=current,
+        baseline_totals=baseline,
+        scraper_cases=scraper_cases,
+        campaigns=campaigns,
+        ua_families=ua_families,
+        recommended_actions=recommended_actions,
+        cost_config=cost_config,
+    )
+    if hydrolix_ingest_metadata:
+        impact_assessment["hydrolix_log_ingest_metadata"] = hydrolix_ingest_metadata
 
     scorecards = [
         _score_baseline(current, baseline),
@@ -4047,10 +4894,12 @@ def build_threat_hunt_artifact(
                 "user_agent_count": len(baseline_by_ua),
             },
         },
+        "impact_assessment": impact_assessment,
         "recommended_actions": recommended_actions,
         "endpoints": endpoints,
         "infrastructure": infra,
         "classification_gap": classification,
+        "bot_manager_context": bot_manager,
         "fanout_enrichment": {
             "strategy": fanout_strategy,
             "rows": fanout,
@@ -4058,7 +4907,18 @@ def build_threat_hunt_artifact(
             "sources": sorted({str(row.get("source") or "unknown") for row in fanout}),
             "caveat": _fanout_limit_detail(fanout),
         },
-        "limitations": _data_limits(rows, actor_rows, cooccurrence, fanout, drilldown, hourly, iat_samples, geo, classification),
+        "limitations": _data_limits(
+            rows,
+            actor_rows,
+            cooccurrence,
+            fanout,
+            drilldown,
+            hourly,
+            iat_samples,
+            geo,
+            classification,
+            bot_manager,
+        ),
         "interpretation_constraints": [
             "single_customer_single_window_only",
             "scraper_means_behavioral_repeated_automated_access",

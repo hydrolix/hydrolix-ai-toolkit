@@ -1,0 +1,32 @@
+{# ─────────────────────────────────────────────────────────────────
+   enrichment_stripe — "we don't have this data" callout.
+   Args:
+     title   short headline
+     note    sentence explaining why and what unlocks it
+     stats   optional list of {value, label}
+   ────────────────────────────────────────────────────────────────── #}
+{% macro enrichment_stripe(title, note, stats=[]) -%}
+<div class="hx-enrich">
+  <div class="hx-enrich-left">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="1.8"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10"></circle>
+      <line x1="12" y1="8" x2="12" y2="12"></line>
+      <circle cx="12" cy="16" r="0.5" fill="currentColor"></circle>
+    </svg>
+    <div>
+      <div class="hx-enrich-title">{{ title }}</div>
+      <div class="hx-enrich-note">{{ note }}</div>
+    </div>
+  </div>
+  {% if stats %}
+  <div class="hx-enrich-right">
+    {% for s in stats -%}
+    <span class="hx-enrich-stat hx-tnum">{{ s.value }}</span>
+    <span class="hx-enrich-stat-label">{{ s.label }}</span>
+    {%- endfor %}
+  </div>
+  {% endif %}
+</div>
+{%- endmacro %}

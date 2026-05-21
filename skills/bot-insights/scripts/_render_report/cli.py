@@ -79,6 +79,15 @@ def parse_args() -> argparse.Namespace:
         help="Rendering profile. PDF implies print.",
     )
     parser.add_argument(
+        "--asset-mode",
+        choices=("inline", "bundle"),
+        default="inline",
+        help=(
+            "HTML asset packaging. inline keeps the default self-contained "
+            "HTML; bundle writes sibling static assets and relative links."
+        ),
+    )
+    parser.add_argument(
         "--analysis-mode",
         choices=("llm", "deterministic", "both"),
         default="llm",
@@ -252,6 +261,7 @@ def render(
             palette=getattr(args, "palette", "tableau"),
             theme_mode=theme_mode,
             profile=profile,
+            asset_mode=getattr(args, "asset_mode", "inline"),
         )
         if engine_output is not None:
             return engine_output, ctx.warnings
@@ -297,6 +307,12 @@ def render(
 def main() -> int:
     args = parse_args()
     try:
+        if args.asset_mode == "bundle" and args.format != "html":
+            raise ReportError("--asset-mode bundle is only supported for HTML output.")
+        if args.asset_mode == "bundle" and args.profile != "screen":
+            raise ReportError("--asset-mode bundle is only supported for screen HTML output.")
+        if args.asset_mode == "bundle" and args.output is None:
+            raise ReportError("--asset-mode bundle requires --output.")
         if args.format == "pdf" and args.output is None:
             raise ReportError("--format pdf requires --output.")
         if args.analysis_mode == "both" and args.output is None:
@@ -334,6 +350,10 @@ def main() -> int:
                     raise ReportError(str(exc)) from exc
             elif output_path:
                 output_path.write_text(output, encoding="utf-8")
+                if job_args.asset_mode == "bundle":
+                    from report_engine.render import write_threat_hunt_asset_bundle
+
+                    write_threat_hunt_asset_bundle(output_path)
             else:
                 print(output, end="")
         for warning in all_warnings:

@@ -281,12 +281,46 @@
     line-height: 1.25;
   }
 
+  .cover-impact {
+    margin-top: 18px;
+    padding: 16px 18px 15px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 0 0 21px 0;
+  }
+  .cover-impact-row {
+    display: grid;
+    grid-template-columns: 150px 1fr;
+    gap: 16px;
+    align-items: baseline;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .cover-impact-row:last-child { border-bottom: none; }
+  .cover-impact-row .metric {
+    font-family: var(--mono);
+    font-size: 8.5pt;
+    font-weight: 700;
+    color: var(--ink-2);
+  }
+  .cover-impact-row .value {
+    font-family: var(--mono);
+    font-size: 11pt;
+    font-weight: 700;
+    color: var(--ink);
+  }
+  .cover-impact-row.emphasis .value {
+    font-size: 15pt;
+    color: var(--critical-deep);
+  }
+
   .stat {
     display: flex; flex-direction: column; gap: 4px;
+    min-width: 0;
   }
-  .stat .v { font-family: var(--mono); font-weight: 700; font-size: 18pt; letter-spacing: -0.01em; color: var(--ink); line-height: 1; }
+  .stat .v { font-family: var(--mono); font-weight: 700; font-size: 18pt; letter-spacing: -0.01em; color: var(--ink); line-height: 1; overflow-wrap: anywhere; word-break: normal; }
   .stat .l { font-family: var(--mono); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; font-size: 7.5pt; color: var(--ink-3); }
-  .stat .d { font-size: 8pt; color: var(--ink-2); }
+  .stat .d { font-size: 8pt; color: var(--ink-2); overflow-wrap: anywhere; }
   .stat .v.up { color: var(--critical); }
 
   /* ---------- VERDICT BAND ---------- */
@@ -376,8 +410,10 @@
   .between { justify-content: space-between; }
   .center { align-items: center; }
   .end { align-items: flex-end; }
-  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  .grid-2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+  .grid-2 > * { min-width: 0; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .grid-3 > * { min-width: 0; }
   .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
   .grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
 
@@ -543,6 +579,111 @@
   .pri .pri-num { font-family: var(--mono); font-weight: 700; color: var(--ink-3); font-size: 9pt; }
   .pri h4 { color: var(--ink); }
   .pri .pri-why { font-size: 8.5pt; color: var(--ink-2); line-height: 1.45; }
+  .pri .pri-sub {
+    font-family: var(--mono);
+    font-size: 7.5pt;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .pri .pri-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 14px;
+    font-size: 8pt;
+    color: var(--ink-2);
+  }
+  .tag-list { display: flex; flex-wrap: wrap; gap: 4px; }
+  .tag-list span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 16px;
+    padding: 1px 5px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    font-family: var(--mono);
+    font-size: 7pt;
+    color: var(--ink-2);
+  }
+  .known-strip {
+    margin-top: auto;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+  }
+  .known-strip .known-items {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+  }
+  .known-strip .known-items span {
+    font-size: 7.5pt;
+    color: var(--ink-2);
+  }
+  .story-card {
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    min-height: 2.05in;
+  }
+  .story-card.primary {
+    border-left: 4px solid var(--critical);
+  }
+  .story-card.secondary {
+    border-left: 4px solid var(--teal-deep);
+  }
+  .story-card h3 {
+    font-size: 15pt;
+    line-height: 1.12;
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .story-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px 12px;
+    margin-top: 2px;
+  }
+  .story-fact .k {
+    display: block;
+    font-family: var(--mono);
+    font-size: 6.7pt;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .story-fact .v {
+    display: block;
+    margin-top: 2px;
+    color: var(--ink);
+    font-size: 8.5pt;
+    font-weight: 700;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+  .independent-leads {
+    padding: 12px 14px;
+    display: grid;
+    grid-template-columns: 1.1fr 2fr;
+    gap: 16px;
+    align-items: start;
+  }
+  .lead-reps {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .lead-rep {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+    gap: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--line);
+    font-size: 8pt;
+  }
+  .lead-rep:last-child { border-bottom: none; padding-bottom: 0; }
 
   /* ATT&CK card */
   .attck {
@@ -621,6 +762,7 @@
   /* observed/inferred pills */
   .pill {
     display: inline-block;
+    max-width: 100%;
     padding: 4px 10px;
     border: 1px solid var(--line-2);
     border-radius: 2px;
@@ -628,7 +770,9 @@
     font-size: 7.5pt; letter-spacing: 0.08em; text-transform: uppercase;
     color: var(--ink-1); background: var(--paper);
     margin-right: 4px; margin-bottom: 4px;
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.25;
   }
   .pill.observed { color: var(--teal-deep); border-color: var(--teal-deep); background: rgba(0,169,157,.06); }
   .pill.inferred { color: var(--critical-deep); border-color: var(--critical-pale); background: rgba(230,57,70,.06); }
@@ -684,6 +828,69 @@
   .path-row .p { font-family: var(--mono); font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .path-row .r { font-family: var(--mono); font-weight: 600; color: var(--ink-2); text-align: right; }
   .path-row .s { font-family: var(--mono); font-weight: 700; color: var(--ink); text-align: right; }
+  .actor-table tr.campaign-member td:first-child {
+    border-left: 3px solid var(--teal-deep);
+  }
+  .actor-table tr.campaign-member {
+    background: rgba(0, 169, 157, 0.055);
+  }
+
+  /* threat-hunt page 5 findings/boundaries */
+  .hunt-panel {
+    padding: 13px 15px;
+    min-height: 6.6in;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .campaign-descriptor {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 9px 12px;
+    padding: 10px 0 11px;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .campaign-descriptor .value {
+    display: block;
+    margin-top: 3px;
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 10pt;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+  .finding-row, .boundary-row {
+    display: grid;
+    gap: 8px;
+    align-items: start;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .finding-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .boundary-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .finding-row:last-child, .boundary-row:last-child { border-bottom: none; }
+  .finding-row .name, .boundary-row .name {
+    font-weight: 700;
+    color: var(--ink);
+    overflow-wrap: anywhere;
+  }
+  .finding-row .value, .boundary-row .detail {
+    color: var(--ink-2);
+    font-size: 8pt;
+    line-height: 1.35;
+  }
+  .boundary-row .status {
+    justify-self: end;
+    font-family: var(--mono);
+    font-size: 7pt;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--critical);
+    white-space: nowrap;
+  }
+  .boundary-row.partial .status { color: var(--high); }
 
   /* progression item */
   .prog-row {
@@ -852,6 +1059,20 @@
       </p>
     </div>
 
+    {% if cover_impact is defined and cover_impact %}
+    <div class="cover-impact">
+      <span class="eyebrow">{{ cover_impact.eyebrow }}</span>
+      <div style="margin-top: 8px;">
+        {% for row in cover_impact.rows %}
+        <div class="cover-impact-row{% if row.emphasis | default(false) %} emphasis{% endif %}">
+          <span class="metric">{{ row.label }}</span>
+          <span class="value">{{ row.value }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="tiny" style="margin-top: 8px;">{{ cover_impact.footnote }}</div>
+    </div>
+    {% else %}
     <!-- HERO TIMELINE -->
     <div style="margin-top: 18px;">
       <div class="row between center" style="margin-bottom: 8px;">
@@ -874,7 +1095,6 @@
           </pattern>
         </defs>
 
-        <!-- y gridlines -->
         <g stroke="#DEE3E6" stroke-width="1">
           <line x1="44" x2="744" y1="36"  y2="36"/>
           <line x1="44" x2="744" y1="80"  y2="80"/>
@@ -882,42 +1102,34 @@
           <line x1="44" x2="744" y1="168" y2="168"/>
           <line x1="44" x2="744" y1="196" y2="196"/>
         </g>
-        <!-- y labels -->
         <g font-family="Inconsolata" font-size="9" fill="#8B9FAD" font-weight="600">
           {% for tick in chart.y_ticks %}<text x="40" y="{{ tick.y }}" text-anchor="end">{{ tick.label }}</text>{% endfor %}
         </g>
 
-        <!-- Incident window band: 10:00 to 17:00 maps to x ~230 to ~556 (06:00 = 44, 21:00 = 744, 15h span = 700px, so 1h = 46.67px; 10:00 = 44 + 4*46.67 = 230.7; 17:00 = 44 + 11*46.67 = 557.4) -->
         <rect x="{{ chart.incident_band.x }}" y="{{ chart.incident_band.y }}" width="{{ chart.incident_band.width }}" height="{{ chart.incident_band.height }}" fill="url(#hatch)" stroke="rgba(230,57,70,0.35)" stroke-width="1" stroke-dasharray="3 3"/>
         <text x="{{ chart.incident_band.label_x }}" y="{{ chart.incident_band.label_y }}" text-anchor="middle" font-family="Inconsolata" font-size="9" font-weight="700" fill="#A6434B" letter-spacing="1">{{ chart.incident_band.label }}</text>
 
-        <!-- Baseline series -->
         <path d="{{ chart.baseline_path }}"
               fill="none" stroke="#4A5F73" stroke-width="1.2" stroke-dasharray="3 3"/>
-
-        <!-- Current spike — ramp from 10:00, peak at 15:28 (~x=487), sustain, taper -->
-        <!-- 06:00 x=44, 07:00 x=90.7, 08:00 x=137, 09:00 x=184, 10:00 x=230.7, 11:00 x=277, 12:00 x=324, 13:00 x=370, 14:00 x=417, 15:00 x=464, 15:28 x=486, 16:00 x=510, 17:00 x=557, 18:00 x=604, 19:00 x=650, 20:00 x=697, 21:00 x=744 -->
         <path d="{{ chart.spike_path }}" fill="none" stroke="#035F60" stroke-width="2"/>
 
-        <!-- Incident boundary / inflection markers -->
         {% for point in chart.inflection_points %}
         <line x1="{{ point.x }}" y1="36" x2="{{ point.x }}" y2="196" stroke="#A6434B" stroke-width="0.9" stroke-dasharray="3 3" opacity="0.45"/>
         <text x="{{ point.x }}" y="{{ point.label_y }}" text-anchor="middle" font-family="Inconsolata" font-size="8" fill="#A6434B" font-weight="700" letter-spacing="0.8">{{ point.label }}</text>
         {% endfor %}
 
-        <!-- Peak marker -->
         <line x1="{{ chart.peak.x }}" y1="{{ chart.peak.y }}" x2="{{ chart.peak.x }}" y2="196" stroke="#E63946" stroke-width="1" stroke-dasharray="2 2" opacity="0.45"/>
         <circle cx="{{ chart.peak.x }}" cy="{{ chart.peak.y }}" r="3.5" fill="#fff" stroke="#E63946" stroke-width="2"/>
         <g transform="translate({{ chart.peak.label_x }}, {{ chart.peak.label_y }})">
           <text x="0" y="0" font-family="Inconsolata" font-size="8.5" fill="#E63946" font-weight="700">PEAK · {{ chart.peak.time }} <tspan font-weight="600" opacity="0.85">· {{ chart.peak.value }}</tspan></text>
         </g>
 
-        <!-- x ticks -->
         <g font-family="Inconsolata" font-size="8" fill="#8B9FAD" font-weight="600">
           {% for tick in chart.x_ticks %}<text x="{{ tick.x }}" y="212"{% if tick.anchor_end %} text-anchor="end"{% endif %}>{{ tick.label }}</text>{% endfor %}
         </g>
       </svg>
     </div>
+    {% endif %}
 
     <!-- AT A GLANCE — Shape · Who · Do now -->
     <div style="margin-top: 22px; display: flex; flex-direction: column; gap: 8px;">
@@ -981,6 +1193,86 @@
   </div>
 </section>
 
+{% if story_page is defined %}
+<!-- =========================================================
+     PAGE 2 — THREAT HUNT STORY
+     ========================================================= -->
+<section class="page" data-screen-label="02 {{ story_page.screen_label | default('Story') }}">
+  <div class="top-bar">
+    <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
+    <div class="meta" style="display:flex; gap:18px;"><span><b>{{ customer | upper }}</b></span><span>{{ window.date | upper }} · {{ window.start }} — {{ window.end }} {{ window.tz }}</span><span>RISK <b style="color:var(--{{ verdict.band }});">{{ verdict.risk_score }} / {{ verdict.band_label | upper }}</b></span></div>
+  </div>
+
+  <div class="pad">
+    <div class="row between center">
+      <span class="eyebrow">{{ story_page.eyebrow }}</span>
+      <span class="chip {{ verdict.band }}">{{ verdict.band_label }}</span>
+    </div>
+    <h2 style="margin-top: 8px;">{{ story_page.headline }}</h2>
+    <p class="small" style="margin-top: 8px; max-width: 74ch;">{{ story_page.lede_html | safe }}</p>
+
+    <div class="grid-2" style="margin-top: 18px; gap: 14px;">
+      <div class="pf pf-sm story-card primary">
+        <div class="row between center">
+          <span class="label">{{ story_primary_finding.eyebrow }}</span>
+          <span class="chip {{ verdict.band }}">{{ story_primary_finding.classification }}</span>
+        </div>
+        <h3>{{ story_primary_finding.title }}</h3>
+        <p class="small" style="color: var(--ink-1); margin: 0;">{{ story_primary_finding.summary }}</p>
+        <div class="story-grid">
+          {% for row in story_primary_finding.rows %}
+          <div class="story-fact"><span class="k">{{ row.label }}</span><span class="v">{{ row.value }}</span></div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="pf pf-sm story-card secondary">
+        <div class="row between center">
+          <span class="label">{{ story_secondary_finding.eyebrow }}</span>
+          <span class="chip monitor">{{ story_secondary_finding.classification }}</span>
+        </div>
+        <h3>{{ story_secondary_finding.title }}</h3>
+        <p class="small" style="color: var(--ink-1); margin: 0;">{{ story_secondary_finding.summary }}</p>
+        <div class="story-grid">
+          {% for row in story_secondary_finding.rows %}
+          <div class="story-fact"><span class="k">{{ row.label }}</span><span class="v">{{ row.value }}</span></div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="pf pf-sm independent-leads" style="margin-top: 14px;">
+      <div>
+        <span class="eyebrow">{{ story_independent_leads.eyebrow }}</span>
+        <div class="num" style="font-size: 24pt; color: var(--ink); margin-top: 8px;">{{ story_independent_leads.count_display }}</div>
+        <p class="small" style="margin: 6px 0 0; color: var(--ink-1);">{{ story_independent_leads.summary }}</p>
+        <div class="tiny" style="margin-top: 6px;">Combined requests: {{ story_independent_leads.requests_display }}</div>
+      </div>
+      <div class="lead-reps">
+        {% if story_independent_leads.representatives %}
+        {% for lead in story_independent_leads.representatives %}
+        <div class="lead-rep">
+          <span class="num" style="font-weight: 700;">{{ lead.label }}</span>
+          <span>{{ lead.evidence }}</span>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="callout" style="margin: 0;">
+          <b>No independent high-priority leads outside campaign or UA-family groupings.</b><br />
+          <span class="small">Visible high-priority activity is represented by the primary campaign or UA-family findings.</span>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="foot-bar">
+    <div>{{ customer }} · {{ meta.schema | upper }}</div>
+    <div>{{ story_page.footer_label | default('Story') }}</div>
+    <div class="page-no">02 / {{ page_count }}</div>
+  </div>
+</section>
+{% else %}
 <!-- =========================================================
      PAGE 2 — ANALYST ASSESSMENT + PRIMARY CONCERN
      ========================================================= -->
@@ -1034,8 +1326,8 @@
     </div>
 
     <!-- PRIMARY CONCERN — dark hero card -->
-    <div class="dark-card" style="margin-top: auto; padding: 14px 18px 16px; border-radius: 0 0 34px 0; display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; align-items: center;">
-      <div>
+    <div class="dark-card" style="margin-top: auto; padding: 14px 18px 16px; border-radius: 0 0 34px 0; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 18px; align-items: center;">
+      <div style="min-width: 0;">
         <div class="row between center">
           <span class="eyebrow on-dark">{{ primary_concern.eyebrow }}</span>
           <span class="chip {{ primary_concern.chip_severity }}">{{ primary_concern.chip }}</span>
@@ -1046,7 +1338,7 @@
         </p>
       </div>
 
-      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; min-width: 0;">
         {% for s in primary_concern.stats %}
         <div class="stat">
           <span class="l">{{ s.label }}</span>
@@ -1171,12 +1463,13 @@
     <div class="page-no">03 / {{ page_count }}</div>
   </div>
 </section>
+{% endif %}
 
 <!-- =========================================================
      PAGE 4 — RECOMMENDED ACTIONS
      ========================================================= -->
 {% if print_sections.actions | default(true) %}
-<section class="page" data-screen-label="04 Recommended actions">
+<section class="page" data-screen-label="{{ page_numbers.actions | default('04') }} Recommended actions">
   <div class="top-bar">
     <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
     <div class="meta" style="display:flex; gap:18px;"><span><b>{{ customer | upper }}</b></span><span>{{ window.date | upper }} · {{ window.start }} — {{ window.end }} {{ window.tz }}</span><span>RISK <b style="color:var(--{{ verdict.band }});">{{ verdict.risk_score }} / {{ verdict.band_label | upper }}</b></span></div>
@@ -1195,31 +1488,59 @@
           <span class="pri-num">{{ a.n }}</span>
           <span class="chip {{ a.severity }}">{{ a.chip_text }}</span>
         </div>
-        {% if a.meta_html %}<span class="tiny" style="color: var(--ink-3);">{{ a.meta_html | safe }}</span>{% endif %}
+        {% if a.scope_label is defined %}
+        <span class="tiny" style="color: var(--ink-3);">{{ a.scope_label }}</span>
+        {% elif a.meta_html %}
+        <span class="tiny" style="color: var(--ink-3);">{{ a.meta_html | safe }}</span>
+        {% endif %}
       </div>
+      {% if a.action_label is defined %}
+      <h4>{{ a.action_label }} · {{ a.target_html | safe }}</h4>
+      <div class="pri-sub">{{ a.classification_label }} · {{ a.confidence_label }}</div>
+      <div class="pri-grid">
+        <div><span class="label">Impact</span><br /><span class="num">{{ a.impact_html | safe }}</span></div>
+        <div><span class="label">Endpoint</span><br /><span>{{ a.endpoint_html | safe }}</span></div>
+      </div>
+      <div class="tag-list">
+        {% for tag in a.evidence_tags %}<span>{{ tag }}</span>{% endfor %}
+      </div>
+      <div class="pri-why">{{ a.action_text | safe }}</div>
+      {% else %}
       <h4>{{ a.title_html | safe }}</h4>
       <div class="pri-why">
         {{ a.why_html | safe }}
       </div>
+      {% endif %}
     </div>
     {% endfor %}
 
     {% if known_traffic is defined and known_traffic %}
-    <h3 style="margin-top: 18px;">Known crawler and infrastructure traffic</h3>
-    <p class="small" style="margin-top: 6px;">These informational records were excluded from threat classifications and recommended actions.</p>
-    {% for row in known_traffic %}
-    <div class="callout" style="margin-top: 8px;">
-      <b>{{ row.label }}</b> · {{ row.target_html | safe }}<br />
-      <span class="small">{{ row.detail_html | safe }}</span>
+    <div class="known-strip">
+      <div class="row between center">
+        <span class="label">Known crawler and infrastructure traffic</span>
+        <span class="tiny">Excluded from recommended actions</span>
+      </div>
+      <div class="known-items">
+        {% for row in known_traffic %}
+        <span><b>{{ row.label }}</b> · {{ row.target_html | safe }} · {{ row.detail_html | safe }}</span>
+        {% endfor %}
+      </div>
     </div>
-    {% endfor %}
+    {% endif %}
+    {% if bot_manager_print_summary is defined and bot_manager_print_summary %}
+    <div class="tiny" style="margin-top: 8px;">
+      <b>{{ bot_manager_print_summary.label }}:</b> {{ bot_manager_print_summary.text }}. {{ bot_manager_print_summary.caveat }}
+    </div>
+    {% endif %}
+    {% if actions_page.footer_note is defined %}
+    <div class="tiny" style="margin-top: 8px;">{{ actions_page.footer_note }}</div>
     {% endif %}
   </div>
 
   <div class="foot-bar">
     <div>{{ customer }} · {{ meta.schema | upper }}</div>
     <div>Recommended actions</div>
-    <div class="page-no">04 / {{ page_count }}</div>
+    <div class="page-no">{{ page_numbers.actions | default('04') }} / {{ page_count }}</div>
   </div>
 </section>
 {% endif %}
@@ -1238,6 +1559,76 @@
     <h2 style="margin-top: 8px;">{{ attack_shape.headline }}</h2>
     <p class="small" style="margin-top: 8px; max-width: 70ch;">{{ attack_shape.lede_html | safe }}</p>
 
+    {% if attack_shape.campaign_descriptor is defined %}
+    <div class="grid-2" style="margin-top: 18px; gap: 14px;">
+      <div class="pf pf-sm hunt-panel">
+        <span class="eyebrow">Hunt Findings</span>
+        <div class="campaign-descriptor">
+          <div><span class="label">Campaign</span><span class="value">{{ attack_shape.campaign_descriptor.campaign_id }}</span></div>
+          <div><span class="label">Members</span><span class="value">{{ attack_shape.campaign_descriptor.member_count }}</span></div>
+          <div><span class="label">Timing</span><span class="value">{{ attack_shape.campaign_descriptor.timing_pattern }}</span></div>
+          <div><span class="label">Surface</span><span class="value">{{ attack_shape.campaign_descriptor.surface }}</span></div>
+        </div>
+        <div>
+          {% for row in attack_shape.findings_summary.rows %}
+          <div class="finding-row"><span class="name">{{ row.label }}</span><span class="value">{{ row.value }}</span></div>
+          {% endfor %}
+        </div>
+        {% if attack_shape.impact_rows %}
+        <div style="margin-top: 8px;">
+          <span class="eyebrow">Hunt Impact — {{ headline | default('scope') }}</span>
+          {% if attack_shape.impact_story is defined and attack_shape.impact_story %}
+          <div style="margin-top: 5px; display: flex; flex-direction: column; gap: 4px;">
+            {% for line in attack_shape.impact_story.lines %}
+            <div class="small" style="color: var(--ink-1); line-height: 1.32;">{{ line }}</div>
+            {% endfor %}
+          </div>
+          {% endif %}
+          {% for row in attack_shape.impact_rows %}
+          <div class="finding-row"><span class="name">{{ row.label }}</span><span class="value">{{ row.value }}</span></div>
+          <div class="tiny" style="color: var(--ink-3); margin: -2px 0 2px;">{{ row.detail }}</div>
+          {% endfor %}
+        </div>
+        {% endif %}
+        <div style="margin-top: 2px;">
+          <span class="label">Evidence strength distribution</span>
+          <div style="margin-top: 5px;">
+            {% for row in attack_shape.evidence_distribution %}
+            <div class="sig-row-compact"><span class="sname">{{ row.label }}</span><span class="status-dot {{ row.status }}">{{ row.count_display }}</span></div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <div class="pf pf-sm hunt-panel">
+        <span class="eyebrow">Evidence Boundaries</span>
+        <div>
+          {% for row in attack_shape.boundaries %}
+          <div class="boundary-row">
+            <div><div class="name">{{ row.label }}</div><div class="detail">{{ row.detail }}</div></div>
+            <span class="status">{{ row.status }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% if attack_shape.partial_boundaries %}
+        <div style="margin-top: 2px;">
+          <span class="label">Partial or missing evidence</span>
+          <div style="margin-top: 5px;">
+            {% for row in attack_shape.partial_boundaries %}
+            <div class="boundary-row partial">
+              <div><div class="name">{{ row.label }}</div><div class="detail">{{ row.detail }}</div></div>
+              <span class="status">{{ row.status }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+        <div class="tiny" style="margin-top: auto; color: var(--ink-3);">
+          Endpoint/path detail remains in the source artifact and action cards; this page summarizes hunt shape only.
+        </div>
+      </div>
+    </div>
+    {% else %}
     <!-- Temporal progression — horizontal attack-arc -->
     <div class="pf" style="margin-top: 18px; padding: 6px 14px 14px;">
       <div class="timeline">
@@ -1285,6 +1676,7 @@
         <div class="tiny" style="margin-top: 4px; color: var(--ink-3);">{{ attack_shape.signals_footnote }}</div>
       </div>
     </div>
+    {% endif %}
   </div>
 
   <div class="foot-bar">
@@ -1331,23 +1723,21 @@
             <th style="width: 28px;">#</th>
             <th>{{ actors_page.actor_column_label | default('Client IP') }}</th>
             <th class="right num">Requests</th>
-            <th class="right num">Share</th>
             <th class="right num">{{ actors_page.rate_column_label | default("429%") }}</th>
-            <th>Severity</th>
+            <th>Verdict</th>
             <th>{{ actors_page.evidence_column_label | default('Edge action') }}</th>
             <th>{{ actors_page.basis_column_label | default('ATT&CK') }}</th>
           </tr>
         </thead>
         <tbody>
           {% for r in actors %}
-          <tr{% if loop.index is even %} class="zebra"{% endif %}>
+          <tr{% if r.row_class | default('') or loop.index is even %} class="{% if loop.index is even %}zebra{% endif %}{% if r.row_class | default('') %}{% if loop.index is even %} {% endif %}{{ r.row_class }}{% endif %}"{% endif %}{% if r.is_campaign_member | default(false) %} data-campaign-member="true" data-campaign-id="{{ r.campaign_id | default('') }}"{% endif %}>
             <td class="num" style="color: var(--ink-3);">{{ r.rank }}</td>
             <td>
               <div class="num actor-ip" style="font-weight: 700;">{{ r.ip }}</div>
               <div class="tiny">{{ r.asn_meta }}</div>
             </td>
             <td class="num right">{{ r.requests }}</td>
-            <td class="num right">{{ r.share }}</td>
             <td class="num right" style="color: var(--{{ r.rate_429_class | default('ink-3') }});">{{ r.rate_429 }}</td>
             <td><span class="chip {{ r.severity }}">{{ r.severity_label }}</span></td>
             <td><span class="num" style="font-size: 8pt;">{{ r.edge_action_html | safe }}</span></td>
@@ -1404,7 +1794,7 @@
      PAGE 7 — CLASSIFICATION & EDGE RESPONSE
      ========================================================= -->
 {% if print_sections.classification | default(true) %}
-<section class="page" data-screen-label="07 Classification &amp; edge">
+<section class="page" data-screen-label="{{ classification.screen_label | default('07 Classification &amp; edge') }}">
   <div class="top-bar">
     <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
     <div class="meta" style="display:flex; gap:18px;"><span><b>{{ customer | upper }}</b></span><span>{{ window.date | upper }} · {{ window.start }} — {{ window.end }} {{ window.tz }}</span><span>RISK <b style="color:var(--{{ verdict.band }});">{{ verdict.risk_score }} / {{ verdict.band_label | upper }}</b></span></div>
@@ -1419,7 +1809,7 @@
     <div class="pf pf-sm" style="margin-top: 20px; padding: 14px 18px;">
       <span class="label">Traffic cohorts</span>
       <div class="row between" style="margin-top: 6px; font-family: var(--mono); font-size: 7.5pt; color: var(--ink-3); letter-spacing: 0.1em; text-transform: uppercase;">
-        <span>Cohort · Requests · Share · 429% · 5xx%</span>
+        <span>{{ classification.cohort_header | default('Cohort · Requests · Share · 429% · 5xx%') }}</span>
       </div>
       <hr class="div thin" />
       {% for c in cohorts %}
@@ -1439,7 +1829,7 @@
     <!-- Edge action mix -->
     <div style="margin-top: 22px;">
       <div class="row between center" style="margin-bottom: 6px;">
-        <span class="eyebrow">Edge action mix · What the edge decided</span>
+        <span class="eyebrow">{{ classification.action_mix_label | default('Edge action mix · What the edge decided') }}</span>
         <span class="small" style="color: var(--ink-3);">{{ edge_action_meta_html | safe }}</span>
       </div>
       <div class="stack">
@@ -1457,13 +1847,13 @@
     <!-- Top deny rules -->
     <div style="margin-top: 22px;">
       <div class="row between center" style="margin-bottom: 6px;">
-        <span class="eyebrow">Top deny rules · Which rules fired</span>
+        <span class="eyebrow">{{ classification.policy_label | default('Top deny rules · Which rules fired') }}</span>
       </div>
       <div class="pf pf-sm" style="padding: 0 4px;">
         <table class="tbl">
           <thead>
             <tr>
-              <th>Deny rule</th>
+              <th>{{ classification.policy_column_label | default('Deny rule') }}</th>
               <th class="right num">Requests</th>
               <th class="right num">Share</th>
               <th class="right num">Δ vs baseline</th>
@@ -1486,7 +1876,7 @@
 
   <div class="foot-bar">
     <div>{{ customer }} · {{ meta.schema | upper }}</div>
-    <div>Classification &amp; edge response</div>
+    <div>{{ classification.footer_label | default('Classification &amp; edge response') }}</div>
     <div class="page-no">07 / {{ page_count }}</div>
   </div>
 </section>
@@ -1534,14 +1924,34 @@
         </p>
       </div>
       <div>
+        {% if methodology.analysis_rows is defined and methodology.analysis_rows %}
+        <span class="eyebrow muted">Analyses included</span>
+        <dl class="method" style="margin-top: 8px;">
+          {% for row in methodology.analysis_rows %}
+          <dt>{{ row.analysis }}</dt><dd>{{ row.helps_identify }}</dd>
+          {% endfor %}
+        </dl>
+        {% else %}
         <span class="eyebrow muted">Artifact metadata</span>
         <dl class="method" style="margin-top: 8px;">
           {% for m in methodology.metadata %}
           <dt>{{ m.label }}</dt><dd>{{ m.value }}</dd>
           {% endfor %}
         </dl>
+        {% endif %}
       </div>
     </div>
+
+    {% if methodology.analysis_rows is defined and methodology.analysis_rows %}
+    <div style="margin-top: 12px;">
+      <span class="eyebrow muted">Artifact metadata</span>
+      <dl class="method" style="margin-top: 6px; grid-template-columns: 84px 1fr;">
+        {% for m in methodology.metadata %}
+        <dt>{{ m.label }}</dt><dd>{{ m.value }}</dd>
+        {% endfor %}
+      </dl>
+    </div>
+    {% endif %}
 
     <div style="margin-top: auto; padding-top: 18px;">
       <div class="row between center">
@@ -1569,6 +1979,7 @@
 <!-- =========================================================
      PAGE 9 — SCORE + DATA AVAILABILITY
      ========================================================= -->
+{% if print_sections.score_availability | default(true) %}
 <section class="page" data-screen-label="{{ page_numbers.score_availability | default('09') }} Score &amp; availability">
   <div class="top-bar">
     <div class="brand"><span class="mark"></span><span>HYDROLIX · BOTINSIGHTS</span></div>
@@ -1635,6 +2046,16 @@
       </div>
       {% endfor %}
     </div>
+    {% if analysis_availability_print.bot_manager_summary is defined and analysis_availability_print.bot_manager_summary %}
+    <div class="pf pf-sm" style="margin-top: 12px; padding: 10px 12px;">
+      <div class="row between center">
+        <span class="label">{{ analysis_availability_print.bot_manager_summary.label }}</span>
+        <span class="chip ghost">Operational context</span>
+      </div>
+      <p class="small" style="margin: 7px 0 0; color: var(--ink-1); line-height:1.38;">{{ analysis_availability_print.bot_manager_summary.text }}</p>
+      <p class="tiny" style="margin: 4px 0 0;">{{ analysis_availability_print.bot_manager_summary.caveat }}</p>
+    </div>
+    {% endif %}
   </div>
 
   <div class="foot-bar">
@@ -1643,6 +2064,7 @@
     <div class="page-no">{{ page_numbers.score_availability | default('09') }} / {{ page_count }}</div>
   </div>
 </section>
+{% endif %}
 
 <!-- =========================================================
      PAGE 10 — UA AGE

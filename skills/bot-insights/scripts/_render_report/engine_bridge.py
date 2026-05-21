@@ -26,6 +26,7 @@ def _render_via_engine(
     palette: str = "tableau",
     theme_mode: str = "auto",
     profile: str = "screen",
+    asset_mode: str = "inline",
 ) -> str | None:
     """Route rendering through the report_engine for a given wrapper
     ``report_type`` and ``output_format`` (``"html"`` or ``"markdown"``).
@@ -100,6 +101,7 @@ def _render_via_engine(
         output_format=output_format,
         palette=palette,
         theme_mode=theme_mode,
+        asset_mode=asset_mode,
     )
     template_name = engine_render.template_for(module, output_format)
     if output_format == "html" and profile == "print":

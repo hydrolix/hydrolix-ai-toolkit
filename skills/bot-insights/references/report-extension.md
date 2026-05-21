@@ -135,6 +135,11 @@ Keep layout decisions in templates and shared macros. Keep data selection,
 compatibility checks, and evidence truncation in Python context/renderer code
 where they can be tested deterministically.
 
+For the existing threat-hunt report, use
+[threat-hunt-template-context.md](threat-hunt-template-context.md) as the
+field reference for data available to the HTML, Markdown, and print/PDF Jinja
+templates.
+
 ### Legacy Renderer Compatibility
 
 Some production and smoke-test paths still enter through

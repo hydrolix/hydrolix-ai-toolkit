@@ -23,8 +23,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -60,6 +62,8 @@ from reportkit.render import ReportRenderer, build_env as _reportkit_build_env
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 ASSETS_DIR = TEMPLATES_DIR / "assets"
+STATIC_DIR = TEMPLATES_DIR / "static"
+THREAT_HUNT_ASSETS_DIR = ASSETS_DIR / "threat-hunt"
 
 WRAPPER_SCHEMA = "bot_report_input.v1"
 
@@ -82,11 +86,66 @@ def _bot_filters() -> dict:
     }
 
 
+def _read_text_asset(path: Path) -> str:
+    return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+def _data_uri(path: Path) -> str:
+    if not path.exists():
+        return ""
+    mime = "image/svg+xml" if path.suffix == ".svg" else "application/octet-stream"
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
+def threat_hunt_asset_globals(
+    *,
+    asset_mode: str = "inline",
+    static_base: str = "static/",
+    asset_base: str = "assets/",
+) -> dict[str, object]:
+    if asset_mode not in {"inline", "bundle"}:
+        raise ValueError(f"Unknown asset mode {asset_mode!r}. Expected inline or bundle.")
+    return {
+        "asset_mode": asset_mode,
+        "static_base": static_base,
+        "asset_base": asset_base,
+        "threat_hunt_css": "\n".join(
+            _read_text_asset(path)
+            for path in [
+                STATIC_DIR / "tokens/brand.css",
+                STATIC_DIR / "tokens/severity.css",
+                STATIC_DIR / "components/_kit.css",
+                STATIC_DIR / "reports/threat-hunt.css",
+            ]
+        ),
+        "threat_hunt_js": _read_text_asset(STATIC_DIR / "kit.js"),
+        "threat_hunt_asset_uri": {
+            name: _data_uri(THREAT_HUNT_ASSETS_DIR / name)
+            for name in [
+                "hydrolix-dark.svg",
+                "hydrolix-light.svg",
+                "x-dark.svg",
+                "x-light.svg",
+            ]
+        },
+    }
+
+
+def write_threat_hunt_asset_bundle(out_path: Path) -> None:
+    """Copy the threat-hunt static kit beside ``out_path`` for bundle mode."""
+    shutil.copytree(STATIC_DIR, out_path.parent / "static", dirs_exist_ok=True)
+    shutil.copytree(THREAT_HUNT_ASSETS_DIR, out_path.parent / "assets", dirs_exist_ok=True)
+
+
 def build_env(
     output_format: str = "html",
     palette: str = "tableau",
     theme_mode: str = "auto",
     clock: str = "12",
+    asset_mode: str = "inline",
+    static_base: str = "static/",
+    asset_base: str = "assets/",
 ) -> Environment:
     """Build the Bot Insights Jinja2 environment."""
     template_dirs: list[str] = []
@@ -98,7 +157,7 @@ def build_env(
                 template_dirs.append(str(Path(entry).expanduser()))
     template_dirs.append(str(TEMPLATES_DIR))
     try:
-        return _reportkit_build_env(
+        env = _reportkit_build_env(
             template_paths=template_dirs,
             asset_path=ASSETS_DIR,
             output_format=output_format,
@@ -109,6 +168,14 @@ def build_env(
             palette_registry=theme.PALETTES,
             chart_module=charts,
         )
+        env.globals.update(
+            threat_hunt_asset_globals(
+                asset_mode=asset_mode,
+                static_base=static_base,
+                asset_base=asset_base,
+            )
+        )
+        return env
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
 
@@ -225,6 +292,7 @@ def render(
     theme_mode: str = "auto",
     clock: str = "12",
     profile: str = "screen",
+    asset_mode: str = "inline",
 ) -> None:
     """Render an artifact or wrapper to ``output_format``.
 
@@ -235,21 +303,38 @@ def render(
     — ``module.prepare()`` is called once and the same dict feeds
     either renderer.
     """
+    if asset_mode == "bundle" and (output_format != "html" or profile == "print"):
+        raise SystemExit("--asset-mode bundle is only supported for screen HTML output.")
     data = json.loads(artifact_path.read_text())
     try:
-        rendered = _renderer().render_payload(
+        renderer = _renderer()
+        module, artifact, notes_by_slot = renderer.resolve(
             data,
             schema_override=schema_override,
             input_kind=input_kind,
+        )
+        ctx = renderer.prepare_context(
+            module,
+            artifact,
+            notes_by_slot,
             mode=mode,
+            profile=profile,
+        )
+        env = build_env(
             output_format=output_format,
             palette=palette,
             theme_mode=theme_mode,
             clock=clock,
-            profile=profile,
+            asset_mode=asset_mode,
         )
+        template_name = template_for(module, output_format)
+        if output_format == "html" and profile == "print":
+            template_name = getattr(module, "PRINT_TEMPLATE", template_name)
+        rendered = env.get_template(template_name).render(**ctx)
     except KeyError as exc:
         raise SystemExit(str(exc)) from exc
+    if asset_mode == "bundle":
+        write_threat_hunt_asset_bundle(out_path)
     out_path.write_text(rendered)
     print(f"wrote {out_path}")
 
@@ -293,6 +378,12 @@ def main() -> None:
         choices=["screen", "print"],
         default="screen",
         help="Rendering profile. Print profile forces light theme unless --theme is explicit.",
+    )
+    ap.add_argument(
+        "--asset-mode",
+        choices=["inline", "bundle"],
+        default="inline",
+        help="HTML asset packaging. inline keeps one portable file; bundle writes sibling static assets.",
     )
     ap.add_argument(
         "--palette",
@@ -380,6 +471,7 @@ def main() -> None:
         "light" if args.profile == "print" and args.theme == "auto" else args.theme,
         args.clock,
         args.profile,
+        args.asset_mode,
     )
 
 

@@ -88,6 +88,7 @@ Do not read every reference at startup. Pick the smallest relevant file:
 - Rendering saved artifacts to Markdown/HTML → [references/reporting.md](references/reporting.md)
 - Adding a predefined report, custom report wiring, report skinning, themes,
   or brand report presentation → [references/report-extension.md](references/report-extension.md)
+- Threat-hunt Jinja template context → [references/threat-hunt-template-context.md](references/threat-hunt-template-context.md)
 - Runnable report-rendering demo payloads → [examples/](examples/)
 - Known schema and analysis footguns → [references/pitfalls.md](references/pitfalls.md)
 - Window-scoped incident analysis with raw-log drilldown → [references/incident-analysis.md](references/incident-analysis.md)
