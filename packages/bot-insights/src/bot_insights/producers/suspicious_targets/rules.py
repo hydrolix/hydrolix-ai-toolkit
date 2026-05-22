@@ -21,7 +21,7 @@ Two extension paths:
 Cross-row pivots (``single_asn_cluster``, ``botnet_member``) are not
 registry-driven — they operate on a list, not a row. The orchestrator
 still honors ``disabled_rules`` for them, but their evaluator code
-stays in :mod:`producers.suspicious_targets.ladder` as post-pass
+stays in :mod:`producers.suspicious_targets.clusters` as post-pass
 mutators.
 
 The taxonomy mapping (reason_flag → ATT&CK technique, action class) in

@@ -36,23 +36,24 @@ output to the pre-Phase-6a baseline.
 from __future__ import annotations
 
 from config import DEFAULT_THRESHOLDS, Thresholds
-from heuristics import (
-    _SEVERITY_RANK,
-    _SUSPICIOUS_CONCENTRATION_FLAGS,
-    _SUSPICIOUS_QUANT_FLAGS,
-    _is_templated_catchall_path,
+from heuristics import _SEVERITY_RANK, _is_templated_catchall_path
+from producers.suspicious_targets.clusters import (
+    _apply_asn_grouped_pivots,
+    _apply_cluster_pivots,
+    _apply_unverified_cluster_pivots,
 )
 from producers.suspicious_targets.rules import (
     RuleContext,
     active_rules,
     disabled,
 )
+from producers.suspicious_targets.targets import (
+    _assign_severity,
+    _build_target_entry,
+)
 from producers.suspicious_targets.taxonomy import (
     _INDIVIDUAL_ENTITY_FIELDS,
     _SUSPICIOUS_TARGET_TYPE_BY_FIELD,
-    _TARGET_KIND_BY_TYPE,
-    _attack_techniques_for_flags,
-    _suspicious_action_class,
 )
 
 
@@ -360,226 +361,6 @@ def _evaluate_ranking_row(
         "supporting_extras": supporting_extras,
         "asn": row_asn if row_asn not in ("", None) else None,
         "asn_org": str(row_asn_org) if row_asn_org else "",
-    }
-
-
-# ---------------------------------------------------------------------------
-# Cross-row pivots. These rules emit ``single_asn_cluster`` and
-# ``botnet_member`` based on ranking-wide state, not per-row state, so
-# they stay as post-pass mutators rather than registry entries. The
-# pivots still honor ``thresholds.disabled_rules`` — the orchestrator
-# checks the disabled set before appending flags.
-# ---------------------------------------------------------------------------
-
-def _apply_asn_grouped_pivots(
-    flagged_client_ips: list[dict],
-    total_current: float,
-    *,
-    clean_number,
-    thresholds: Thresholds | None = None,
-) -> None:
-    """Per-ASN grouping path. Rows without an ASN are excluded from
-    clustering entirely — they're attribution-unknown and shouldn't
-    claim membership in any specific cluster. Mutates rows in place.
-    """
-    t = _resolve(thresholds)
-    st = t.suspicious_targets
-    single_asn_off = disabled("single_asn_cluster", t)
-    botnet_off = disabled("botnet_member", t)
-    if single_asn_off and botnet_off:
-        return
-    groups = _asn_groups(flagged_client_ips)
-    for asn, members in groups.items():
-        if len(members) < st.asn_cluster_min_ips:
-            continue
-        if not single_asn_off:
-            _mark_single_asn_cluster(members, asn)
-        if total_current <= 0 or botnet_off:
-            continue
-        cluster_requests = sum(m["requests"] for m in members)
-        cluster_share = cluster_requests / total_current
-        if cluster_share < st.botnet_cluster_share_min:
-            continue
-        _mark_botnet_cluster(members, cluster_requests, cluster_share, clean_number)
-
-
-def _asn_groups(flagged_client_ips: list[dict]) -> dict[object, list[dict]]:
-    groups: dict[object, list[dict]] = {}
-    for row in flagged_client_ips:
-        asn = row.get("asn")
-        if asn not in (None, "", 0):
-            groups.setdefault(asn, []).append(row)
-    return groups
-
-
-def _mark_single_asn_cluster(members: list[dict], asn: object) -> None:
-    asn_org = next((m.get("asn_org") for m in members if m.get("asn_org")), "")
-    for row in members:
-        if "single_asn_cluster" not in row["flags"]:
-            row["flags"].append("single_asn_cluster")
-        extras = row.setdefault("supporting_extras", {})
-        extras["asn_cluster_id"] = asn
-        if asn_org:
-            extras["asn_cluster_org"] = asn_org
-        extras["asn_cluster_size"] = len(members)
-
-
-def _mark_botnet_cluster(
-    members: list[dict],
-    cluster_requests: float,
-    cluster_share: float,
-    clean_number,
-) -> None:
-    cluster_share_pct = clean_number(round(100.0 * cluster_share, 2))
-    for row in members:
-        if "botnet_member" not in row["flags"]:
-            row["flags"].append("botnet_member")
-        extras = row.setdefault("supporting_extras", {})
-        extras["botnet_cluster_requests"] = int(cluster_requests)
-        extras["botnet_cluster_share_pct"] = cluster_share_pct
-        extras["botnet_cluster_size"] = len(members)
-
-
-def _apply_unverified_cluster_pivots(
-    flagged_client_ips: list[dict],
-    total_current: float,
-    *,
-    clean_number,
-    thresholds: Thresholds | None = None,
-) -> None:
-    """Legacy fallback for producers without per-row ASN attribution.
-    Uses the coarse count + total-share rule and marks the
-    supporting_extras so downstream consumers can tell this is an
-    approximation, not a verified same-ASN cluster. Mutates rows in
-    place.
-    """
-    t = _resolve(thresholds)
-    single_asn_off = disabled("single_asn_cluster", t)
-    botnet_off = disabled("botnet_member", t)
-    if single_asn_off and botnet_off:
-        return
-    if not single_asn_off:
-        for row in flagged_client_ips:
-            if "single_asn_cluster" not in row["flags"]:
-                row["flags"].append("single_asn_cluster")
-            extras = row.setdefault("supporting_extras", {})
-            extras["asn_cluster_attribution"] = "unverified"
-            extras["asn_cluster_size"] = len(flagged_client_ips)
-    if total_current <= 0 or botnet_off:
-        return
-    cluster_requests = sum(r["requests"] for r in flagged_client_ips)
-    cluster_share = cluster_requests / total_current
-    if cluster_share < t.suspicious_targets.botnet_cluster_share_min:
-        return
-    cluster_share_pct = clean_number(round(100.0 * cluster_share, 2))
-    for row in flagged_client_ips:
-        if "botnet_member" not in row["flags"]:
-            row["flags"].append("botnet_member")
-        extras = row.setdefault("supporting_extras", {})
-        extras["botnet_cluster_requests"] = int(cluster_requests)
-        extras["botnet_cluster_share_pct"] = cluster_share_pct
-        extras["botnet_cluster_size"] = len(flagged_client_ips)
-
-
-def _apply_cluster_pivots(
-    intermediate: list[dict],
-    total_current: float,
-    *,
-    clean_number,
-    thresholds: Thresholds | None = None,
-) -> None:
-    """Cross-row pivots that add ``single_asn_cluster`` (shape) and
-    ``botnet_member`` (magnitude) flags to flagged client_ip rows.
-    Routes through per-ASN grouping when the producer carries ASN
-    attribution, falling back to the coarse count + total-share rule
-    when no row carries an ``asn`` field.
-    """
-    t = _resolve(thresholds)
-    flagged_client_ips = [r for r in intermediate if r["field"] == "client_ip"]
-    have_asn_attribution = any(
-        r.get("asn") not in (None, "", 0) for r in flagged_client_ips
-    )
-    if have_asn_attribution:
-        _apply_asn_grouped_pivots(
-            flagged_client_ips, total_current,
-            clean_number=clean_number, thresholds=t,
-        )
-    elif len(flagged_client_ips) >= t.suspicious_targets.asn_cluster_min_ips:
-        _apply_unverified_cluster_pivots(
-            flagged_client_ips, total_current,
-            clean_number=clean_number, thresholds=t,
-        )
-
-
-def _assign_severity(
-    flag_set: set[str],
-    *,
-    cross_field_corroboration: bool,
-) -> tuple[str, str]:
-    """Tier mapping → ``(severity, confidence)``. Anomaly is a
-    baseline-corroborated signal so it counts as 2 toward the
-    effective flag count: an anomaly-alone finding reaches
-    ``severity: high``, share-based singles stay at ``medium``.
-    ``critical`` additionally requires one flag from each of
-    (quantitative) AND (concentration in shape) so a single-dimension
-    actor never reaches the top tier.
-    """
-    flag_count = len(flag_set)
-    effective_flag_count = flag_count + (1 if "anomaly" in flag_set else 0)
-    if (
-        effective_flag_count >= 3
-        and bool(flag_set & _SUSPICIOUS_QUANT_FLAGS)
-        and bool(flag_set & _SUSPICIOUS_CONCENTRATION_FLAGS)
-    ):
-        return "critical", "high" if cross_field_corroboration else "medium"
-    if effective_flag_count >= 2:
-        return "high", "high" if cross_field_corroboration else "medium"
-    if flag_set & _SUSPICIOUS_QUANT_FLAGS:
-        return "medium", "low"
-    return "low", "low"
-
-
-def _build_target_entry(row: dict, field_appearance: dict[str, int]) -> dict:
-    """Project an ``intermediate`` row into a final
-    ``bot_incident_action_targets.v1`` ``targets`` entry — tier
-    assignment, supporting payload, evidence_refs, and the
-    descriptive (not prescriptive) action_class.
-    """
-    flag_set = set(row["flags"])
-    cross_field_corroboration = field_appearance.get(row["value"], 0) >= 2
-    severity, confidence = _assign_severity(
-        flag_set, cross_field_corroboration=cross_field_corroboration,
-    )
-    supporting = {
-        "requests": int(row["requests"]),
-        "share_pct": row["share_pct"],
-        "req_429": int(row["req_429"]),
-        "req_429_share_pct": row["req_429_share_pct"],
-        "distinct_paths": row["distinct_paths"],
-    }
-    supporting.update(row.get("supporting_extras") or {})
-    return {
-        "target_type": row["target_type"],
-        "target_value": row["value"],
-        "kind": _TARGET_KIND_BY_TYPE.get(row["target_type"], "actor"),
-        "action_class": _suspicious_action_class(
-            row["target_type"], severity, row["flags"],
-        ),
-        "reason_flags": list(row["flags"]),
-        "attack_techniques": _attack_techniques_for_flags(row["flags"]),
-        "severity": severity,
-        "supporting": supporting,
-        "suggested_action_hint": "review",
-        "confidence": confidence,
-        "evidence_refs": [
-            {
-                "artifact": "bot_incident_actors.v1",
-                "json_pointer": (
-                    f"/actor_rankings/{row['ranking_idx']}/rows/"
-                    f"{row['row_idx']}"
-                ),
-            }
-        ],
     }
 
 

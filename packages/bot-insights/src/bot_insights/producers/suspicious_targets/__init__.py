@@ -9,10 +9,11 @@ Split across two sub-modules:
     surfaces — changing an entry is a downstream-consumer break, not
     a calibration change.
   - ``ladder``: the per-row primitive evaluators (share-based,
-    novelty, anomaly), the cross-row ASN cluster pivots, the tier
-    assignment, and the orchestrator (``_compute_suspicious_targets``)
-    that walks every actor ranking and emits the final
-    ``bot_incident_action_targets.v1`` ``targets`` shape.
+    novelty, anomaly) and the orchestrator
+    (``_compute_suspicious_targets``) that walks every actor ranking.
+  - ``clusters``: cross-row ASN cluster pivots.
+  - ``targets``: tier assignment and final
+    ``bot_incident_action_targets.v1`` ``targets`` projection.
 
 Calibration constants (threshold floors, automation UA pattern,
 severity rank) still live in the top-level ``heuristics`` module
