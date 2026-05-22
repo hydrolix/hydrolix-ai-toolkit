@@ -104,40 +104,19 @@ def _incident_compute_window_confirmation(
     bot_share = _share(bot_current, requests_current)
     rate_429 = _share(req_429_current, requests_current)
     rate_5xx = _share(req_5xx_current, requests_current)
-    blocked_share: float | None = None
-    if siem_available:
-        # Prefer the SIEM-table value when both sources exist — it carries
-        # the authoritative ``actionClass`` semantics from the policy
-        # summary.
-        siem = _incident_split_period_rows(rows, source="siem")
-        siem_current = siem.get("current") or {}
-        siem_requests = _num(siem_current, "requests")
-        siem_blocked = _num(siem_current, "blocked")
-        if siem_requests > 0:
-            blocked_share = _share(siem_blocked, siem_requests)
-        else:
-            blocked_share = 0.0
-    else:
-        # Fall back to raw ``akamai.logs`` action_applied counts. For
-        # canonical-schema clusters (no separate SIEM summary table) the
-        # Akamai DS2 stream carries the edge response inline so the deny
-        # + monitor decision is visible directly from the access log.
-        raw_requests = _num(raw_current, "requests")
-        denied = _num(raw_current, "denied_requests")
-        monitored = _num(raw_current, "monitored_requests")
-        if raw_requests > 0:
-            blocked_share = _share(denied + monitored, raw_requests)
-
-    # Spike flags fire on +25% volume/share moves vs the trailing window.
-    spike_flags: list[str] = []
-    if baselines_mod.pct_delta(requests_current, requests_baseline) >= 25:
-        spike_flags.append("volume_up")
-    if baselines_mod.pct_delta(bot_current, bot_baseline) >= 25:
-        spike_flags.append("bot_share_up")
-    if baselines_mod.pct_delta(req_429_current, req_429_baseline) >= 25:
-        spike_flags.append("rate_429_up")
-    if baselines_mod.pct_delta(req_5xx_current, req_5xx_baseline) >= 25:
-        spike_flags.append("rate_5xx_up")
+    blocked_share = _incident_blocked_share(
+        rows, raw_current, siem_available, _num, _share
+    )
+    spike_flags = _incident_spike_flags(
+        requests_current,
+        requests_baseline,
+        bot_current,
+        bot_baseline,
+        req_429_current,
+        req_429_baseline,
+        req_5xx_current,
+        req_5xx_baseline,
+    )
 
     window_confirmation = {
         "requests": int(requests_current),
@@ -159,6 +138,52 @@ def _incident_compute_window_confirmation(
         "req_5xx": int(req_5xx_baseline),
     }
     return window_confirmation, baseline_stats
+
+
+def _incident_blocked_share(
+    rows: list[dict],
+    raw_current: dict,
+    siem_available: bool,
+    num,
+    share,
+) -> float | None:
+    if siem_available:
+        siem = _incident_split_period_rows(rows, source="siem")
+        siem_current = siem.get("current") or {}
+        siem_requests = num(siem_current, "requests")
+        siem_blocked = num(siem_current, "blocked")
+        return share(siem_blocked, siem_requests) if siem_requests > 0 else 0.0
+    raw_requests = num(raw_current, "requests")
+    denied = num(raw_current, "denied_requests")
+    monitored = num(raw_current, "monitored_requests")
+    if raw_requests > 0:
+        return share(denied + monitored, raw_requests)
+    return None
+
+
+def _incident_spike_flags(
+    requests_current: float,
+    requests_baseline: float,
+    bot_current: float,
+    bot_baseline: float,
+    req_429_current: float,
+    req_429_baseline: float,
+    req_5xx_current: float,
+    req_5xx_baseline: float,
+) -> list[str]:
+    import baselines as baselines_mod
+
+    checks = [
+        ("volume_up", requests_current, requests_baseline),
+        ("bot_share_up", bot_current, bot_baseline),
+        ("rate_429_up", req_429_current, req_429_baseline),
+        ("rate_5xx_up", req_5xx_current, req_5xx_baseline),
+    ]
+    return [
+        flag
+        for flag, current, baseline in checks
+        if baselines_mod.pct_delta(current, baseline) >= 25
+    ]
 
 
 _INCIDENT_GRANULARITY_DELTA = {
@@ -199,45 +224,12 @@ def _incident_compute_timeseries(
         granularity, timedelta(minutes=1)
     )
 
-    def _to_dt(value: object) -> datetime | None:
-        if isinstance(value, datetime):
-            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-        if isinstance(value, str):
-            try:
-                return datetime.fromisoformat(
-                    value.replace("Z", "+00:00")
-                ).astimezone(timezone.utc)
-            except ValueError:
-                return None
-        return None
-
     indexed: dict[tuple[str, datetime], dict] = {}
     for r in rows:
         period = r.get("period")
-        bucket = _to_dt(r.get("bucket"))
+        bucket = _incident_bucket_datetime(r.get("bucket"))
         if period in ("current", "baseline") and bucket is not None:
             indexed[(period, bucket)] = r
-
-    def _bucketize(start: datetime, end: datetime) -> list[datetime]:
-        out: list[datetime] = []
-        t = start
-        while t < end:
-            out.append(t)
-            t += bucket_delta
-        return out
-
-    def _series_for(
-        period: str, start: datetime, end: datetime, key: str
-    ) -> list[int]:
-        out: list[int] = []
-        for b in _bucketize(start, end):
-            row = indexed.get((period, b))
-            if row is None:
-                out.append(0)
-            else:
-                v = baselines_mod.to_number(row.get(key)) or 0
-                out.append(int(v))
-        return out
 
     granularity_label = granularity if granularity in ("minute", "hour", "day") else "minute"
 
@@ -251,35 +243,77 @@ def _incident_compute_timeseries(
             "requests_per_minute": {
                 "label": f"Requests per {granularity_label}",
                 "spike_flag": "volume_up",
-                "current": _series_for(
-                    "current", current_start, current_end, "requests"
+                "current": _incident_series_for(
+                    indexed, bucket_delta, "current", current_start, current_end, "requests"
                 ),
-                "baseline": _series_for(
-                    "baseline", baseline_start, baseline_end, "requests"
+                "baseline": _incident_series_for(
+                    indexed, bucket_delta, "baseline", baseline_start, baseline_end, "requests"
                 ),
             },
             "req_429_per_minute": {
                 "label": f"429s per {granularity_label}",
                 "spike_flag": "rate_429_up",
-                "current": _series_for(
-                    "current", current_start, current_end, "req_429"
+                "current": _incident_series_for(
+                    indexed, bucket_delta, "current", current_start, current_end, "req_429"
                 ),
-                "baseline": _series_for(
-                    "baseline", baseline_start, baseline_end, "req_429"
+                "baseline": _incident_series_for(
+                    indexed, bucket_delta, "baseline", baseline_start, baseline_end, "req_429"
                 ),
             },
             "bot_like_requests_per_minute": {
                 "label": f"Bot-classified requests per {granularity_label}",
                 "spike_flag": "bot_share_up",
-                "current": _series_for(
-                    "current", current_start, current_end, "bot_like_requests"
+                "current": _incident_series_for(
+                    indexed, bucket_delta, "current", current_start, current_end, "bot_like_requests"
                 ),
-                "baseline": _series_for(
-                    "baseline", baseline_start, baseline_end, "bot_like_requests"
+                "baseline": _incident_series_for(
+                    indexed, bucket_delta, "baseline", baseline_start, baseline_end, "bot_like_requests"
                 ),
             },
         },
     }
+
+
+def _incident_bucket_datetime(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(
+                timezone.utc
+            )
+        except ValueError:
+            return None
+    return None
+
+
+def _incident_bucketize(
+    start: datetime, end: datetime, bucket_delta: timedelta
+) -> list[datetime]:
+    out: list[datetime] = []
+    t = start
+    while t < end:
+        out.append(t)
+        t += bucket_delta
+    return out
+
+
+def _incident_series_for(
+    indexed: dict[tuple[str, datetime], dict],
+    bucket_delta: timedelta,
+    period: str,
+    start: datetime,
+    end: datetime,
+    key: str,
+) -> list[int]:
+    import baselines as baselines_mod
+
+    out: list[int] = []
+    for bucket in _incident_bucketize(start, end, bucket_delta):
+        row = indexed.get((period, bucket))
+        value = 0 if row is None else baselines_mod.to_number(row.get(key)) or 0
+        out.append(int(value))
+    return out
 
 
 def _incident_dimension_rows(
@@ -383,58 +417,66 @@ def _incident_target_evidence_rows(rows: list[dict]) -> dict[str, dict]:
     evidence: dict[str, dict] = {}
     for key, target_rows in grouped.items():
         target_rows.sort(key=lambda r: str(r.get("bucket") or ""))
-        peak = max(target_rows, key=lambda r: int(r.get("requests") or 0))
-        total = sum(int(r.get("requests") or 0) for r in target_rows)
-
-        def _dominant(field: str, share_field: str | None = None) -> dict | None:
-            counts: dict[str, int] = {}
-            for r in target_rows:
-                value = str(r.get(field) or "")
-                if field == "dominant_edge_action" and not value.strip():
-                    value = "No Action"
-                if value:
-                    counts[value] = counts.get(value, 0) + int(r.get("requests") or 0)
-            if not counts:
-                return None
-            value, requests = max(counts.items(), key=lambda kv: kv[1])
-            out = {
-                "value": value,
-                "requests": requests,
-                "share_pct": baselines_mod.clean_number(
-                    round(100.0 * requests / total, 2)
-                ) if total > 0 else 0,
-            }
-            if share_field:
-                out[share_field] = out["share_pct"]
-            return out
-
-        target_type, target_value = key.split(":", 1)
-        entry: dict = {
-            "target_type": target_type,
-            "target_value": target_value,
-            "first_seen": str(target_rows[0].get("bucket") or ""),
-            "last_seen": str(target_rows[-1].get("bucket") or ""),
-            "peak_bucket": str(peak.get("bucket") or ""),
-            "peak_requests": int(peak.get("requests") or 0),
-            "bucketed_requests": [
-                {
-                    "bucket": str(r.get("bucket") or ""),
-                    "requests": int(r.get("requests") or 0),
-                }
-                for r in target_rows
-            ],
-        }
-        for field, output_name, share_name in (
-            ("dominant_path", "dominant_path", None),
-            ("dominant_user_agent", "dominant_user_agent", None),
-            ("dominant_cohort", "dominant_cohort", None),
-            ("dominant_edge_action", "dominant_edge_action", "action_share_pct"),
-        ):
-            dominant = _dominant(field, share_name)
-            if dominant:
-                entry[output_name] = dominant
-        evidence[key] = entry
+        evidence[key] = _incident_target_evidence_entry(key, target_rows)
     return evidence
+
+
+def _incident_target_evidence_entry(key: str, target_rows: list[dict]) -> dict:
+    peak = max(target_rows, key=lambda r: int(r.get("requests") or 0))
+    target_type, target_value = key.split(":", 1)
+    entry: dict = {
+        "target_type": target_type,
+        "target_value": target_value,
+        "first_seen": str(target_rows[0].get("bucket") or ""),
+        "last_seen": str(target_rows[-1].get("bucket") or ""),
+        "peak_bucket": str(peak.get("bucket") or ""),
+        "peak_requests": int(peak.get("requests") or 0),
+        "bucketed_requests": [
+            {
+                "bucket": str(row.get("bucket") or ""),
+                "requests": int(row.get("requests") or 0),
+            }
+            for row in target_rows
+        ],
+    }
+    for field, output_name, share_name in (
+        ("dominant_path", "dominant_path", None),
+        ("dominant_user_agent", "dominant_user_agent", None),
+        ("dominant_cohort", "dominant_cohort", None),
+        ("dominant_edge_action", "dominant_edge_action", "action_share_pct"),
+    ):
+        dominant = _incident_dominant_target_value(target_rows, field, share_name)
+        if dominant:
+            entry[output_name] = dominant
+    return entry
+
+
+def _incident_dominant_target_value(
+    target_rows: list[dict], field: str, share_field: str | None = None
+) -> dict | None:
+    import baselines as baselines_mod
+
+    total = sum(int(row.get("requests") or 0) for row in target_rows)
+    counts: dict[str, int] = {}
+    for row in target_rows:
+        value = str(row.get(field) or "")
+        if field == "dominant_edge_action" and not value.strip():
+            value = "No Action"
+        if value:
+            counts[value] = counts.get(value, 0) + int(row.get("requests") or 0)
+    if not counts:
+        return None
+    value, requests = max(counts.items(), key=lambda kv: kv[1])
+    out = {
+        "value": value,
+        "requests": requests,
+        "share_pct": baselines_mod.clean_number(round(100.0 * requests / total, 2))
+        if total > 0
+        else 0,
+    }
+    if share_field:
+        out[share_field] = out["share_pct"]
+    return out
 
 
 def _target_key(target: dict) -> str:
@@ -589,78 +631,10 @@ def _incident_entity_clusters(
             buckets.setdefault(facet_key, []).append(target_key)
             facet_lookup.setdefault(facet_key, facet)
 
-    def _shared_facets_for(target_keys: list[str]) -> list[dict]:
-        target_key_set = set(target_keys)
-        shared: list[dict] = []
-        for facet_key, bucket_members in sorted(buckets.items()):
-            overlapping_members = sorted(target_key_set & set(bucket_members))
-            if len(overlapping_members) < 2:
-                continue
-            facet = dict(facet_lookup[facet_key])
-            facet["member_count"] = len(overlapping_members)
-            shared.append(facet)
-        return sorted(
-            shared,
-            key=lambda f: (
-                f["basis"] not in {"shared_asn", "shared_botnet_cluster"},
-                -int(f.get("member_count") or 0),
-                f["label"],
-                f["display"],
-            ),
-        )
-
-    def _cluster_confidence(shared_facets: list[dict], member_count: int) -> tuple[str, str]:
-        primary_count = sum(
-            1
-            for facet in shared_facets
-            if facet["basis"] in {"shared_asn", "shared_botnet_cluster"}
-        )
-        supporting_count = max(0, len(shared_facets) - primary_count)
-        if primary_count and supporting_count >= 2 and member_count >= 3:
-            return (
-                "High",
-                "Shared infrastructure metadata plus multiple observed behavior facets.",
-            )
-        if primary_count or supporting_count >= 2:
-            return (
-                "Medium",
-                "Multiple targets share observed clustering facets.",
-            )
-        return (
-            "Low",
-            "Cluster is based on a single observed shared facet.",
-        )
-
-    def _target_label(target_key: str) -> str:
-        target = targets_by_key.get(target_key) or {}
-        return f"{target.get('target_type')}:{target.get('target_value')}"
-
-    primary_buckets: dict[tuple[str, str], set[str]] = {}
-    assigned_to_primary: set[str] = set()
-    for target_key, facets in facets_by_target.items():
-        primary = next(
-            (
-                facet
-                for facet in facets
-                if facet["basis"] in {"shared_botnet_cluster", "shared_asn"}
-                and len(set(buckets.get((facet["basis"], facet["value"]), []))) >= 2
-            ),
-            None,
-        )
-        if primary:
-            facet_key = (primary["basis"], primary["value"])
-            primary_buckets.setdefault(facet_key, set()).add(target_key)
-            assigned_to_primary.add(target_key)
-
-    fallback_buckets: dict[tuple[str, str], set[str]] = {}
-    for facet_key, target_keys in buckets.items():
-        if facet_key[0] in {"shared_botnet_cluster", "shared_asn"}:
-            continue
-        unique_keys = sorted(set(target_keys) - assigned_to_primary)
-        if len(unique_keys) < 2:
-            continue
-        fallback_buckets[facet_key] = set(unique_keys)
-
+    primary_buckets, assigned_to_primary = _primary_cluster_buckets(
+        facets_by_target, buckets
+    )
+    fallback_buckets = _fallback_cluster_buckets(buckets, assigned_to_primary)
     facet_rank = {
         "shared_botnet_cluster": 0,
         "shared_asn": 1,
@@ -676,76 +650,16 @@ def _incident_entity_clusters(
         all_cluster_buckets.items(),
         key=lambda item: (facet_rank.get(item[0][0], 99), item[0][1]),
     ):
-        unique_keys = sorted(target_key_set)
-        if len(unique_keys) < 2:
-            continue
-        members = [targets_by_key[key] for key in unique_keys if key in targets_by_key]
-        if len(members) < 2:
-            continue
-        member_types = {m.get("target_type") for m in members}
-        total_requests = (
-            sum(_target_requests(member) for member in members)
-            if len(member_types) == 1
-            else None
+        cluster = _incident_entity_cluster(
+            facet_key,
+            target_key_set,
+            targets_by_key,
+            buckets,
+            facet_lookup,
+            target_evidence,
         )
-        facet = facet_lookup[facet_key]
-        representative = sorted(
-            members,
-            key=lambda m: (-_target_requests(m), str(m.get("target_value") or "")),
-        )[:4]
-        shared_facets = _shared_facets_for(unique_keys)
-        confidence_label, confidence_basis = _cluster_confidence(
-            shared_facets,
-            len(members),
-        )
-        action_profile = _dominant_action_profile(members, target_evidence)
-        aggregate_behavior_parts = [
-            f"{len(members)} flagged entities shared {len(shared_facets)} observed facet"
-            f"{'s' if len(shared_facets) != 1 else ''}"
-        ]
-        if total_requests is not None:
-            aggregate_behavior_parts.append(
-                f"{total_requests} non-overlapping observed requests"
-            )
-        if action_profile:
-            aggregate_behavior_parts.append(
-                f"{action_profile['share_pct']}% dominant {action_profile['action']} edge-action profile"
-            )
-        coverage_summary = (
-            f"Dominant observed edge action was {action_profile['action']} "
-            f"for {action_profile['share_pct']}% of cluster member traffic."
-            if action_profile
-            else "No per-member edge-action profile was available for this cluster."
-        )
-        clusters.append(
-            {
-                "cluster_id": f"{facet['basis']}:{facet['value']}",
-                "title": facet["label"],
-                "basis": facet["basis"],
-                "basis_value": facet["value"],
-                "shared_facets": shared_facets,
-                "member_count": len(members),
-                "targets": [_target_label(key) for key in unique_keys],
-                "representative_actors": [
-                    {
-                        "target_type": m.get("target_type"),
-                        "target_value": m.get("target_value"),
-                        "requests": _target_requests(m),
-                    }
-                    for m in representative
-                ],
-                "total_observed_requests": total_requests,
-                "dominant_action_profile": action_profile,
-                "confidence_label": confidence_label,
-                "confidence_basis": confidence_basis,
-                "aggregate_behavior": "; ".join(aggregate_behavior_parts) + ".",
-                "coverage_summary": coverage_summary,
-                "boundary": (
-                    "Clustered by shared observed behavior only; this is not "
-                    "attribution or proof of common control."
-                ),
-            }
-        )
+        if cluster:
+            clusters.append(cluster)
     return sorted(
         clusters,
         key=lambda c: (
@@ -755,6 +669,191 @@ def _incident_entity_clusters(
             c["basis_value"],
         ),
     )
+
+
+def _primary_cluster_buckets(
+    facets_by_target: dict[str, list[dict]],
+    buckets: dict[tuple[str, str], list[str]],
+) -> tuple[dict[tuple[str, str], set[str]], set[str]]:
+    primary_buckets: dict[tuple[str, str], set[str]] = {}
+    assigned_to_primary: set[str] = set()
+    for target_key, facets in facets_by_target.items():
+        primary = _primary_facet_for_target(facets, buckets)
+        if primary:
+            facet_key = (primary["basis"], primary["value"])
+            primary_buckets.setdefault(facet_key, set()).add(target_key)
+            assigned_to_primary.add(target_key)
+    return primary_buckets, assigned_to_primary
+
+
+def _primary_facet_for_target(
+    facets: list[dict], buckets: dict[tuple[str, str], list[str]]
+) -> dict | None:
+    return next(
+        (
+            facet
+            for facet in facets
+            if facet["basis"] in {"shared_botnet_cluster", "shared_asn"}
+            and len(set(buckets.get((facet["basis"], facet["value"]), []))) >= 2
+        ),
+        None,
+    )
+
+
+def _fallback_cluster_buckets(
+    buckets: dict[tuple[str, str], list[str]], assigned_to_primary: set[str]
+) -> dict[tuple[str, str], set[str]]:
+    fallback_buckets: dict[tuple[str, str], set[str]] = {}
+    for facet_key, target_keys in buckets.items():
+        if facet_key[0] in {"shared_botnet_cluster", "shared_asn"}:
+            continue
+        unique_keys = sorted(set(target_keys) - assigned_to_primary)
+        if len(unique_keys) >= 2:
+            fallback_buckets[facet_key] = set(unique_keys)
+    return fallback_buckets
+
+
+def _shared_facets_for_cluster(
+    target_keys: list[str],
+    buckets: dict[tuple[str, str], list[str]],
+    facet_lookup: dict[tuple[str, str], dict],
+) -> list[dict]:
+    target_key_set = set(target_keys)
+    shared: list[dict] = []
+    for facet_key, bucket_members in sorted(buckets.items()):
+        overlapping_members = sorted(target_key_set & set(bucket_members))
+        if len(overlapping_members) < 2:
+            continue
+        facet = dict(facet_lookup[facet_key])
+        facet["member_count"] = len(overlapping_members)
+        shared.append(facet)
+    return sorted(
+        shared,
+        key=lambda f: (
+            f["basis"] not in {"shared_asn", "shared_botnet_cluster"},
+            -int(f.get("member_count") or 0),
+            f["label"],
+            f["display"],
+        ),
+    )
+
+
+def _cluster_confidence(shared_facets: list[dict], member_count: int) -> tuple[str, str]:
+    primary_count = sum(
+        1
+        for facet in shared_facets
+        if facet["basis"] in {"shared_asn", "shared_botnet_cluster"}
+    )
+    supporting_count = max(0, len(shared_facets) - primary_count)
+    if primary_count and supporting_count >= 2 and member_count >= 3:
+        return (
+            "High",
+            "Shared infrastructure metadata plus multiple observed behavior facets.",
+        )
+    if primary_count or supporting_count >= 2:
+        return "Medium", "Multiple targets share observed clustering facets."
+    return "Low", "Cluster is based on a single observed shared facet."
+
+
+def _target_label_for_cluster(target_key: str, targets_by_key: dict[str, dict]) -> str:
+    target = targets_by_key.get(target_key) or {}
+    return f"{target.get('target_type')}:{target.get('target_value')}"
+
+
+def _incident_entity_cluster(
+    facet_key: tuple[str, str],
+    target_key_set: set[str],
+    targets_by_key: dict[str, dict],
+    buckets: dict[tuple[str, str], list[str]],
+    facet_lookup: dict[tuple[str, str], dict],
+    target_evidence: dict[str, dict],
+) -> dict | None:
+    unique_keys = sorted(target_key_set)
+    if len(unique_keys) < 2:
+        return None
+    members = [targets_by_key[key] for key in unique_keys if key in targets_by_key]
+    if len(members) < 2:
+        return None
+    total_requests = _cluster_total_requests(members)
+    facet = facet_lookup[facet_key]
+    shared_facets = _shared_facets_for_cluster(unique_keys, buckets, facet_lookup)
+    confidence_label, confidence_basis = _cluster_confidence(shared_facets, len(members))
+    action_profile = _dominant_action_profile(members, target_evidence)
+    return {
+        "cluster_id": f"{facet['basis']}:{facet['value']}",
+        "title": facet["label"],
+        "basis": facet["basis"],
+        "basis_value": facet["value"],
+        "shared_facets": shared_facets,
+        "member_count": len(members),
+        "targets": [_target_label_for_cluster(key, targets_by_key) for key in unique_keys],
+        "representative_actors": _representative_cluster_actors(members),
+        "total_observed_requests": total_requests,
+        "dominant_action_profile": action_profile,
+        "confidence_label": confidence_label,
+        "confidence_basis": confidence_basis,
+        "aggregate_behavior": _cluster_aggregate_behavior(
+            members, shared_facets, total_requests, action_profile
+        ),
+        "coverage_summary": _cluster_coverage_summary(action_profile),
+        "boundary": (
+            "Clustered by shared observed behavior only; this is not "
+            "attribution or proof of common control."
+        ),
+    }
+
+
+def _cluster_total_requests(members: list[dict]) -> int | None:
+    member_types = {member.get("target_type") for member in members}
+    if len(member_types) != 1:
+        return None
+    return sum(_target_requests(member) for member in members)
+
+
+def _representative_cluster_actors(members: list[dict]) -> list[dict]:
+    representative = sorted(
+        members,
+        key=lambda member: (
+            -_target_requests(member),
+            str(member.get("target_value") or ""),
+        ),
+    )[:4]
+    return [
+        {
+            "target_type": member.get("target_type"),
+            "target_value": member.get("target_value"),
+            "requests": _target_requests(member),
+        }
+        for member in representative
+    ]
+
+
+def _cluster_aggregate_behavior(
+    members: list[dict],
+    shared_facets: list[dict],
+    total_requests: int | None,
+    action_profile: dict | None,
+) -> str:
+    parts = [
+        f"{len(members)} flagged entities shared {len(shared_facets)} observed facet"
+        f"{'s' if len(shared_facets) != 1 else ''}"
+    ]
+    if total_requests is not None:
+        parts.append(f"{total_requests} non-overlapping observed requests")
+    if action_profile:
+        parts.append(
+            f"{action_profile['share_pct']}% dominant {action_profile['action']} edge-action profile"
+        )
+    return "; ".join(parts) + "."
+
+
+def _cluster_coverage_summary(action_profile: dict | None) -> str:
+    if action_profile:
+        return (
+            f"Dominant observed edge action was {action_profile['action']} "
+            f"for {action_profile['share_pct']}% of cluster member traffic."
+        )
+    return "No per-member edge-action profile was available for this cluster."
 
 
 def _incident_mitigation_effectiveness(

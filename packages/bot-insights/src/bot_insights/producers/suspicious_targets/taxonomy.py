@@ -127,6 +127,38 @@ def _attack_techniques_for_flags(flags: list[str]) -> list[dict]:
     return out
 
 
+def _client_ip_action_class(severity: str, flags: set[str]) -> str:
+    if severity == "critical":
+        return "block"
+    if severity == "high":
+        # Volume / cluster signals are confidence-grade enough for
+        # challenge friction. Anomaly-only highs are weaker — watch.
+        if flags & {
+            "high_volume_share", "high_rate_429_share",
+            "botnet_member", "high_volume_new_actor",
+        }:
+            return "challenge"
+        return "watch"
+    return "monitor"
+
+
+def _user_agent_action_class(severity: str, flags: set[str]) -> str:
+    # Automation UAs (curl, python-requests, etc.) are narrowly
+    # attributed to scripted clients — blockable.
+    if "automation_user_agent" in flags:
+        return "block" if severity in ("critical", "high") else "challenge"
+    # Real-browser strings caught by volume / share alone — never
+    # block UA-only, that drops genuine users. Watch and pair with
+    # other signals before acting.
+    return "watch"
+
+
+def _path_action_class(severity: str) -> str:
+    if severity in ("critical", "high"):
+        return "rate-limit"
+    return "monitor"
+
+
 def _suspicious_action_class(
     target_type: str,
     severity: str,
@@ -160,31 +192,11 @@ def _suspicious_action_class(
     """
     flags = set(reason_flags or [])
     if target_type == "client_ip":
-        if severity == "critical":
-            return "block"
-        if severity == "high":
-            # Volume / cluster signals are confidence-grade enough for
-            # challenge friction. Anomaly-only highs are weaker — watch.
-            if flags & {
-                "high_volume_share", "high_rate_429_share",
-                "botnet_member", "high_volume_new_actor",
-            }:
-                return "challenge"
-            return "watch"
-        return "monitor"
+        return _client_ip_action_class(severity, flags)
     if target_type == "user_agent":
-        # Automation UAs (curl, python-requests, etc.) are narrowly
-        # attributed to scripted clients — blockable.
-        if "automation_user_agent" in flags:
-            return "block" if severity in ("critical", "high") else "challenge"
-        # Real-browser strings caught by volume / share alone — never
-        # block UA-only, that drops genuine users. Watch and pair with
-        # other signals before acting.
-        return "watch"
+        return _user_agent_action_class(severity, flags)
     if target_type == "request_path":
-        if severity in ("critical", "high"):
-            return "rate-limit"
-        return "monitor"
+        return _path_action_class(severity)
     if target_type == "asn":
         # ASN-level block is too broad — would drop legitimate
         # self-hosting customers, scrapers, etc. Watch only.

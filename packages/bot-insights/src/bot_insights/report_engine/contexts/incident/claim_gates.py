@@ -186,6 +186,52 @@ def _positive_requests(value: Any) -> float:
     return max(float(number), 0.0)
 
 
+def _flagged_ip_requests(targets: list[dict[str, Any]]) -> dict[str, float]:
+    flagged: dict[str, float] = {}
+    for target in targets:
+        if target.get("target_type") != "client_ip":
+            continue
+        ip = str(target.get("target_value") or "")
+        requests = _positive_requests((target.get("supporting") or {}).get("requests"))
+        if ip and requests > 0:
+            flagged[ip] = flagged.get(ip, 0.0) + requests
+    return flagged
+
+
+def _empty_provenance_overlap(flagged_ip_requests: dict[str, float]) -> dict[str, Any]:
+    flagged_client_ip_requests = sum(flagged_ip_requests.values())
+    return {
+        "flagged_client_ip_requests": flagged_client_ip_requests,
+        "overlap_requests": 0.0,
+        "overlap_share": 0.0,
+        "overlap_share_pct": 0.0,
+        "overlap_share_display": "—",
+        "overlapping_target_count": 0,
+        "total_client_ip_target_count": len(flagged_ip_requests),
+        "available": False,
+        "summary": "",
+    }
+
+
+def _provenance_requests_by_ip(
+    actors_art: dict[str, Any],
+    flagged_ip_requests: dict[str, float],
+) -> tuple[dict[str, float], bool]:
+    cooccur = actors_art.get("actor_cooccurrence") or {}
+    provenance_requests: dict[str, float] = {}
+    has_provenance_cells = False
+    for key in ("client_ip__bot_source", "client_ip__proxy_classification"):
+        for cell in cooccur.get(key) or []:
+            requests = _positive_requests(cell.get("requests"))
+            if requests <= 0:
+                continue
+            has_provenance_cells = True
+            ip = str(cell.get("ip") or "")
+            if ip in flagged_ip_requests:
+                provenance_requests[ip] = provenance_requests.get(ip, 0.0) + requests
+    return provenance_requests, has_provenance_cells
+
+
 def compute_provenance_overlap(
     actors_art: dict[str, Any],
     targets: list[dict[str, Any]],
@@ -197,47 +243,15 @@ def compute_provenance_overlap(
     IP-keyed actor cooccurrence cells; report-level mix rows are context and
     must not feed this numerator.
     """
-    flagged_ip_requests: dict[str, float] = {}
-    for target in targets:
-        if target.get("target_type") != "client_ip":
-            continue
-        ip = str(target.get("target_value") or "")
-        if not ip:
-            continue
-        requests = _positive_requests((target.get("supporting") or {}).get("requests"))
-        if requests <= 0:
-            continue
-        flagged_ip_requests[ip] = flagged_ip_requests.get(ip, 0.0) + requests
-
+    flagged_ip_requests = _flagged_ip_requests(targets)
     flagged_client_ip_requests = sum(flagged_ip_requests.values())
-    empty_result = {
-        "flagged_client_ip_requests": flagged_client_ip_requests,
-        "overlap_requests": 0.0,
-        "overlap_share": 0.0,
-        "overlap_share_pct": 0.0,
-        "overlap_share_display": "—",
-        "overlapping_target_count": 0,
-        "total_client_ip_target_count": len(flagged_ip_requests),
-        "available": False,
-        "summary": "",
-    }
+    empty_result = _empty_provenance_overlap(flagged_ip_requests)
     if not flagged_ip_requests:
         return empty_result
 
-    cooccur = actors_art.get("actor_cooccurrence") or {}
-    provenance_requests_by_ip: dict[str, float] = {}
-    has_provenance_cells = False
-    for key in ("client_ip__bot_source", "client_ip__proxy_classification"):
-        for cell in cooccur.get(key) or []:
-            requests = _positive_requests(cell.get("requests"))
-            if requests <= 0:
-                continue
-            has_provenance_cells = True
-            ip = str(cell.get("ip") or "")
-            if ip in flagged_ip_requests:
-                provenance_requests_by_ip[ip] = (
-                    provenance_requests_by_ip.get(ip, 0.0) + requests
-                )
+    provenance_requests_by_ip, has_provenance_cells = _provenance_requests_by_ip(
+        actors_art, flagged_ip_requests
+    )
     if not has_provenance_cells:
         return empty_result
 

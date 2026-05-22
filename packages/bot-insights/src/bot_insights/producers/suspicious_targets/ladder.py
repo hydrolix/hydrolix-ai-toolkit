@@ -388,41 +388,56 @@ def _apply_asn_grouped_pivots(
     botnet_off = disabled("botnet_member", t)
     if single_asn_off and botnet_off:
         return
-    groups: dict[object, list[dict]] = {}
-    for row in flagged_client_ips:
-        asn = row.get("asn")
-        if asn in (None, "", 0):
-            continue
-        groups.setdefault(asn, []).append(row)
+    groups = _asn_groups(flagged_client_ips)
     for asn, members in groups.items():
         if len(members) < st.asn_cluster_min_ips:
             continue
-        asn_org = next(
-            (m.get("asn_org") for m in members if m.get("asn_org")), ""
-        )
         if not single_asn_off:
-            for row in members:
-                if "single_asn_cluster" not in row["flags"]:
-                    row["flags"].append("single_asn_cluster")
-                extras = row.setdefault("supporting_extras", {})
-                extras["asn_cluster_id"] = asn
-                if asn_org:
-                    extras["asn_cluster_org"] = asn_org
-                extras["asn_cluster_size"] = len(members)
+            _mark_single_asn_cluster(members, asn)
         if total_current <= 0 or botnet_off:
             continue
         cluster_requests = sum(m["requests"] for m in members)
         cluster_share = cluster_requests / total_current
         if cluster_share < st.botnet_cluster_share_min:
             continue
-        cluster_share_pct = clean_number(round(100.0 * cluster_share, 2))
-        for row in members:
-            if "botnet_member" not in row["flags"]:
-                row["flags"].append("botnet_member")
-            extras = row.setdefault("supporting_extras", {})
-            extras["botnet_cluster_requests"] = int(cluster_requests)
-            extras["botnet_cluster_share_pct"] = cluster_share_pct
-            extras["botnet_cluster_size"] = len(members)
+        _mark_botnet_cluster(members, cluster_requests, cluster_share, clean_number)
+
+
+def _asn_groups(flagged_client_ips: list[dict]) -> dict[object, list[dict]]:
+    groups: dict[object, list[dict]] = {}
+    for row in flagged_client_ips:
+        asn = row.get("asn")
+        if asn not in (None, "", 0):
+            groups.setdefault(asn, []).append(row)
+    return groups
+
+
+def _mark_single_asn_cluster(members: list[dict], asn: object) -> None:
+    asn_org = next((m.get("asn_org") for m in members if m.get("asn_org")), "")
+    for row in members:
+        if "single_asn_cluster" not in row["flags"]:
+            row["flags"].append("single_asn_cluster")
+        extras = row.setdefault("supporting_extras", {})
+        extras["asn_cluster_id"] = asn
+        if asn_org:
+            extras["asn_cluster_org"] = asn_org
+        extras["asn_cluster_size"] = len(members)
+
+
+def _mark_botnet_cluster(
+    members: list[dict],
+    cluster_requests: float,
+    cluster_share: float,
+    clean_number,
+) -> None:
+    cluster_share_pct = clean_number(round(100.0 * cluster_share, 2))
+    for row in members:
+        if "botnet_member" not in row["flags"]:
+            row["flags"].append("botnet_member")
+        extras = row.setdefault("supporting_extras", {})
+        extras["botnet_cluster_requests"] = int(cluster_requests)
+        extras["botnet_cluster_share_pct"] = cluster_share_pct
+        extras["botnet_cluster_size"] = len(members)
 
 
 def _apply_unverified_cluster_pivots(

@@ -14,6 +14,7 @@ import argparse
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 
 def selected_rank(index: dict, card: dict) -> int | None:
@@ -194,119 +195,9 @@ def build_scorecard_fleet_evidence_packet(
         )
     n_total = len(scorecards)
 
-    band_distribution: dict[str, int] = {}
-    confidence_distribution: dict[str, int] = {}
-    primary_domain_distribution: dict[str, int] = {}
-    rule_trigger_counts: Counter[str] = Counter()
-    missing_input_domains: Counter[str] = Counter()
-    aggregate_recommended: dict[str, dict] = {}
-    for sc in scorecards:
-        band = sc.get("band")
-        if band:
-            band_distribution[band] = band_distribution.get(band, 0) + 1
-        confidence = sc.get("confidence")
-        if confidence:
-            confidence_distribution[confidence] = (
-                confidence_distribution.get(confidence, 0) + 1
-            )
-        primary = sc.get("primary_domain")
-        if primary:
-            primary_domain_distribution[primary] = (
-                primary_domain_distribution.get(primary, 0) + 1
-            )
-        for rule in sc.get("rule_results") or []:
-            if isinstance(rule, dict) and rule.get("status") == "triggered":
-                name = rule.get("name")
-                if name:
-                    rule_trigger_counts[name] += 1
-        for feature in sc.get("not_evaluated_features") or []:
-            if isinstance(feature, dict):
-                domain = feature.get("domain")
-                if domain:
-                    missing_input_domains[domain] += 1
-        for step in sc.get("recommended_next_steps") or []:
-            if isinstance(step, dict):
-                detail = step.get("detail") or step.get("summary") or ""
-            else:
-                detail = str(step)
-            detail = detail.strip()
-            if not detail:
-                continue
-            entry = aggregate_recommended.setdefault(
-                detail,
-                {"detail": detail, "host_count": 0, "hosts": []},
-            )
-            entry["host_count"] += 1
-            entity = sc.get("entity")
-            if entity and entity not in entry["hosts"]:
-                entry["hosts"].append(str(entity))
-
+    aggregates = _scorecard_fleet_aggregates(scorecards)
     scored = [sc for sc in scorecards if isinstance(sc.get("score"), (int, float))]
-    top_entities = [
-        {
-            "entity_type": sc.get("entity_type"),
-            "entity": sc.get("entity"),
-            "score": sc.get("score"),
-            "band": sc.get("band"),
-            "primary_domain": sc.get("primary_domain"),
-            "confidence": sc.get("confidence"),
-        }
-        for sc in sorted(scored, key=lambda s: -float(s.get("score") or 0))[:5]
-    ]
-    lowest_entities = [
-        {
-            "entity_type": sc.get("entity_type"),
-            "entity": sc.get("entity"),
-            "score": sc.get("score"),
-            "band": sc.get("band"),
-            "primary_domain": sc.get("primary_domain"),
-            "confidence": sc.get("confidence"),
-        }
-        for sc in sorted(scored, key=lambda s: float(s.get("score") or 0))[:5]
-    ]
-
-    rule_triggers = [
-        {"name": name, "host_count": count}
-        for name, count in rule_trigger_counts.most_common()
-    ]
-
-    recommended_next_steps = sorted(
-        ({
-            "detail": entry["detail"],
-            "host_count": entry["host_count"],
-            "hosts": entry["hosts"][:5],
-        } for entry in aggregate_recommended.values()),
-        key=lambda e: (-e["host_count"], e["detail"]),
-    )
-
-    current_window = None
-    baseline_windows = None
-    if scorecards:
-        current_window = scorecards[0].get("current_window")
-        baseline_windows = scorecards[0].get("baseline_windows")
-
-    interpretation_contract = {
-        "allowed": [
-            "Summarize fleet aggregates: band distribution, rule trigger counts, top and lowest scoring entities.",
-            "Use the rule_triggers_across_fleet counts and the top_entities / lowest_entities lists to describe the shape of the fleet's risk.",
-            "Describe rowset_context.total_ranked_entities, result_truncated, and producer_limit as caveats when relevant.",
-        ],
-        "forbidden": [
-            "Do not single out an individual entity's evidence as if it were the whole fleet.",
-            "Do not invent rule names, band labels, or hosts not present in this packet.",
-            "Do not query Hydrolix from the interpretation step.",
-            "Do not claim root cause or malicious intent from scorecard rules alone.",
-            "Do not emit final HTML or Markdown layout.",
-        ],
-    }
-    template_sections = [
-        "Scorecard Interpretation",
-        "Fleet Summary",
-        "Rule Triggers Across Fleet",
-        "Top and Lowest Entities",
-        "Recommended Next Steps",
-        "Method and Caveats",
-    ]
+    current_window, baseline_windows = _scorecard_fleet_windows(scorecards)
 
     return {
         "schema_version": "bot_report_evidence.v1",
@@ -325,15 +216,20 @@ def build_scorecard_fleet_evidence_packet(
         },
         "fleet_summary": {
             "n_ranked_entities": n_total,
-            "band_distribution": band_distribution,
-            "confidence_distribution": confidence_distribution,
-            "primary_domain_distribution": primary_domain_distribution,
-            "missing_input_domains": dict(missing_input_domains),
+            "band_distribution": aggregates["band_distribution"],
+            "confidence_distribution": aggregates["confidence_distribution"],
+            "primary_domain_distribution": aggregates["primary_domain_distribution"],
+            "missing_input_domains": dict(aggregates["missing_input_domains"]),
         },
-        "top_entities": top_entities,
-        "lowest_entities": lowest_entities,
-        "rule_triggers_across_fleet": rule_triggers,
-        "recommended_next_steps": recommended_next_steps,
+        "top_entities": _scorecard_fleet_entities(scored, reverse=True),
+        "lowest_entities": _scorecard_fleet_entities(scored, reverse=False),
+        "rule_triggers_across_fleet": [
+            {"name": name, "host_count": count}
+            for name, count in aggregates["rule_trigger_counts"].most_common()
+        ],
+        "recommended_next_steps": _scorecard_fleet_recommendations(
+            aggregates["aggregate_recommended"]
+        ),
         "rowset_context": {
             "producer_limit": artifacts.get("producer_limit")
             or index.get("producer_limit"),
@@ -350,11 +246,154 @@ def build_scorecard_fleet_evidence_packet(
             (scorecards[0].get("analysis_domains") if scorecards else None)
             or index.get("analysis_domains")
         ),
-        "interpretation_contract": interpretation_contract,
-        "template": {"sections": template_sections},
+        "interpretation_contract": _scorecard_fleet_interpretation_contract(),
+        "template": {"sections": _scorecard_fleet_template_sections()},
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "baseline_start": baseline_start.isoformat().replace("+00:00", "Z"),
     }
+
+
+def _scorecard_fleet_aggregates(scorecards: list[dict]) -> dict[str, Any]:
+    band_distribution: dict[str, int] = {}
+    confidence_distribution: dict[str, int] = {}
+    primary_domain_distribution: dict[str, int] = {}
+    rule_trigger_counts: Counter[str] = Counter()
+    missing_input_domains: Counter[str] = Counter()
+    aggregate_recommended: dict[str, dict] = {}
+    for sc in scorecards:
+        _scorecard_increment_distribution(band_distribution, sc.get("band"))
+        _scorecard_increment_distribution(
+            confidence_distribution, sc.get("confidence")
+        )
+        _scorecard_increment_distribution(
+            primary_domain_distribution, sc.get("primary_domain")
+        )
+        _scorecard_count_rule_triggers(rule_trigger_counts, sc)
+        _scorecard_count_missing_domains(missing_input_domains, sc)
+        _scorecard_collect_recommendations(aggregate_recommended, sc)
+    return {
+        "band_distribution": band_distribution,
+        "confidence_distribution": confidence_distribution,
+        "primary_domain_distribution": primary_domain_distribution,
+        "rule_trigger_counts": rule_trigger_counts,
+        "missing_input_domains": missing_input_domains,
+        "aggregate_recommended": aggregate_recommended,
+    }
+
+
+def _scorecard_increment_distribution(distribution: dict[str, int], value: object) -> None:
+    if value:
+        key = str(value)
+        distribution[key] = distribution.get(key, 0) + 1
+
+
+def _scorecard_count_rule_triggers(counts: Counter[str], sc: dict) -> None:
+    for rule in sc.get("rule_results") or []:
+        if isinstance(rule, dict) and rule.get("status") == "triggered":
+            name = rule.get("name")
+            if name:
+                counts[name] += 1
+
+
+def _scorecard_count_missing_domains(counts: Counter[str], sc: dict) -> None:
+    for feature in sc.get("not_evaluated_features") or []:
+        if isinstance(feature, dict):
+            domain = feature.get("domain")
+            if domain:
+                counts[domain] += 1
+
+
+def _scorecard_collect_recommendations(
+    aggregate_recommended: dict[str, dict], sc: dict
+) -> None:
+    for step in sc.get("recommended_next_steps") or []:
+        detail = _scorecard_recommendation_detail(step)
+        if not detail:
+            continue
+        entry = aggregate_recommended.setdefault(
+            detail,
+            {"detail": detail, "host_count": 0, "hosts": []},
+        )
+        entry["host_count"] += 1
+        entity = sc.get("entity")
+        if entity and entity not in entry["hosts"]:
+            entry["hosts"].append(str(entity))
+
+
+def _scorecard_recommendation_detail(step: object) -> str:
+    if isinstance(step, dict):
+        detail = step.get("detail") or step.get("summary") or ""
+    else:
+        detail = str(step)
+    return detail.strip()
+
+
+def _scorecard_fleet_entities(scored: list[dict], *, reverse: bool) -> list[dict]:
+    return [
+        {
+            "entity_type": sc.get("entity_type"),
+            "entity": sc.get("entity"),
+            "score": sc.get("score"),
+            "band": sc.get("band"),
+            "primary_domain": sc.get("primary_domain"),
+            "confidence": sc.get("confidence"),
+        }
+        for sc in sorted(
+            scored,
+            key=lambda s: float(s.get("score") or 0),
+            reverse=reverse,
+        )[:5]
+    ]
+
+
+def _scorecard_fleet_recommendations(
+    aggregate_recommended: dict[str, dict],
+) -> list[dict]:
+    return sorted(
+        ({
+            "detail": entry["detail"],
+            "host_count": entry["host_count"],
+            "hosts": entry["hosts"][:5],
+        } for entry in aggregate_recommended.values()),
+        key=lambda e: (-e["host_count"], e["detail"]),
+    )
+
+
+def _scorecard_fleet_windows(scorecards: list[dict]) -> tuple[object, object]:
+    current_window = None
+    baseline_windows = None
+    if scorecards:
+        current_window = scorecards[0].get("current_window")
+        baseline_windows = scorecards[0].get("baseline_windows")
+    return current_window, baseline_windows
+
+
+def _scorecard_fleet_interpretation_contract() -> dict:
+    return {
+        "allowed": [
+            "Summarize fleet aggregates: band distribution, rule trigger counts, top and lowest scoring entities.",
+            "Use the rule_triggers_across_fleet counts and the top_entities / lowest_entities lists to describe the shape of the fleet's risk.",
+            "Describe rowset_context.total_ranked_entities, result_truncated, and producer_limit as caveats when relevant.",
+        ],
+        "forbidden": [
+            "Do not single out an individual entity's evidence as if it were the whole fleet.",
+            "Do not invent rule names, band labels, or hosts not present in this packet.",
+            "Do not query Hydrolix from the interpretation step.",
+            "Do not claim root cause or malicious intent from scorecard rules alone.",
+            "Do not emit final HTML or Markdown layout.",
+        ],
+    }
+
+
+def _scorecard_fleet_template_sections() -> list[str]:
+    return [
+        "Scorecard Interpretation",
+        "Fleet Summary",
+        "Rule Triggers Across Fleet",
+        "Top and Lowest Entities",
+        "Recommended Next Steps",
+        "Method and Caveats",
+    ]
 
 
 def build_scorecard_evidence_packet(

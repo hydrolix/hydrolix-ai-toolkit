@@ -241,22 +241,13 @@ def _attack_timeline(ctx: dict[str, Any]) -> list[dict[str, Any]]:
     current = [float(v or 0) for v in (source.get("current") or [])]
     baseline = [float(v or 0) for v in (source.get("baseline") or [])]
     if len(current) < 2:
-        return [
-            {"time": "Start", "phase": "Baseline break", "caption_html": "Current window begins.", "is_peak": False},
-            {"time": "Peak", "phase": "Highest pressure", "caption_html": "Highest observed traffic bucket.", "is_peak": True},
-            {"time": "End", "phase": "Window close", "caption_html": "Evidence window ends.", "is_peak": False},
-        ]
+        return _fallback_attack_timeline()
 
     peak_value = max(current)
     peak_idx = current.index(peak_value)
     count = len(current)
     threshold = _material_threshold(current, baseline, peak_value)
-    band_start = source.get("incident_highlight_start")
-    band_end = source.get("incident_highlight_end")
-    start_idx = round(float(band_start) * (count - 1)) if band_start is not None else 0
-    end_idx = round(float(band_end) * (count - 1)) if band_end is not None else count - 1
-    start_idx = max(0, min(start_idx, count - 1))
-    end_idx = max(start_idx, min(end_idx, count - 1))
+    start_idx, end_idx = _timeline_highlight_indexes(source, count)
     first_elevated = next(
         (idx for idx in range(start_idx, end_idx + 1) if current[idx] >= threshold),
         start_idx,
@@ -277,6 +268,55 @@ def _attack_timeline(ctx: dict[str, Any]) -> list[dict[str, Any]]:
         if first_elevated < idx < peak_idx
     ]
 
+    stops = _build_attack_timeline_stops(
+        source,
+        current,
+        count=count,
+        start_idx=start_idx,
+        first_elevated=first_elevated,
+        crest_indexes=crest_indexes,
+        peak_idx=peak_idx,
+        peak_value=peak_value,
+        last_elevated=last_elevated,
+        end_idx=end_idx,
+    )
+    stops = _trim_attack_timeline_stops(stops)
+    for stop in stops:
+        stop.pop("_idx", None)
+    return stops
+
+
+def _fallback_attack_timeline() -> list[dict[str, Any]]:
+    return [
+        {"time": "Start", "phase": "Baseline break", "caption_html": "Current window begins.", "is_peak": False},
+        {"time": "Peak", "phase": "Highest pressure", "caption_html": "Highest observed traffic bucket.", "is_peak": True},
+        {"time": "End", "phase": "Window close", "caption_html": "Evidence window ends.", "is_peak": False},
+    ]
+
+
+def _timeline_highlight_indexes(source: dict[str, Any], count: int) -> tuple[int, int]:
+    band_start = source.get("incident_highlight_start")
+    band_end = source.get("incident_highlight_end")
+    start_idx = round(float(band_start) * (count - 1)) if band_start is not None else 0
+    end_idx = round(float(band_end) * (count - 1)) if band_end is not None else count - 1
+    start_idx = max(0, min(start_idx, count - 1))
+    end_idx = max(start_idx, min(end_idx, count - 1))
+    return start_idx, end_idx
+
+
+def _build_attack_timeline_stops(
+    source: dict[str, Any],
+    current: list[float],
+    *,
+    count: int,
+    start_idx: int,
+    first_elevated: int,
+    crest_indexes: list[int],
+    peak_idx: int,
+    peak_value: float,
+    last_elevated: int,
+    end_idx: int,
+) -> list[dict[str, Any]]:
     stops: list[dict[str, Any]] = []
     _append_timeline_stop(
         stops,
@@ -285,14 +325,45 @@ def _attack_timeline(ctx: dict[str, Any]) -> list[dict[str, Any]]:
         phase="Detected start",
         caption="Anomaly window opens.",
     )
-    if first_elevated > start_idx:
-        _append_timeline_stop(
-            stops,
-            idx=first_elevated,
-            time=_series_time_for_index(source, first_elevated, count),
-            phase="Ramp begins",
-            caption="Traffic crosses the material elevation threshold.",
-        )
+    _append_ramp_stop(stops, source, first_elevated, start_idx, count)
+    _append_crest_stops(stops, source, current, crest_indexes, count)
+    _append_peak_stop(stops, source, peak_idx, peak_value, count)
+    _append_tail_stop(stops, source, last_elevated, peak_idx, count)
+    _append_timeline_stop(
+        stops,
+        idx=end_idx,
+        time=_series_time_for_index(source, end_idx, count) or "End",
+        phase="Window close",
+        caption="Evidence window closes.",
+    )
+    return sorted(stops, key=lambda stop: stop["_idx"])
+
+
+def _append_ramp_stop(
+    stops: list[dict[str, Any]],
+    source: dict[str, Any],
+    first_elevated: int,
+    start_idx: int,
+    count: int,
+) -> None:
+    if first_elevated <= start_idx:
+        return
+    _append_timeline_stop(
+        stops,
+        idx=first_elevated,
+        time=_series_time_for_index(source, first_elevated, count),
+        phase="Ramp begins",
+        caption="Traffic crosses the material elevation threshold.",
+    )
+
+
+def _append_crest_stops(
+    stops: list[dict[str, Any]],
+    source: dict[str, Any],
+    current: list[float],
+    crest_indexes: list[int],
+    count: int,
+) -> None:
     for label, idx in zip(("First crest", "Sustained crest"), crest_indexes[:2]):
         _append_timeline_stop(
             stops,
@@ -301,6 +372,15 @@ def _attack_timeline(ctx: dict[str, Any]) -> list[dict[str, Any]]:
             phase=label,
             caption=f"{_compact(current[idx])} requests observed in the bucket.",
         )
+
+
+def _append_peak_stop(
+    stops: list[dict[str, Any]],
+    source: dict[str, Any],
+    peak_idx: int,
+    peak_value: float,
+    count: int,
+) -> None:
     _append_timeline_stop(
         stops,
         idx=peak_idx,
@@ -309,39 +389,41 @@ def _attack_timeline(ctx: dict[str, Any]) -> list[dict[str, Any]]:
         caption=f"Peak bucket reaches {_compact(peak_value)} requests.",
         is_peak=True,
     )
-    if last_elevated > peak_idx:
-        _append_timeline_stop(
-            stops,
-            idx=last_elevated,
-            time=_series_time_for_index(source, last_elevated, count),
-            phase="Sustained tail",
-            caption="Elevated traffic remains present after the peak.",
-        )
+
+
+def _append_tail_stop(
+    stops: list[dict[str, Any]],
+    source: dict[str, Any],
+    last_elevated: int,
+    peak_idx: int,
+    count: int,
+) -> None:
+    if last_elevated <= peak_idx:
+        return
     _append_timeline_stop(
         stops,
-        idx=end_idx,
-        time=_series_time_for_index(source, end_idx, count) or "End",
-        phase="Window close",
-        caption="Evidence window closes.",
+        idx=last_elevated,
+        time=_series_time_for_index(source, last_elevated, count),
+        phase="Sustained tail",
+        caption="Elevated traffic remains present after the peak.",
     )
 
-    stops = sorted(stops, key=lambda stop: stop["_idx"])
-    # Keep the fixed-page layout readable while preserving the key shape:
-    # opening, ramp/crest activity, peak, tail, and close.
-    if len(stops) > 6:
-        keep = [stops[0], stops[-1]]
-        peak_stop = next((stop for stop in stops if stop.get("is_peak")), None)
-        if peak_stop:
-            keep.append(peak_stop)
-        for stop in stops[1:-1]:
-            if stop not in keep:
-                keep.append(stop)
-            if len(keep) >= 6:
-                break
-        stops = sorted(keep, key=lambda stop: stop["_idx"])
-    for stop in stops:
-        stop.pop("_idx", None)
-    return stops
+
+def _trim_attack_timeline_stops(
+    stops: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    if len(stops) <= 6:
+        return stops
+    keep = [stops[0], stops[-1]]
+    peak_stop = next((stop for stop in stops if stop.get("is_peak")), None)
+    if peak_stop:
+        keep.append(peak_stop)
+    for stop in stops[1:-1]:
+        if stop not in keep:
+            keep.append(stop)
+        if len(keep) >= 6:
+            break
+    return sorted(keep, key=lambda stop: stop["_idx"])
 
 
 def volume_chart(ctx: dict[str, Any]) -> dict[str, Any]:

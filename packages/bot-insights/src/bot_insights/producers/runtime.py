@@ -34,7 +34,15 @@ import subprocess
 from pathlib import Path
 
 
-PUBLIC_SKILLS = Path(__file__).resolve().parents[4]
+def _public_skills_root() -> Path:
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / "skills/bot-insights/scripts/render_report.py").exists():
+            return parent
+    return current.parents[5]
+
+
+PUBLIC_SKILLS = _public_skills_root()
 CAPTURE = (
     Path(__file__).resolve().parents[1] / "bot_insights_capture.py"
 )

@@ -55,10 +55,7 @@ def json_pointer_resolve(value: Any, pointer: str) -> tuple[str, Any]:
     return "/" + "/".join(normalized_tokens), current
 
 
-def resolve_citation(
-    source: dict[str, Any],
-    artifacts: list[dict[str, Any]],
-) -> tuple[dict[str, Any], str, Any]:
+def _validate_citation_source(source: dict[str, Any]) -> tuple[str | None, str | None]:
     artifact_id = source.get("artifact_id")
     schema = source.get("schema_version")
     if artifact_id is not None and not isinstance(artifact_id, str):
@@ -68,37 +65,67 @@ def resolve_citation(
     label = source.get("label")
     if label is not None and not isinstance(label, str):
         raise ReportError("Analyst-note citation label must be a string.")
-    candidates = artifacts
-    if artifact_id:
-        candidates = [
-            artifact
-            for artifact in artifacts
-            if artifact.get("artifact_id") == artifact_id
-        ]
-        if not candidates:
-            raise ReportError(
-                f"Analyst-note citation artifact_id {artifact_id} cannot be resolved."
-            )
-        artifact = candidates[0]
-        if schema and artifact.get("schema_version") != schema:
-            raise ReportError(
-                f"Analyst-note citation {artifact_id} schema mismatch: expected {schema}."
-            )
-    elif schema:
-        candidates = [
-            artifact
-            for artifact in artifacts
-            if artifact.get("schema_version") == schema
-        ]
-        if len(candidates) != 1:
-            raise ReportError(
-                f"Analyst-note schema-only citation {schema} is ambiguous or missing."
-            )
-        artifact = candidates[0]
-    else:
+    return artifact_id, schema
+
+
+def _artifact_by_id(
+    artifact_id: str,
+    schema: str | None,
+    artifacts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    candidates = [
+        artifact
+        for artifact in artifacts
+        if artifact.get("artifact_id") == artifact_id
+    ]
+    if not candidates:
         raise ReportError(
-            "Analyst-note citation requires artifact_id or schema_version."
+            f"Analyst-note citation artifact_id {artifact_id} cannot be resolved."
         )
+    artifact = candidates[0]
+    if schema and artifact.get("schema_version") != schema:
+        raise ReportError(
+            f"Analyst-note citation {artifact_id} schema mismatch: expected {schema}."
+        )
+    return artifact
+
+
+def _artifact_by_schema(
+    schema: str,
+    artifacts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    candidates = [
+        artifact
+        for artifact in artifacts
+        if artifact.get("schema_version") == schema
+    ]
+    if len(candidates) != 1:
+        raise ReportError(
+            f"Analyst-note schema-only citation {schema} is ambiguous or missing."
+        )
+    return candidates[0]
+
+
+def _citation_artifact(
+    artifact_id: str | None,
+    schema: str | None,
+    artifacts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if artifact_id:
+        return _artifact_by_id(artifact_id, schema, artifacts)
+    if schema:
+        return _artifact_by_schema(schema, artifacts)
+    raise ReportError(
+        "Analyst-note citation requires artifact_id or schema_version."
+    )
+
+
+def resolve_citation(
+    source: dict[str, Any],
+    artifacts: list[dict[str, Any]],
+) -> tuple[dict[str, Any], str, Any]:
+    artifact_id, schema = _validate_citation_source(source)
+    artifact = _citation_artifact(artifact_id, schema, artifacts)
 
     pointer = source.get("json_pointer")
     if not isinstance(pointer, str):

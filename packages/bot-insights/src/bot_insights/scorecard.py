@@ -1419,19 +1419,39 @@ def confidence(
 ) -> tuple[str, list[str]]:
     reasons: list[str] = []
     table_used = metadata_text(metadata.get("table_used", ""))
+    _append_scorecard_table_reasons(reasons, table_used, metadata)
+    current_count, baseline_count = count_values(row)
+    _append_scorecard_count_reasons(
+        reasons, current_count, baseline_count, min_count
+    )
+    _append_scorecard_caveat_reasons(
+        reasons, row, metadata, not_evaluated, analysis_domains
+    )
+
+    return _scorecard_confidence_label(reasons), reasons
+
+
+def _append_scorecard_table_reasons(
+    reasons: list[str], table_used: str, metadata: dict[str, Any]
+) -> None:
     summary_table_used = metadata.get("summary_table_used")
     if summary_table_used is None:
         summary_table_used = bool(
             table_used and table_used not in {"bot_detection", "bot_detection_siem"}
         )
-
     if summary_table_used:
         reasons.append("summary_table_used")
         reasons.append("retained_dimensions_fit")
     else:
         reasons.append("request_level_query")
 
-    current_count, baseline_count = count_values(row)
+
+def _append_scorecard_count_reasons(
+    reasons: list[str],
+    current_count: float | None,
+    baseline_count: float | None,
+    min_count: float,
+) -> None:
     sparse = False
     if current_count is not None:
         if current_count >= min_count:
@@ -1447,6 +1467,15 @@ def confidence(
         reasons.append("sparse_counts")
     if baseline_count is not None and baseline_count < 1:
         reasons.append("zero_baseline_guard")
+
+
+def _append_scorecard_caveat_reasons(
+    reasons: list[str],
+    row: dict[str, Any],
+    metadata: dict[str, Any],
+    not_evaluated: list[dict[str, Any]],
+    analysis_domains: tuple[str, ...],
+) -> None:
     if metadata.get("source_coverage_caveat") or metadata.get("source_caveats"):
         reasons.append("source_coverage_caveat")
     if "security_evidence" in analysis_domains and not siem_inputs_available(row):
@@ -1454,19 +1483,18 @@ def confidence(
     if not_evaluated:
         reasons.append("feature_input_missing")
 
+
+def _scorecard_confidence_label(reasons: list[str]) -> str:
     low_reasons = {"request_level_query", "sparse_counts"}
     if any(reason in reasons for reason in low_reasons):
-        label = "low"
-    elif (
+        return "low"
+    if (
         "source_coverage_caveat" in reasons
         or "siem_unavailable" in reasons
         or "feature_input_missing" in reasons
     ):
-        label = "medium"
-    else:
-        label = "high"
-
-    return label, reasons
+        return "medium"
+    return "high"
 
 
 def evidence_summary(
@@ -1626,26 +1654,84 @@ def score_entity(
     analysis_domains: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     active_domains = analysis_domains or tuple(DOMAINS)
+    features, not_evaluated, rule_results = _evaluate_scorecard_rules(
+        row, active_domains
+    )
+    domain_scores = _domain_scores(features, rule_results)
+    risk_points = min(100, sum(int(feature["points"]) for feature in features))
+    score = 100 - risk_points
+    prior_score = baseline_score(row, active_domains)
+    primary_domain = _primary_domain(domain_scores)
+    label, reasons = confidence(row, metadata, not_evaluated, min_count, active_domains)
+    entity_metrics = _entity_metrics(row)
+    scorecard = _base_scorecard(
+        row=row,
+        entity_type=entity_type,
+        metadata=metadata,
+        active_domains=active_domains,
+        features=features,
+        not_evaluated=not_evaluated,
+        rule_results=rule_results,
+        domain_scores=domain_scores,
+        score=score,
+        prior_score=prior_score,
+        primary_domain=primary_domain,
+        label=label,
+        reasons=reasons,
+        entity_metrics=entity_metrics,
+    )
+    _attach_scorecard_metadata(scorecard, row, metadata, active_domains)
+    return scorecard
+
+
+def _evaluate_scorecard_rules(
+    row: dict[str, Any], active_domains: tuple[str, ...]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     features: list[dict[str, Any]] = []
     not_evaluated: list[dict[str, Any]] = []
     rule_results: list[dict[str, Any]] = []
     for evaluator in FEATURE_EVALUATORS:
         feature, missing = evaluator(row)
-        if feature is not None and feature.get("domain") in active_domains:
-            result = dict(feature)
-            if int(result.get("points") or 0) > 0:
-                result["status"] = "triggered"
-                features.append(feature)
-            else:
-                result["status"] = "evaluated_zero"
-            rule_results.append(result)
-        if missing is not None and missing.get("domain") in active_domains:
-            not_evaluated.append(missing)
-            result = dict(missing)
-            result["points"] = 0
-            result["status"] = "missing_input"
-            rule_results.append(result)
+        _append_evaluated_feature(feature, active_domains, features, rule_results)
+        _append_missing_feature(missing, active_domains, not_evaluated, rule_results)
+    return features, not_evaluated, rule_results
 
+
+def _append_evaluated_feature(
+    feature: dict[str, Any] | None,
+    active_domains: tuple[str, ...],
+    features: list[dict[str, Any]],
+    rule_results: list[dict[str, Any]],
+) -> None:
+    if feature is None or feature.get("domain") not in active_domains:
+        return
+    result = dict(feature)
+    if int(result.get("points") or 0) > 0:
+        result["status"] = "triggered"
+        features.append(feature)
+    else:
+        result["status"] = "evaluated_zero"
+    rule_results.append(result)
+
+
+def _append_missing_feature(
+    missing: dict[str, Any] | None,
+    active_domains: tuple[str, ...],
+    not_evaluated: list[dict[str, Any]],
+    rule_results: list[dict[str, Any]],
+) -> None:
+    if missing is None or missing.get("domain") not in active_domains:
+        return
+    not_evaluated.append(missing)
+    result = dict(missing)
+    result["points"] = 0
+    result["status"] = "missing_input"
+    rule_results.append(result)
+
+
+def _domain_scores(
+    features: list[dict[str, Any]], rule_results: list[dict[str, Any]]
+) -> dict[str, int]:
     evaluated_domains = {
         str(rule["domain"])
         for rule in rule_results
@@ -1655,22 +1741,36 @@ def score_entity(
     for feature in features:
         domain = str(feature["domain"])
         domain_scores[domain] = domain_scores.get(domain, 0) + int(feature["points"])
+    return domain_scores
 
-    risk_points = min(100, sum(int(feature["points"]) for feature in features))
-    score = 100 - risk_points
-    prior_score = baseline_score(row, active_domains)
-    primary_domain = "none"
+
+def _primary_domain(domain_scores: dict[str, int]) -> str:
     nonzero_domains = [
         (domain, points) for domain, points in domain_scores.items() if points > 0
     ]
-    if nonzero_domains:
-        primary_domain = sorted(nonzero_domains, key=lambda item: (-item[1], item[0]))[
-            0
-        ][0]
+    if not nonzero_domains:
+        return "none"
+    return sorted(nonzero_domains, key=lambda item: (-item[1], item[0]))[0][0]
 
-    label, reasons = confidence(row, metadata, not_evaluated, min_count, active_domains)
-    entity_metrics = _entity_metrics(row)
-    scorecard = {
+
+def _base_scorecard(
+    *,
+    row: dict[str, Any],
+    entity_type: str,
+    metadata: dict[str, Any],
+    active_domains: tuple[str, ...],
+    features: list[dict[str, Any]],
+    not_evaluated: list[dict[str, Any]],
+    rule_results: list[dict[str, Any]],
+    domain_scores: dict[str, int],
+    score: int,
+    prior_score: int,
+    primary_domain: str,
+    label: str,
+    reasons: list[str],
+    entity_metrics: dict[str, Any],
+) -> dict[str, Any]:
+    return {
         "schema_version": SCORECARD_SCHEMA,
         "entity_type": entity_type,
         "entity": entity_value(row, entity_type),
@@ -1701,6 +1801,14 @@ def score_entity(
         "entity_metrics": entity_metrics,
         "interpretation_constraints": INTERPRETATION_CONSTRAINTS,
     }
+
+
+def _attach_scorecard_metadata(
+    scorecard: dict[str, Any],
+    row: dict[str, Any],
+    metadata: dict[str, Any],
+    active_domains: tuple[str, ...],
+) -> None:
     if active_domains != tuple(DOMAINS):
         scorecard["analysis_domains"] = list(active_domains)
     if "current_window" in metadata:
@@ -1723,8 +1831,6 @@ def score_entity(
         )
     elif "feature_provenance" in metadata:
         scorecard["feature_provenance"] = json_safe(metadata["feature_provenance"])
-
-    return scorecard
 
 
 def complete_contribution_scope(metadata: dict[str, Any]) -> bool:

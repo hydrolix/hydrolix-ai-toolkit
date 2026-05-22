@@ -164,14 +164,9 @@ def _campaign_endpoint_evidence_summary(
         and any(category in _TARGET_ENDPOINT_CATEGORIES for category in category_counts)
     )
     counts_for_verdict = confirmed_member_count > 0 or confirmed_campaign_scoped
-    if counts_for_verdict:
-        reason = "confirmed_member_endpoint_evidence" if confirmed_member_count else "campaign_scoped_ge_1pct_target_categories"
-    elif tier_counts.get("inferred_site_context"):
-        reason = "members_inferred_from_site_context"
-    elif tier_counts.get("unconfirmed_scoped"):
-        reason = "members_unconfirmed_scoped"
-    else:
-        reason = "no_endpoint_evidence"
+    reason = _campaign_endpoint_reason(
+        counts_for_verdict, confirmed_member_count, tier_counts
+    )
     return {
         "member_count": len(members),
         "confirmed_member_count": confirmed_member_count,
@@ -184,6 +179,24 @@ def _campaign_endpoint_evidence_summary(
         "counts_for_verdict": counts_for_verdict,
         "reason": reason,
     }
+
+
+def _campaign_endpoint_reason(
+    counts_for_verdict: bool,
+    confirmed_member_count: int,
+    tier_counts: Counter[str],
+) -> str:
+    if counts_for_verdict:
+        return (
+            "confirmed_member_endpoint_evidence"
+            if confirmed_member_count
+            else "campaign_scoped_ge_1pct_target_categories"
+        )
+    if tier_counts.get("inferred_site_context"):
+        return "members_inferred_from_site_context"
+    if tier_counts.get("unconfirmed_scoped"):
+        return "members_unconfirmed_scoped"
+    return "no_endpoint_evidence"
 
 
 def _cosine(left: Counter[str], right: Counter[str]) -> float | None:
@@ -243,6 +256,17 @@ def _feature_vectors(
         for ua in uas
     }
 
+    _accumulate_cooccurrence_features(features, cooccurrence_rows, geo)
+    _accumulate_drilldown_features(features, drilldown_rows, geo)
+    _accumulate_case_features(features, scraper_cases)
+    return features
+
+
+def _accumulate_cooccurrence_features(
+    features: dict[str, dict[str, Any]],
+    cooccurrence_rows: list[dict[str, Any]],
+    geo: dict[str, dict[str, Any]],
+) -> None:
     for row in cooccurrence_rows:
         ua = str(row.get("user_agent") or "")
         ip = str(row.get("client_ip") or "")
@@ -259,6 +283,12 @@ def _feature_vectors(
         if asn:
             item["asns"][asn] += requests
 
+
+def _accumulate_drilldown_features(
+    features: dict[str, dict[str, Any]],
+    drilldown_rows: list[dict[str, Any]],
+    geo: dict[str, dict[str, Any]],
+) -> None:
     for row in drilldown_rows:
         ua = str(row.get("user_agent") or "")
         if ua not in features:
@@ -282,44 +312,67 @@ def _feature_vectors(
         if hour:
             item["hours"][hour] += requests
 
+
+def _accumulate_case_features(
+    features: dict[str, dict[str, Any]], scraper_cases: list[dict[str, Any]]
+) -> None:
     for case in scraper_cases:
         ua = str(case.get("user_agent") or "")
         if ua not in features:
             continue
         item = features[ua]
-        timing = case.get("temporal_regularity")
-        if isinstance(timing, dict):
-            for row in timing.get("hourly_profile") or []:
-                if not isinstance(row, dict):
-                    continue
-                hour = str(row.get("hour") or "").strip()
-                if hour:
-                    item["hours"][hour] += _num(row.get("requests"), 1.0) or 1.0
+        _accumulate_case_timing(item, case)
         if not case.get("drilldown_available"):
             continue
-        for row in case.get("endpoint_targets") or []:
-            if not isinstance(row, dict):
-                continue
-            prefix = endpoint_prefix(str(row.get("request_path") or row.get("value") or ""))
-            if prefix:
-                item["paths"][prefix] += _num(row.get("requests"), 1.0) or 1.0
-        for row in case.get("hourly_bursts") or []:
-            if not isinstance(row, dict):
-                continue
-            hour = str(row.get("hour") or "").strip()
-            if hour:
-                item["hours"][hour] += _num(row.get("requests"), 1.0) or 1.0
-        for country in case.get("countries") or []:
-            if isinstance(country, str) and country:
-                item["countries"][country] += 1.0
-        for asn in case.get("asns") or []:
-            if isinstance(asn, str) and asn:
-                item["asns"][asn] += 1.0
-        for row in case.get("client_ips") or []:
-            if isinstance(row, dict) and row.get("client_ip"):
-                item["client_ips"].add(str(row["client_ip"]))
+        _accumulate_case_endpoint_targets(item, case)
+        _accumulate_case_hourly_bursts(item, case)
+        _accumulate_case_geo_lists(item, case)
 
-    return features
+
+def _accumulate_case_timing(item: dict[str, Any], case: dict[str, Any]) -> None:
+    timing = case.get("temporal_regularity")
+    if not isinstance(timing, dict):
+        return
+    for row in timing.get("hourly_profile") or []:
+        if isinstance(row, dict):
+            _add_hour_feature(item, row)
+
+
+def _accumulate_case_endpoint_targets(
+    item: dict[str, Any], case: dict[str, Any]
+) -> None:
+    for row in case.get("endpoint_targets") or []:
+        if not isinstance(row, dict):
+            continue
+        prefix = endpoint_prefix(str(row.get("request_path") or row.get("value") or ""))
+        if prefix:
+            item["paths"][prefix] += _num(row.get("requests"), 1.0) or 1.0
+
+
+def _accumulate_case_hourly_bursts(
+    item: dict[str, Any], case: dict[str, Any]
+) -> None:
+    for row in case.get("hourly_bursts") or []:
+        if isinstance(row, dict):
+            _add_hour_feature(item, row)
+
+
+def _add_hour_feature(item: dict[str, Any], row: dict[str, Any]) -> None:
+    hour = str(row.get("hour") or "").strip()
+    if hour:
+        item["hours"][hour] += _num(row.get("requests"), 1.0) or 1.0
+
+
+def _accumulate_case_geo_lists(item: dict[str, Any], case: dict[str, Any]) -> None:
+    for country in case.get("countries") or []:
+        if isinstance(country, str) and country:
+            item["countries"][country] += 1.0
+    for asn in case.get("asns") or []:
+        if isinstance(asn, str) and asn:
+            item["asns"][asn] += 1.0
+    for row in case.get("client_ips") or []:
+        if isinstance(row, dict) and row.get("client_ip"):
+            item["client_ips"].add(str(row["client_ip"]))
 
 
 def _link_edge(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any] | None:

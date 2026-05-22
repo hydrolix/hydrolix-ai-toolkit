@@ -15,6 +15,72 @@ if str(REPORTKIT_SRC) not in sys.path:
     sys.path.insert(0, str(REPORTKIT_SRC))
 
 
+class _FakePdfPage:
+    def __init__(self, calls, *, with_title: bool = False):
+        self.calls = calls
+        self.with_title = with_title
+
+    def set_content(self, html, wait_until):
+        self.calls["content"] = (html, wait_until)
+
+    def evaluate(self, script, title):
+        if self.with_title:
+            self.calls["title"] = (script, title)
+
+    def pdf(self, **kwargs):
+        self.calls["pdf"] = kwargs
+
+
+class _FakePdfBrowser:
+    def __init__(self, calls, *, with_title: bool = False):
+        self.calls = calls
+        self.with_title = with_title
+
+    def new_page(self):
+        return _FakePdfPage(self.calls, with_title=self.with_title)
+
+    def close(self):
+        self.calls["closed"] = True
+
+
+class _FakePdfChromium:
+    def __init__(self, calls, *, with_title: bool = False):
+        self.calls = calls
+        self.with_title = with_title
+
+    def launch(self):
+        return _FakePdfBrowser(self.calls, with_title=self.with_title)
+
+
+class _FakePdfPlaywright:
+    def __init__(self, calls, *, with_title: bool = False):
+        self.chromium = _FakePdfChromium(calls, with_title=with_title)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+def _install_fake_playwright(monkeypatch, calls, *, with_title: bool = False):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "playwright.sync_api":
+            return SimpleNamespace(
+                Error=RuntimeError,
+                sync_playwright=lambda: _FakePdfPlaywright(
+                    calls, with_title=with_title
+                ),
+            )
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+
 def test_registry_lookup_by_report_type_and_schema():
     from reportkit.artifacts import ReportRegistry
 
@@ -252,51 +318,10 @@ def test_pdf_export_reports_missing_playwright(monkeypatch, tmp_path):
 
 
 def test_pdf_export_uses_css_page_size_and_footer(monkeypatch, tmp_path):
-    import builtins
     from reportkit.print_export import render_pdf_from_html
 
     calls = {}
-    real_import = builtins.__import__
-
-    class FakePage:
-        def set_content(self, html, wait_until):
-            calls["content"] = (html, wait_until)
-
-        def evaluate(self, script, title):
-            calls["title"] = (script, title)
-
-        def pdf(self, **kwargs):
-            calls["pdf"] = kwargs
-
-    class FakeBrowser:
-        def new_page(self):
-            return FakePage()
-
-        def close(self):
-            calls["closed"] = True
-
-    class FakeChromium:
-        def launch(self):
-            return FakeBrowser()
-
-    class FakePlaywright:
-        chromium = FakeChromium()
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-    def fake_import(name, *args, **kwargs):
-        if name == "playwright.sync_api":
-            return SimpleNamespace(
-                Error=RuntimeError,
-                sync_playwright=lambda: FakePlaywright(),
-            )
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", fake_import)
+    _install_fake_playwright(monkeypatch, calls, with_title=True)
 
     render_pdf_from_html("<html><body>ok</body></html>", tmp_path / "out.pdf", title="Report")
 

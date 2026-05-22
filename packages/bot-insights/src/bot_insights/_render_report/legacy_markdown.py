@@ -754,119 +754,137 @@ def md_evidence_limits(artifacts: list[dict[str, Any]], ctx: ReportContext) -> s
         aid = artifact.get("artifact_id") or "unavailable"
         schema = artifact.get("schema_version") or "unavailable"
         if schema == POSTURE_SCHEMA:
-            bullets = [
-                "- This is a movement report. It does not identify root cause by itself.",
-            ]
-            sections.append(
-                f"### {md_escape(artifact_display_name(artifact))}\n\n"
-                + "\n".join(bullets)
-            )
+            sections.append(_md_posture_limits(artifact))
             continue
         if schema == TIMESERIES_SCHEMA:
-            metrics = artifact.get("metrics")
-            metric_count = len(metrics) if isinstance(metrics, list) else 0
-            is_control_trend = (
-                artifact.get("title") == "Control Review Trends"
-                or artifact.get("report_type") == "control_review"
-            )
-            comparison_label = (
-                "after and expected windows"
-                if is_control_trend
-                else "current and prior windows"
-            )
-            exact_label = (
-                "control effects table" if is_control_trend else "metric deltas table"
-            )
-            bullets = [
-                f"- Trend cards: {metric_count} hourly metric series comparing {comparison_label}.",
-                f"- Trend cards show shape and direction; exact aggregate values are in the {exact_label}.",
-            ]
-            sections.append(
-                f"### {md_escape(artifact_display_name(artifact))}\n\n"
-                + "\n".join(bullets)
-            )
+            sections.append(_md_timeseries_limits(artifact))
             continue
-        bullets: list[str] = [f"- Schema: {md_escape(schema)}"]
-        parent_id = artifact.get("parent_artifact_id")
-        if parent_id:
-            pointer = artifact.get("parent_json_pointer")
-            parent_line = f"- Parent: {md_escape(parent_id)}"
-            if pointer:
-                parent_line += f" at {md_escape(pointer)}"
-            bullets.append(parent_line)
-        bullets.append(
-            f"- Table: {md_escape(artifact.get('table_used') or 'unavailable')}"
-        )
-        bullets.append(
-            f"- Scope: {md_escape(_format_scope_value(artifact.get('scope')))}"
-        )
-        bullets.append(
-            f"- Confidence: {md_escape(artifact.get('confidence') or 'unavailable')}"
-        )
-        bullets.append(
-            f"- Confidence reasons: {md_escape(_format_list_value(artifact.get('confidence_reasons')))}"
-        )
-        bullets.append(
-            f"- Interpretation constraints: {md_escape(_format_list_value(artifact.get('interpretation_constraints')))}"
-        )
-        windows_text = window_text(artifact)
-        if windows_text != "unavailable":
-            bullets.append(f"- Windows: {md_escape(windows_text)}")
-        not_evaluated = artifact.get("not_evaluated_features")
-        if isinstance(not_evaluated, list) and not_evaluated:
-            bullets.append("- Not-evaluated features:")
-            for item in not_evaluated:
-                if not isinstance(item, dict):
-                    continue
-                domain = item.get("domain") or "unavailable"
-                name = item.get("name") or "unavailable"
-                missing = ", ".join(
-                    str(missing_input)
-                    for missing_input in item.get("missing_inputs", [])
-                )
-                reason = item.get("reason") or "unavailable"
-                missing_text = missing or "unavailable"
-                bullets.append(
-                    f"  - {md_escape(domain)} / {md_escape(name)}"
-                    f" (missing inputs: {md_escape(missing_text)}; reason: {md_escape(reason)})"
-                )
-            if schema == SCORECARD_SCHEMA and isinstance(
-                artifact.get("domain_scores"), dict
-            ):
-                domains = sorted(
-                    {
-                        str(item.get("domain"))
-                        for item in not_evaluated
-                        if isinstance(item, dict) and item.get("domain")
-                    }
-                )
-                if domains:
-                    bullets.append(
-                        "- Domain score ambiguity: emitted numeric domain scores are rendered as-is; "
-                        "missing inputs remain unresolved for "
-                        + md_escape(", ".join(domains))
-                        + "."
-                    )
-        provenance_gaps = crawler_provenance_gaps(artifact)
-        if provenance_gaps:
-            bullets.append("- Crawler provenance gaps:")
-            for feature in provenance_gaps:
-                name = feature.get("name") or "unavailable"
-                bullets.append(
-                    f"  - {md_escape(name)}: structured `rowset_scope`/`feature_provenance` "
-                    "population is missing or non-crawler; generic 429/5xx feature was not rendered as a crawler finding."
-                )
-        producer_line = _producer_limit_bullet(artifact)
-        if producer_line:
-            bullets.append(f"- {md_escape(producer_line)}")
-        caveat = _source_population_caveat(artifact)
-        if caveat:
-            bullets.append(f"- {md_escape(caveat)}")
-        sections.append(f"### Artifact {md_escape(aid)}\n\n" + "\n".join(bullets))
+        sections.append(_md_generic_evidence_limits(artifact, aid, schema))
     sections.append(
         "Reports use emitted artifact fields only. Missing evidence is unavailable, not zero or safe."
     )
     return "\n\n".join(sections)
+
+
+def _md_posture_limits(artifact: dict[str, Any]) -> str:
+    bullets = [
+        "- This is a movement report. It does not identify root cause by itself.",
+    ]
+    return f"### {md_escape(artifact_display_name(artifact))}\n\n" + "\n".join(bullets)
+
+
+def _md_timeseries_limits(artifact: dict[str, Any]) -> str:
+    metrics = artifact.get("metrics")
+    metric_count = len(metrics) if isinstance(metrics, list) else 0
+    is_control_trend = (
+        artifact.get("title") == "Control Review Trends"
+        or artifact.get("report_type") == "control_review"
+    )
+    comparison_label = (
+        "after and expected windows" if is_control_trend else "current and prior windows"
+    )
+    exact_label = "control effects table" if is_control_trend else "metric deltas table"
+    bullets = [
+        f"- Trend cards: {metric_count} hourly metric series comparing {comparison_label}.",
+        f"- Trend cards show shape and direction; exact aggregate values are in the {exact_label}.",
+    ]
+    return f"### {md_escape(artifact_display_name(artifact))}\n\n" + "\n".join(bullets)
+
+
+def _md_generic_evidence_limits(
+    artifact: dict[str, Any], aid: Any, schema: Any
+) -> str:
+    bullets = _md_base_limit_bullets(artifact, schema)
+    bullets.extend(_md_not_evaluated_bullets(artifact, schema))
+    bullets.extend(_md_provenance_gap_bullets(artifact))
+    producer_line = _producer_limit_bullet(artifact)
+    if producer_line:
+        bullets.append(f"- {md_escape(producer_line)}")
+    caveat = _source_population_caveat(artifact)
+    if caveat:
+        bullets.append(f"- {md_escape(caveat)}")
+    return f"### Artifact {md_escape(aid)}\n\n" + "\n".join(bullets)
+
+
+def _md_base_limit_bullets(artifact: dict[str, Any], schema: Any) -> list[str]:
+    bullets: list[str] = [f"- Schema: {md_escape(schema)}"]
+    parent_id = artifact.get("parent_artifact_id")
+    if parent_id:
+        pointer = artifact.get("parent_json_pointer")
+        parent_line = f"- Parent: {md_escape(parent_id)}"
+        if pointer:
+            parent_line += f" at {md_escape(pointer)}"
+        bullets.append(parent_line)
+    bullets.extend(
+        [
+            f"- Table: {md_escape(artifact.get('table_used') or 'unavailable')}",
+            f"- Scope: {md_escape(_format_scope_value(artifact.get('scope')))}",
+            f"- Confidence: {md_escape(artifact.get('confidence') or 'unavailable')}",
+            f"- Confidence reasons: {md_escape(_format_list_value(artifact.get('confidence_reasons')))}",
+            f"- Interpretation constraints: {md_escape(_format_list_value(artifact.get('interpretation_constraints')))}",
+        ]
+    )
+    windows_text = window_text(artifact)
+    if windows_text != "unavailable":
+        bullets.append(f"- Windows: {md_escape(windows_text)}")
+    return bullets
+
+
+def _md_not_evaluated_bullets(artifact: dict[str, Any], schema: Any) -> list[str]:
+    not_evaluated = artifact.get("not_evaluated_features")
+    if not isinstance(not_evaluated, list) or not not_evaluated:
+        return []
+    bullets = ["- Not-evaluated features:"]
+    for item in not_evaluated:
+        if isinstance(item, dict):
+            bullets.append(_md_missing_feature_bullet(item))
+    if schema == SCORECARD_SCHEMA and isinstance(artifact.get("domain_scores"), dict):
+        bullets.extend(_md_domain_ambiguity_bullets(not_evaluated))
+    return bullets
+
+
+def _md_missing_feature_bullet(item: dict[str, Any]) -> str:
+    domain = item.get("domain") or "unavailable"
+    name = item.get("name") or "unavailable"
+    missing = ", ".join(str(value) for value in item.get("missing_inputs", []))
+    reason = item.get("reason") or "unavailable"
+    missing_text = missing or "unavailable"
+    return (
+        f"  - {md_escape(domain)} / {md_escape(name)}"
+        f" (missing inputs: {md_escape(missing_text)}; reason: {md_escape(reason)})"
+    )
+
+
+def _md_domain_ambiguity_bullets(not_evaluated: list[Any]) -> list[str]:
+    domains = sorted(
+        {
+            str(item.get("domain"))
+            for item in not_evaluated
+            if isinstance(item, dict) and item.get("domain")
+        }
+    )
+    if not domains:
+        return []
+    return [
+        "- Domain score ambiguity: emitted numeric domain scores are rendered as-is; "
+        "missing inputs remain unresolved for "
+        + md_escape(", ".join(domains))
+        + "."
+    ]
+
+
+def _md_provenance_gap_bullets(artifact: dict[str, Any]) -> list[str]:
+    provenance_gaps = crawler_provenance_gaps(artifact)
+    if not provenance_gaps:
+        return []
+    bullets = ["- Crawler provenance gaps:"]
+    for feature in provenance_gaps:
+        name = feature.get("name") or "unavailable"
+        bullets.append(
+            f"  - {md_escape(name)}: structured `rowset_scope`/`feature_provenance` "
+            "population is missing or non-crawler; generic 429/5xx feature was not rendered as a crawler finding."
+        )
+    return bullets
 
 
 def md_analyst_notes(

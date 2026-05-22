@@ -163,6 +163,18 @@ def confidence(
 ) -> tuple[str, list[str]]:
     reasons: list[str] = []
 
+    _append_summary_reasons(reasons, table_used, context)
+    comparable = _append_window_reasons(reasons, context)
+    _append_granularity_reasons(reasons, comparison_type, granularity)
+    _append_count_reasons(reasons, current_count, baseline_count, min_count)
+    _append_baseline_caveat_reasons(reasons, baseline_value, context)
+
+    return _confidence_label(reasons, comparable), reasons
+
+
+def _append_summary_reasons(
+    reasons: list[str], table_used: str, context: dict[str, Any]
+) -> None:
     summary_table_used = context.get("summary_table_used")
     if summary_table_used is None:
         summary_table_used = bool(
@@ -178,6 +190,8 @@ def confidence(
     elif summary_table_used:
         reasons.append("retained_dimensions_fit")
 
+
+def _append_window_reasons(reasons: list[str], context: dict[str, Any]) -> bool:
     comparable = context.get("comparable_windows")
     if comparable is None:
         comparable = True
@@ -185,13 +199,25 @@ def confidence(
         reasons.append("comparable_windows_available")
     if context.get("substitute_baseline_selected"):
         reasons.append("substitute_baseline_selected")
+    return bool(comparable)
 
+
+def _append_granularity_reasons(
+    reasons: list[str], comparison_type: str, granularity: str
+) -> None:
     granularity_match = comparison_granularity_matches(comparison_type, granularity)
     if granularity_match is True:
         reasons.append("granularity_matches_comparison")
     elif granularity_match is False:
         reasons.append("granularity_mismatch")
 
+
+def _append_count_reasons(
+    reasons: list[str],
+    current_count: float | None,
+    baseline_count: float | None,
+    min_count: float,
+) -> None:
     sparse = False
     if current_count is not None:
         if current_count >= min_count:
@@ -206,6 +232,10 @@ def confidence(
     if sparse:
         reasons.append("sparse_counts")
 
+
+def _append_baseline_caveat_reasons(
+    reasons: list[str], baseline_value: float, context: dict[str, Any]
+) -> None:
     if baseline_value < 1:
         reasons.append("zero_baseline_guard")
     if context.get("partial_current_bucket"):
@@ -213,6 +243,8 @@ def confidence(
     if context.get("source_coverage_caveat") or context.get("source_caveats"):
         reasons.append("source_coverage_caveat")
 
+
+def _confidence_label(reasons: list[str], comparable: bool) -> str:
     low_reasons = {
         "request_level_query",
         "missing_retained_dimension",
@@ -226,5 +258,4 @@ def confidence(
         label = "medium"
     else:
         label = "high"
-
-    return label, reasons
+    return label

@@ -303,25 +303,9 @@ def render(
 def main() -> int:
     args = parse_args()
     try:
-        if args.asset_mode == "bundle" and args.format != "html":
-            raise ReportError("--asset-mode bundle is only supported for HTML output.")
-        if args.asset_mode == "bundle" and args.profile != "screen":
-            raise ReportError("--asset-mode bundle is only supported for screen HTML output.")
-        if args.asset_mode == "bundle" and args.output is None:
-            raise ReportError("--asset-mode bundle requires --output.")
-        if args.format == "pdf" and args.output is None:
-            raise ReportError("--format pdf requires --output.")
-        if args.analysis_mode == "both" and args.output is None:
-            raise ReportError("--analysis-mode both requires --output.")
-        if args.output is not None and not args.output.parent.exists():
-            raise ReportError(
-                f"Output directory does not exist: {args.output.parent}"
-            )
+        _validate_main_args(args)
         _bootstrap_render_deps(args)
-        if args.config is not None:
-            from config import load_thresholds, set_active_thresholds
-
-            set_active_thresholds(load_thresholds(args.config))
+        _load_main_config(args)
         value = json.loads(read_input(args))
 
         render_jobs = _render_jobs(value, args)
@@ -329,35 +313,64 @@ def main() -> int:
         for job_value, job_args, output_path in render_jobs:
             output, warnings = render(job_value, job_args)
             all_warnings.extend(warnings)
-            if job_args.format == "pdf":
-                from reportkit.print_export import (
-                    PrintExportError,
-                    render_pdf_from_html,
-                )
-
-                try:
-                    render_pdf_from_html(
-                        output,
-                        output_path,
-                        title=getattr(job_args, "title", None),
-                        full_bleed='data-pdf-layout="fixed-letter"' in output,
-                    )
-                except PrintExportError as exc:
-                    raise ReportError(str(exc)) from exc
-            elif output_path:
-                output_path.write_text(output, encoding="utf-8")
-                if job_args.asset_mode == "bundle":
-                    from report_engine.render import write_threat_hunt_asset_bundle
-
-                    write_threat_hunt_asset_bundle(output_path)
-            else:
-                print(output, end="")
+            _write_render_output(output, job_args, output_path)
         for warning in all_warnings:
             print(f"WARNING: {warning}", file=sys.stderr)
     except (OSError, ReportError, json.JSONDecodeError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     return 0
+
+
+def _validate_main_args(args: argparse.Namespace) -> None:
+    if args.asset_mode == "bundle" and args.format != "html":
+        raise ReportError("--asset-mode bundle is only supported for HTML output.")
+    if args.asset_mode == "bundle" and args.profile != "screen":
+        raise ReportError("--asset-mode bundle is only supported for screen HTML output.")
+    if args.asset_mode == "bundle" and args.output is None:
+        raise ReportError("--asset-mode bundle requires --output.")
+    if args.format == "pdf" and args.output is None:
+        raise ReportError("--format pdf requires --output.")
+    if args.analysis_mode == "both" and args.output is None:
+        raise ReportError("--analysis-mode both requires --output.")
+    if args.output is not None and not args.output.parent.exists():
+        raise ReportError(f"Output directory does not exist: {args.output.parent}")
+
+
+def _load_main_config(args: argparse.Namespace) -> None:
+    if args.config is None:
+        return
+    from config import load_thresholds, set_active_thresholds
+
+    set_active_thresholds(load_thresholds(args.config))
+
+
+def _write_render_output(
+    output: str, job_args: argparse.Namespace, output_path: Path | None
+) -> None:
+    if job_args.format == "pdf":
+        from reportkit.print_export import PrintExportError, render_pdf_from_html
+
+        try:
+            render_pdf_from_html(
+                output,
+                output_path,
+                title=getattr(job_args, "title", None),
+                full_bleed='data-pdf-layout="fixed-letter"' in output,
+            )
+        except PrintExportError as exc:
+            raise ReportError(str(exc)) from exc
+        return
+
+    if output_path:
+        output_path.write_text(output, encoding="utf-8")
+        if job_args.asset_mode == "bundle":
+            from report_engine.render import write_threat_hunt_asset_bundle
+
+            write_threat_hunt_asset_bundle(output_path)
+        return
+
+    print(output, end="")
 
 
 def _without_analyst_notes(value: Any) -> Any:

@@ -817,27 +817,47 @@ def _severity_ladder(level: str) -> list[dict[str, Any]]:
 
 def _first_endpoint_label(artifact: dict[str, Any], campaigns: list[dict[str, Any]], cases: list[dict[str, Any]]) -> str:
     for campaign in campaigns:
-        evidence = campaign.get("endpoint_evidence_summary") or {}
-        source_text = "confirmed campaign endpoint evidence" if evidence.get("counts_for_verdict") else "campaign endpoint context"
-        for row in campaign.get("endpoint_targets") or []:
-            if isinstance(row, dict) and row.get("endpoint_prefix"):
-                share = _fmt_pct(row.get("share_pct"))
-                return f"{row.get('endpoint_prefix')} ({share} of campaign traffic; {source_text})"
+        label = _campaign_endpoint_label(campaign)
+        if label:
+            return label
     for case in cases:
-        evidence = case.get("endpoint_evidence") or {}
-        source_text = (
-            "confirmed scoped endpoint targeting"
-            if evidence.get("counts_for_verdict")
-            else "endpoint context"
-        )
-        for row in case.get("endpoint_targets") or []:
-            if isinstance(row, dict):
-                value = row.get("request_path") or row.get("value")
-                if value:
-                    share = row.get("share_pct")
-                    if share is None:
-                        share = row.get("request_share_pct")
-                    return f"{value} ({_fmt_pct(share)} of lead traffic; {source_text})"
+        label = _case_endpoint_label(case)
+        if label:
+            return label
+    return ""
+
+
+def _campaign_endpoint_label(campaign: dict[str, Any]) -> str:
+    evidence = campaign.get("endpoint_evidence_summary") or {}
+    source_text = (
+        "confirmed campaign endpoint evidence"
+        if evidence.get("counts_for_verdict")
+        else "campaign endpoint context"
+    )
+    for row in campaign.get("endpoint_targets") or []:
+        if isinstance(row, dict) and row.get("endpoint_prefix"):
+            share = _fmt_pct(row.get("share_pct"))
+            return f"{row.get('endpoint_prefix')} ({share} of campaign traffic; {source_text})"
+    return ""
+
+
+def _case_endpoint_label(case: dict[str, Any]) -> str:
+    evidence = case.get("endpoint_evidence") or {}
+    source_text = (
+        "confirmed scoped endpoint targeting"
+        if evidence.get("counts_for_verdict")
+        else "endpoint context"
+    )
+    for row in case.get("endpoint_targets") or []:
+        if not isinstance(row, dict):
+            continue
+        value = row.get("request_path") or row.get("value")
+        if value:
+            share = row.get("share_pct")
+            if share is None:
+                share = row.get("request_share_pct")
+            return f"{value} ({_fmt_pct(share)} of lead traffic; {source_text})"
+    return ""
     for row in artifact.get("endpoints") or []:
         if isinstance(row, dict) and row.get("value"):
             return f"{row.get('value')} ({_fmt_pct(row.get('request_share_pct'))} of site-level endpoint context)"
@@ -1062,6 +1082,15 @@ def _is_weak_first_party_app_lead(case: dict[str, Any]) -> bool:
 def _build_evidence_boundaries(
     campaigns: list[dict[str, Any]], cases: list[dict[str, Any]]
 ) -> dict[str, list[str]]:
+    return {
+        "observed": _observed_boundaries(campaigns, cases),
+        "not_established": _not_established_boundaries(cases),
+    }
+
+
+def _observed_boundaries(
+    campaigns: list[dict[str, Any]], cases: list[dict[str, Any]]
+) -> list[str]:
     observed = [
         "Current-window scraper leads were derived from the supplied Bot Insights artifacts.",
     ]
@@ -1069,70 +1098,35 @@ def _build_evidence_boundaries(
         observed.append("At least one multi-lead campaign met conservative linking thresholds.")
     if any(isinstance(c, dict) and c.get("temporal_regularity") for c in cases):
         observed.append("Timing regularity is available for at least one scraper lead.")
-    confirmed_ua = [
-        c
-        for c in cases
-        if isinstance(c, dict)
-        and isinstance(c.get("ua_plausibility"), dict)
-        and c["ua_plausibility"].get("counts_for_verdict")
-    ]
-    elevated_ua = [
-        c
-        for c in cases
-        if isinstance(c, dict)
-        and isinstance(c.get("ua_plausibility"), dict)
-        and c["ua_plausibility"].get("verdict") == "elevated"
-    ]
+    confirmed_ua = _cases_with_ua(cases, counts_for_verdict=True)
+    elevated_ua = _cases_with_ua(cases, verdict="elevated")
     if confirmed_ua:
         observed.append("UA plausibility anomaly confirmed for at least one scraper lead.")
     if elevated_ua:
         observed.append("UA plausibility elevated but not verdict-driving for at least one scraper lead.")
     if any(isinstance(c, dict) and c.get("temporal_pattern") == "parallel_independent" for c in campaigns):
         observed.append("A campaign shows parallel independent worker timing: regular hourly cadence without synchronized timing.")
-    characterized_cases = [
-        c
-        for c in cases
-        if isinstance(c, dict)
-        and (c.get("drilldown_coverage") or {}).get("status")
-        in {"partial", "substantial", "focused"}
-    ]
-    thin_cases = [
-        c
-        for c in cases
-        if isinstance(c, dict)
-        and (c.get("drilldown_coverage") or {}).get("status")
-        in {"uncharacterized", "thin_slice"}
-    ]
-    exact_drilldown_cases = [
-        c
-        for c in cases
-        if isinstance(c, dict)
-        and (c.get("drilldown_coverage") or {}).get("status") != "unavailable"
-    ]
-    confirmed_endpoint_cases = [
-        c
-        for c in cases
-        if isinstance(c, dict)
-        and (c.get("endpoint_evidence") or {}).get("counts_for_verdict")
-    ]
-    inferred_endpoint_cases = [
-        c
-        for c in cases
-        if isinstance(c, dict)
-        and (c.get("endpoint_evidence") or {}).get("tier") == "inferred_site_context"
-    ]
-    unconfirmed_endpoint_cases = [
-        c
-        for c in cases
-        if isinstance(c, dict)
-        and (c.get("endpoint_evidence") or {}).get("tier") == "unconfirmed_scoped"
-    ]
+    characterized_cases = _cases_with_drilldown(cases, {"partial", "substantial", "focused"})
+    thin_cases = _cases_with_drilldown(cases, {"uncharacterized", "thin_slice"})
+    exact_drilldown_cases = _cases_with_drilldown_not(cases, "unavailable")
+    confirmed_endpoint_cases = _cases_with_endpoint(cases, counts_for_verdict=True)
+    inferred_endpoint_cases = _cases_with_endpoint(cases, tier="inferred_site_context")
+    unconfirmed_endpoint_cases = _cases_with_endpoint(cases, tier="unconfirmed_scoped")
     if confirmed_endpoint_cases:
         observed.append("Scoped endpoint targeting confirmed for at least one scraper lead.")
     if inferred_endpoint_cases:
         observed.append("Endpoint context inferred from site-level summary rows is visible but not lead-specific evidence.")
     if characterized_cases:
         observed.append("At least one lead has partial-or-better scoped endpoint surface coverage.")
+    return observed
+
+
+def _not_established_boundaries(cases: list[dict[str, Any]]) -> list[str]:
+    confirmed_ua = _cases_with_ua(cases, counts_for_verdict=True)
+    elevated_ua = _cases_with_ua(cases, verdict="elevated")
+    thin_cases = _cases_with_drilldown(cases, {"uncharacterized", "thin_slice"})
+    exact_drilldown_cases = _cases_with_drilldown_not(cases, "unavailable")
+    unconfirmed_endpoint_cases = _cases_with_endpoint(cases, tier="unconfirmed_scoped")
     not_established = [
         "Operator identity is not established.",
         "Malicious intent is not established by this artifact.",
@@ -1148,7 +1142,67 @@ def _build_evidence_boundaries(
         not_established.append("Scoped drilldown behavior is not established for the visible leads.")
     if not confirmed_ua and not elevated_ua:
         not_established.append("UA plausibility unavailable or inconclusive for the visible leads.")
-    return {"observed": observed, "not_established": not_established}
+    return not_established
+
+
+def _cases_with_ua(
+    cases: list[dict[str, Any]],
+    *,
+    counts_for_verdict: bool | None = None,
+    verdict: str | None = None,
+) -> list[dict[str, Any]]:
+    matches = []
+    for case in cases:
+        ua = case.get("ua_plausibility") if isinstance(case, dict) else None
+        if not isinstance(ua, dict):
+            continue
+        if counts_for_verdict is not None and bool(ua.get("counts_for_verdict")) != counts_for_verdict:
+            continue
+        if verdict is not None and ua.get("verdict") != verdict:
+            continue
+        matches.append(case)
+    return matches
+
+
+def _cases_with_drilldown(
+    cases: list[dict[str, Any]], statuses: set[str]
+) -> list[dict[str, Any]]:
+    return [
+        case
+        for case in cases
+        if isinstance(case, dict)
+        and (case.get("drilldown_coverage") or {}).get("status") in statuses
+    ]
+
+
+def _cases_with_drilldown_not(
+    cases: list[dict[str, Any]], status: str
+) -> list[dict[str, Any]]:
+    return [
+        case
+        for case in cases
+        if isinstance(case, dict)
+        and (case.get("drilldown_coverage") or {}).get("status") != status
+    ]
+
+
+def _cases_with_endpoint(
+    cases: list[dict[str, Any]],
+    *,
+    counts_for_verdict: bool | None = None,
+    tier: str | None = None,
+) -> list[dict[str, Any]]:
+    matches = []
+    for case in cases:
+        evidence = case.get("endpoint_evidence") if isinstance(case, dict) else None
+        if not isinstance(evidence, dict):
+            continue
+        if counts_for_verdict is not None and bool(evidence.get("counts_for_verdict")) != counts_for_verdict:
+            continue
+        if tier is not None and evidence.get("tier") != tier:
+            continue
+        matches.append(case)
+    return matches
 
 
 def _build_analyst_assessment(summary: dict[str, Any]) -> dict[str, Any]:
@@ -3005,50 +3059,76 @@ def _pattern_link(*keys: str) -> list[dict[str, str]]:
 def _has_endpoint_pattern(ctx: dict[str, Any]) -> tuple[bool, list[str], float | None]:
     basis: list[str] = []
     max_share: float | None = None
-    scoped_terms = ("api", "catalog", "search", "listing", "list", "product", "inventory", "graphql")
-
-    def observe_endpoint(row: dict[str, Any], source: str) -> None:
-        nonlocal max_share
-        haystack = " ".join(
-            str(value)
-            for value in [
-                row.get("endpoint_prefix"),
-                row.get("request_path"),
-                row.get("value"),
-                row.get("endpoint_category"),
-                row.get("category"),
-                *(row.get("markers") or []),
-            ]
-            if value
-        ).lower()
-        share = _to_float(row.get("share_pct"))
-        if share is None:
-            share = _to_float(row.get("request_share_pct"))
-        if share is not None:
-            max_share = max(max_share or 0.0, share)
-        if any(term in haystack for term in scoped_terms):
-            basis.append(source)
-        elif share is not None and share >= 50.0:
-            basis.append(source)
 
     for campaign in ctx.get("campaigns") or []:
-        summary = campaign.get("endpoint_evidence_summary") or {}
-        if summary.get("counts_for_verdict") or summary.get("confirmed_member_count"):
-            basis.append("campaign endpoint evidence")
-        for row in campaign.get("endpoint_targets") or []:
-            if isinstance(row, dict):
-                observe_endpoint(row, "campaign endpoint target")
+        max_share = _observe_campaign_endpoint_pattern(campaign, basis, max_share)
     for case in ctx.get("scraper_cases") or []:
-        evidence = case.get("endpoint_evidence") or {}
-        if evidence.get("counts_for_verdict"):
-            basis.append("lead scoped endpoint evidence")
-        for row in case.get("endpoint_targets") or []:
-            if isinstance(row, dict):
-                observe_endpoint(row, "lead endpoint target")
+        max_share = _observe_case_endpoint_pattern(case, basis, max_share)
     for row in ctx.get("endpoints") or []:
         if isinstance(row, dict):
-            observe_endpoint(row, "site-level endpoint row")
+            max_share = _observe_endpoint_pattern(row, "site-level endpoint row", basis, max_share)
     return bool(basis), sorted(set(basis)), max_share
+
+
+def _observe_campaign_endpoint_pattern(
+    campaign: dict[str, Any], basis: list[str], max_share: float | None
+) -> float | None:
+    summary = campaign.get("endpoint_evidence_summary") or {}
+    if summary.get("counts_for_verdict") or summary.get("confirmed_member_count"):
+        basis.append("campaign endpoint evidence")
+    for row in campaign.get("endpoint_targets") or []:
+        if isinstance(row, dict):
+            max_share = _observe_endpoint_pattern(
+                row, "campaign endpoint target", basis, max_share
+            )
+    return max_share
+
+
+def _observe_case_endpoint_pattern(
+    case: dict[str, Any], basis: list[str], max_share: float | None
+) -> float | None:
+    evidence = case.get("endpoint_evidence") or {}
+    if evidence.get("counts_for_verdict"):
+        basis.append("lead scoped endpoint evidence")
+    for row in case.get("endpoint_targets") or []:
+        if isinstance(row, dict):
+            max_share = _observe_endpoint_pattern(
+                row, "lead endpoint target", basis, max_share
+            )
+    return max_share
+
+
+def _observe_endpoint_pattern(
+    row: dict[str, Any],
+    source: str,
+    basis: list[str],
+    max_share: float | None,
+) -> float | None:
+    haystack = _endpoint_pattern_haystack(row)
+    share = _to_float(row.get("share_pct"))
+    if share is None:
+        share = _to_float(row.get("request_share_pct"))
+    if share is not None:
+        max_share = max(max_share or 0.0, share)
+    scoped_terms = ("api", "catalog", "search", "listing", "list", "product", "inventory", "graphql")
+    if any(term in haystack for term in scoped_terms) or (share is not None and share >= 50.0):
+        basis.append(source)
+    return max_share
+
+
+def _endpoint_pattern_haystack(row: dict[str, Any]) -> str:
+    return " ".join(
+        str(value)
+        for value in [
+            row.get("endpoint_prefix"),
+            row.get("request_path"),
+            row.get("value"),
+            row.get("endpoint_category"),
+            row.get("category"),
+            *(row.get("markers") or []),
+        ]
+        if value
+    ).lower()
 
 
 def _has_timing_pattern(ctx: dict[str, Any]) -> tuple[bool, list[str]]:
@@ -3168,19 +3248,52 @@ def _build_pattern_notes(ctx: dict[str, Any]) -> list[dict[str, Any]]:
     has_campaign = bool(ctx.get("campaigns"))
     notes: list[dict[str, Any]] = []
 
-    corroborating = []
-    if has_endpoint:
-        corroborating.append("endpoint targeting")
-    if has_timing:
-        corroborating.append("timing regularity")
-    if has_ua:
-        corroborating.append("UA plausibility or rotation")
-    if has_fanout:
-        corroborating.append("fan-out")
-    if has_campaign:
-        corroborating.append("campaign linkage")
+    corroborating = _pattern_corroborating_labels(
+        has_endpoint, has_timing, has_ua, has_fanout, has_campaign
+    )
 
-    if (
+    light_note = _light_payload_pattern_note(request_share, response_share, corroborating)
+    if light_note:
+        notes.append(light_note)
+
+    if has_endpoint and (endpoint_share is None or endpoint_share >= 25.0 or request_share is None or request_share >= 0.01):
+        notes.append(_endpoint_pattern_note(endpoint_basis))
+
+    if has_timing:
+        notes.append(_timing_pattern_note(timing_basis))
+
+    if has_ua:
+        notes.append(_ua_pattern_note(ua_basis))
+
+    if has_fanout and (has_endpoint or has_timing or has_ua or has_campaign):
+        notes.append(_fanout_pattern_note(fanout_basis, fanout_max))
+
+    return sorted(notes, key=lambda row: int(row.get("surface_priority") or 999))
+
+
+def _pattern_corroborating_labels(
+    has_endpoint: bool,
+    has_timing: bool,
+    has_ua: bool,
+    has_fanout: bool,
+    has_campaign: bool,
+) -> list[str]:
+    labels = [
+        ("endpoint targeting", has_endpoint),
+        ("timing regularity", has_timing),
+        ("UA plausibility or rotation", has_ua),
+        ("fan-out", has_fanout),
+        ("campaign linkage", has_campaign),
+    ]
+    return [label for label, present in labels if present]
+
+
+def _light_payload_pattern_note(
+    request_share: float | None,
+    response_share: float | None,
+    corroborating: list[str],
+) -> dict[str, Any] | None:
+    if not (
         request_share is not None
         and response_share is not None
         and request_share >= 0.01
@@ -3188,88 +3301,80 @@ def _build_pattern_notes(ctx: dict[str, Any]) -> list[dict[str, Any]]:
         and request_share - response_share >= 0.01
         and corroborating
     ):
-        notes.append(
-            _pattern_note(
-                title="Light payload / high hits",
-                text=(
-                    f"The hit share materially exceeds response-byte share "
-                    f"({_fmt_share(request_share)} hits vs {_fmt_share(response_share)} response bytes). "
-                    f"That is consistent with many lighter-than-average requests when paired with "
-                    f"{', '.join(corroborating[:4])}; treat it as supporting context, not a standalone scraper signature."
-                ),
-                evidence_basis=[
-                    "hunt request share and response-byte share",
-                    *corroborating[:4],
-                ],
-                links=_pattern_link("owasp_oat_011", "owasp_bot_management", "f5_scraper_patterns"),
-                surface_priority=10,
-            )
-        )
+        return None
+    return _pattern_note(
+        title="Light payload / high hits",
+        text=(
+            f"The hit share materially exceeds response-byte share "
+            f"({_fmt_share(request_share)} hits vs {_fmt_share(response_share)} response bytes). "
+            f"That is consistent with many lighter-than-average requests when paired with "
+            f"{', '.join(corroborating[:4])}; treat it as supporting context, not a standalone scraper signature."
+        ),
+        evidence_basis=["hunt request share and response-byte share", *corroborating[:4]],
+        links=_pattern_link("owasp_oat_011", "owasp_bot_management", "f5_scraper_patterns"),
+        surface_priority=10,
+    )
 
-    if has_endpoint and (endpoint_share is None or endpoint_share >= 25.0 or request_share is None or request_share >= 0.01):
-        notes.append(
-            _pattern_note(
-                title="Direct-to-data/API focus",
-                text=(
-                    "Endpoint evidence is concentrated on scoped API, catalog, search, listing, or similarly narrow flow points. "
-                    "Use this to validate endpoint/session controls and current Bot Manager coverage; do not escalate enforcement from endpoint shape alone."
-                ),
-                evidence_basis=endpoint_basis,
-                links=_pattern_link("owasp_oat_011", "f5_scraper_patterns"),
-                surface_priority=20,
-            )
-        )
 
-    if has_timing:
-        notes.append(
-            _pattern_note(
-                title="Boxy or interval cadence",
-                text=(
-                    "Timing evidence shows regular, continuous, or interval-shaped behavior that can diverge from typical human diurnal variation. "
-                    "Validate with current inter-arrival samples and endpoint context before treating cadence as response evidence."
-                ),
-                evidence_basis=timing_basis,
-                links=_pattern_link("owasp_bot_management", "f5_scraper_patterns", "cloudflare_bot_detection"),
-                surface_priority=30,
-            )
-        )
+def _endpoint_pattern_note(endpoint_basis: list[str]) -> dict[str, Any]:
+    return _pattern_note(
+        title="Direct-to-data/API focus",
+        text=(
+            "Endpoint evidence is concentrated on scoped API, catalog, search, listing, or similarly narrow flow points. "
+            "Use this to validate endpoint/session controls and current Bot Manager coverage; do not escalate enforcement from endpoint shape alone."
+        ),
+        evidence_basis=endpoint_basis,
+        links=_pattern_link("owasp_oat_011", "f5_scraper_patterns"),
+        surface_priority=20,
+    )
 
-    if has_ua:
-        notes.append(
-            _pattern_note(
-                title="UA impersonation / rotation",
-                text=(
-                    "UA plausibility or version-family evidence suggests the declared client identity should not be trusted alone. "
-                    "Pair UA strings with behavior, fingerprints, endpoint surface, and session controls before enforcement."
-                ),
-                evidence_basis=ua_basis,
-                links=_pattern_link("owasp_bot_management", "cloudflare_bot_detection", "f5_scraper_patterns"),
-                surface_priority=40,
-            )
-        )
 
-    if has_fanout and (has_endpoint or has_timing or has_ua or has_campaign):
-        spread_bits = []
-        if fanout_max["ips"]:
-            spread_bits.append(f"at least {_fmt_num(fanout_max['ips'])} IPs")
-        if fanout_max["asns"]:
-            spread_bits.append(f"{_fmt_num(fanout_max['asns'])} ASNs")
-        if fanout_max["countries"]:
-            spread_bits.append(f"{_fmt_num(fanout_max['countries'])} countries")
-        notes.append(
-            _pattern_note(
-                title="Distributed fan-out",
-                text=(
-                    f"Fan-out lower bounds show requests spread across {' / '.join(spread_bits) or 'multiple infrastructure pivots'}. "
-                    "Evaluate identity, session, endpoint, and behavioral controls; IP-only blocking may be brittle for this evidence shape."
-                ),
-                evidence_basis=fanout_basis,
-                links=_pattern_link("owasp_bot_management", "cloudflare_bot_detection", "f5_scraper_patterns"),
-                surface_priority=50,
-            )
-        )
+def _timing_pattern_note(timing_basis: list[str]) -> dict[str, Any]:
+    return _pattern_note(
+        title="Boxy or interval cadence",
+        text=(
+            "Timing evidence shows regular, continuous, or interval-shaped behavior that can diverge from typical human diurnal variation. "
+            "Validate with current inter-arrival samples and endpoint context before treating cadence as response evidence."
+        ),
+        evidence_basis=timing_basis,
+        links=_pattern_link("owasp_bot_management", "f5_scraper_patterns", "cloudflare_bot_detection"),
+        surface_priority=30,
+    )
 
-    return sorted(notes, key=lambda row: int(row.get("surface_priority") or 999))
+
+def _ua_pattern_note(ua_basis: list[str]) -> dict[str, Any]:
+    return _pattern_note(
+        title="UA impersonation / rotation",
+        text=(
+            "UA plausibility or version-family evidence suggests the declared client identity should not be trusted alone. "
+            "Pair UA strings with behavior, fingerprints, endpoint surface, and session controls before enforcement."
+        ),
+        evidence_basis=ua_basis,
+        links=_pattern_link("owasp_bot_management", "cloudflare_bot_detection", "f5_scraper_patterns"),
+        surface_priority=40,
+    )
+
+
+def _fanout_pattern_note(
+    fanout_basis: list[str], fanout_max: dict[str, Any]
+) -> dict[str, Any]:
+    spread_bits = []
+    if fanout_max["ips"]:
+        spread_bits.append(f"at least {_fmt_num(fanout_max['ips'])} IPs")
+    if fanout_max["asns"]:
+        spread_bits.append(f"{_fmt_num(fanout_max['asns'])} ASNs")
+    if fanout_max["countries"]:
+        spread_bits.append(f"{_fmt_num(fanout_max['countries'])} countries")
+    return _pattern_note(
+        title="Distributed fan-out",
+        text=(
+            f"Fan-out lower bounds show requests spread across {' / '.join(spread_bits) or 'multiple infrastructure pivots'}. "
+            "Evaluate identity, session, endpoint, and behavioral controls; IP-only blocking may be brittle for this evidence shape."
+        ),
+        evidence_basis=fanout_basis,
+        links=_pattern_link("owasp_bot_management", "cloudflare_bot_detection", "f5_scraper_patterns"),
+        surface_priority=50,
+    )
 
 
 def _hunt_impact_ui(ctx: dict[str, Any]) -> dict[str, Any] | None:
@@ -3319,32 +3424,11 @@ def _iocs_from_context(ctx: dict[str, Any]) -> dict[str, list[str]]:
     asns: list[str] = []
 
     for action in ctx.get("recommended_actions") or []:
-        targets = _target_values(action)
-        for ua in targets.get("user_agents") or []:
-            _add_unique(uas, ua)
-        for endpoint in targets.get("endpoint_prefixes") or []:
-            _add_unique(endpoints, endpoint)
+        _collect_action_iocs(action, uas, endpoints)
     for campaign in ctx.get("campaigns") or []:
-        for ua in campaign.get("leads") or []:
-            _add_unique(uas, ua)
-        for row in campaign.get("endpoint_targets") or []:
-            if isinstance(row, dict):
-                _add_unique(endpoints, _endpoint_path(row))
-        for key in ("client_ips", "ip_samples", "shared_ip_samples"):
-            for ip in campaign.get(key) or []:
-                _add_unique(ips, ip)
-        if campaign.get("asn"):
-            _add_unique(asns, campaign.get("asn"))
+        _collect_actor_iocs(campaign, uas, endpoints, ips, asns, ua_key="leads")
     for case in ctx.get("scraper_cases") or []:
-        _add_unique(uas, case.get("user_agent"))
-        for row in case.get("endpoint_targets") or []:
-            if isinstance(row, dict):
-                _add_unique(endpoints, _endpoint_path(row))
-        for key in ("client_ips", "ip_samples", "shared_ip_samples"):
-            for ip in case.get(key) or []:
-                _add_unique(ips, ip)
-        if case.get("asn"):
-            _add_unique(asns, case.get("asn"))
+        _collect_actor_iocs(case, uas, endpoints, ips, asns, ua_key="user_agent")
     for row in (ctx.get("infrastructure") or {}).get("asn_rollups") or []:
         if not isinstance(row, dict):
             continue
@@ -3355,6 +3439,38 @@ def _iocs_from_context(ctx: dict[str, Any]) -> dict[str, list[str]]:
         "client_ips": ips,
         "asns": asns,
     }
+
+
+def _collect_action_iocs(
+    action: dict[str, Any], uas: list[str], endpoints: list[str]
+) -> None:
+    targets = _target_values(action)
+    for ua in targets.get("user_agents") or []:
+        _add_unique(uas, ua)
+    for endpoint in targets.get("endpoint_prefixes") or []:
+        _add_unique(endpoints, endpoint)
+
+
+def _collect_actor_iocs(
+    actor: dict[str, Any],
+    uas: list[str],
+    endpoints: list[str],
+    ips: list[str],
+    asns: list[str],
+    *,
+    ua_key: str,
+) -> None:
+    values = actor.get(ua_key) if ua_key == "leads" else [actor.get(ua_key)]
+    for ua in values or []:
+        _add_unique(uas, ua)
+    for row in actor.get("endpoint_targets") or []:
+        if isinstance(row, dict):
+            _add_unique(endpoints, _endpoint_path(row))
+    for key in ("client_ips", "ip_samples", "shared_ip_samples"):
+        for ip in actor.get(key) or []:
+            _add_unique(ips, ip)
+    if actor.get("asn"):
+        _add_unique(asns, actor.get("asn"))
 
 
 def _exports_for_ui(data: dict[str, Any]) -> dict[str, str]:

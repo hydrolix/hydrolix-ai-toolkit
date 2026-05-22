@@ -870,118 +870,17 @@ def html_scorecard_feature_cards(
         key=lambda rule: (str(rule.get("domain")), str(rule.get("name"))),
     )
 
-    def is_percent_rule(rule: dict[str, Any]) -> bool:
-        text = str(rule.get("name", ""))
-        return any(token in text for token in ("pct", "rate", "share", "miss"))
-
-    def metric_text(rule: dict[str, Any], value: float | None) -> str:
-        if value is None:
-            return "N/A"
-        if is_percent_rule(rule):
-            return f"{value:.2f}%"
-        return human_number(value)
-
-    def delta_value(rule: dict[str, Any]) -> float | None:
-        supporting = rule.get("supporting_metrics")
-        if isinstance(supporting, dict):
-            for key in (
-                "absolute_delta_points",
-                "pct_change",
-                "absolute_delta",
-                "absolute_delta_ms",
-            ):
-                value = _chart_numeric(supporting.get(key))
-                if value is not None:
-                    return value
-        current = _chart_numeric(rule.get("current"))
-        baseline = _chart_numeric(rule.get("baseline"))
-        if current is not None and baseline is not None:
-            return current - baseline
-        return None
-
-    def gauge_value(rule: dict[str, Any], current: float | None) -> float | None:
-        if "delta" in stringify(rule.get("name")):
-            delta = delta_value(rule)
-            if delta is not None:
-                return abs(delta)
-        return current
-
-    def card_label(value: Any) -> str:
-        return display_label(value)
-
-    def points_badge_text(value: Any) -> str:
-        points = _chart_numeric(value)
-        if points is None:
-            return stringify(value)
-        if points > 0:
-            return f"-{human_number(points)}"
-        return human_number(points)
-
-    def delta_text(rule: dict[str, Any]) -> tuple[str, str]:
-        if rule.get("status") == "missing_input":
-            return "Missing inputs", "rule-delta-neutral"
-        delta = delta_value(rule)
-        if delta is None:
-            return "delta unavailable", "rule-delta-neutral"
-        symbol = "^" if delta > 0 else "v" if delta < 0 else "-"
-        css_class = (
-            "rule-delta-up"
-            if delta > 0
-            else "rule-delta-down"
-            if delta < 0
-            else "rule-delta-neutral"
-        )
-        display = (
-            f"{abs(delta):.2f}%" if is_percent_rule(rule) else human_number(abs(delta))
-        )
-        return f"{symbol} {display}", css_class
-
-    def gauge_html(rule: dict[str, Any], current: float | None, value: str) -> str:
-        if current is None:
-            return ""
-        threshold = _chart_numeric(rule.get("threshold"))
-        baseline = _chart_numeric(rule.get("baseline"))
-        if is_percent_rule(rule):
-            max_value = 100.0
-        elif threshold is not None and threshold > 0:
-            max_value = threshold * 1.25
-        elif baseline is not None and abs(baseline) > 0:
-            max_value = max(abs(current), abs(baseline))
-        else:
-            max_value = abs(current) if abs(current) > 0 else 1.0
-        fill_pct = min(100.0, max(0.0, abs(current) / max_value * 100.0))
-        start_degrees = 150.0
-        sweep_degrees = 240.0
-        end_degrees = start_degrees + sweep_degrees
-        fill_degrees = start_degrees + sweep_degrees * (fill_pct / 100.0)
-        track = _gauge_arc_path(60, 58, 44, start_degrees, end_degrees)
-        fill = (
-            _gauge_arc_path(60, 58, 44, start_degrees, fill_degrees)
-            if fill_pct > 0
-            else ""
-        )
-        fill_path = (
-            f'<path class="gauge-fill" d="{h_escape(fill)}"></path>' if fill else ""
-        )
-        return (
-            '<svg class="rule-gauge" viewBox="0 0 120 90" aria-hidden="true" focusable="false">'
-            f'<path class="gauge-track" d="{h_escape(track)}"></path>'
-            f"{fill_path}"
-            f'<text class="gauge-metric" x="60" y="57" text-anchor="middle">{h_escape(value)}</text>'
-            "</svg>"
-        )
-
     cards: list[str] = []
     for rule in rules:
-        domain = card_label(rule.get("domain"))
+        domain = display_label(rule.get("domain"))
         name, condition = rule_label_parts(rule.get("name"))
         status = stringify(rule.get("status")).replace("_", " ")
         current = _chart_numeric(rule.get("current"))
-        gauge_current = gauge_value(rule, current)
-        value = metric_text(rule, gauge_current)
-        delta, delta_class = delta_text(rule)
-        points = points_badge_text(rule.get("points") or 0)
-        gauge = gauge_html(rule, gauge_current, value)
+        gauge_current = _rule_gauge_value(rule, current)
+        value = _rule_metric_text(rule, gauge_current)
+        delta, delta_class = _rule_delta_text(rule)
+        points = _rule_points_badge_text(rule.get("points") or 0)
+        gauge = _rule_gauge_html(rule, gauge_current, value)
         status_class = (
             "rule-status rule-status-triggered"
             if rule.get("status") == "triggered"
@@ -1005,6 +904,121 @@ def html_scorecard_feature_cards(
     )
 
 
+def _is_percent_rule(rule: dict[str, Any]) -> bool:
+    text = str(rule.get("name", ""))
+    return any(token in text for token in ("pct", "rate", "share", "miss"))
+
+
+def _rule_metric_text(rule: dict[str, Any], value: float | None) -> str:
+    if value is None:
+        return "N/A"
+    if _is_percent_rule(rule):
+        return f"{value:.2f}%"
+    return human_number(value)
+
+
+def _rule_delta_value(rule: dict[str, Any]) -> float | None:
+    supporting = rule.get("supporting_metrics")
+    if isinstance(supporting, dict):
+        for key in (
+            "absolute_delta_points",
+            "pct_change",
+            "absolute_delta",
+            "absolute_delta_ms",
+        ):
+            value = _chart_numeric(supporting.get(key))
+            if value is not None:
+                return value
+    current = _chart_numeric(rule.get("current"))
+    baseline = _chart_numeric(rule.get("baseline"))
+    if current is not None and baseline is not None:
+        return current - baseline
+    return None
+
+
+def _rule_gauge_value(
+    rule: dict[str, Any], current: float | None
+) -> float | None:
+    if "delta" in stringify(rule.get("name")):
+        delta = _rule_delta_value(rule)
+        if delta is not None:
+            return abs(delta)
+    return current
+
+
+def _rule_points_badge_text(value: Any) -> str:
+    points = _chart_numeric(value)
+    if points is None:
+        return stringify(value)
+    if points > 0:
+        return f"-{human_number(points)}"
+    return human_number(points)
+
+
+def _rule_delta_text(rule: dict[str, Any]) -> tuple[str, str]:
+    if rule.get("status") == "missing_input":
+        return "Missing inputs", "rule-delta-neutral"
+    delta = _rule_delta_value(rule)
+    if delta is None:
+        return "delta unavailable", "rule-delta-neutral"
+    css_class = _rule_delta_class(delta)
+    display = f"{abs(delta):.2f}%" if _is_percent_rule(rule) else human_number(abs(delta))
+    return f"{_rule_delta_symbol(delta)} {display}", css_class
+
+
+def _rule_delta_symbol(delta: float) -> str:
+    if delta > 0:
+        return "^"
+    if delta < 0:
+        return "v"
+    return "-"
+
+
+def _rule_delta_class(delta: float) -> str:
+    if delta > 0:
+        return "rule-delta-up"
+    if delta < 0:
+        return "rule-delta-down"
+    return "rule-delta-neutral"
+
+
+def _rule_gauge_html(rule: dict[str, Any], current: float | None, value: str) -> str:
+    if current is None:
+        return ""
+    max_value = _rule_gauge_max_value(rule, current)
+    fill_pct = min(100.0, max(0.0, abs(current) / max_value * 100.0))
+    start_degrees = 150.0
+    sweep_degrees = 240.0
+    end_degrees = start_degrees + sweep_degrees
+    fill_degrees = start_degrees + sweep_degrees * (fill_pct / 100.0)
+    track = _gauge_arc_path(60, 58, 44, start_degrees, end_degrees)
+    fill = (
+        _gauge_arc_path(60, 58, 44, start_degrees, fill_degrees)
+        if fill_pct > 0
+        else ""
+    )
+    fill_path = f'<path class="gauge-fill" d="{h_escape(fill)}"></path>' if fill else ""
+    return (
+        '<svg class="rule-gauge" viewBox="0 0 120 90" aria-hidden="true" focusable="false">'
+        f'<path class="gauge-track" d="{h_escape(track)}"></path>'
+        f"{fill_path}"
+        f'<text class="gauge-metric" x="60" y="57" text-anchor="middle">{h_escape(value)}</text>'
+        "</svg>"
+    )
+
+
+def _rule_gauge_max_value(rule: dict[str, Any], current: float) -> float:
+    threshold = _chart_numeric(rule.get("threshold"))
+    baseline = _chart_numeric(rule.get("baseline"))
+    if _is_percent_rule(rule):
+        return 100.0
+    if threshold is not None and threshold > 0:
+        return threshold * 1.25
+    if baseline is not None and abs(baseline) > 0:
+        return max(abs(current), abs(baseline))
+    return abs(current) if abs(current) > 0 else 1.0
+
+
 def html_domain_matrix(
     scorecards: list[dict[str, Any]], limit: int, ctx: ReportContext
 ) -> str:
@@ -1012,13 +1026,7 @@ def html_domain_matrix(
     if not scorecards:
         return _chart_skip(heading, "no scorecards available", ctx)
     cards = scorecards[:limit] if limit else scorecards
-    domain_order: list[str] = []
-    seen: set[str] = set()
-    for card in cards:
-        for domain in (card.get("domain_scores") or {}).keys():
-            if domain not in seen:
-                seen.add(domain)
-                domain_order.append(domain)
+    domain_order = _domain_matrix_order(cards)
     if not domain_order:
         return _chart_skip(heading, "no domain scores on scorecards", ctx)
     label_w = 220
@@ -1026,12 +1034,7 @@ def html_domain_matrix(
     row_h = 36
     width = label_w + len(domain_order) * cell_w + 20
     height = 72 + len(cards) * row_h
-    max_score = 1.0
-    for card in cards:
-        for domain in domain_order:
-            value = _chart_numeric((card.get("domain_scores") or {}).get(domain))
-            if value is not None and abs(value) > max_score:
-                max_score = abs(value)
+    max_score = _domain_matrix_max_score(cards, domain_order)
     parts = [_chart_open(heading, width, height)]
     for idx, domain in enumerate(domain_order):
         x = label_w + idx * cell_w + cell_w // 2
@@ -1045,27 +1048,64 @@ def html_domain_matrix(
             f'<text class="chart-label" x="0" y="{y + 22}">'
             f"{h_escape(card.get('entity'))}</text>"
         )
-        domain_scores = card.get("domain_scores") or {}
-        for idx, domain in enumerate(domain_order):
-            x = label_w + idx * cell_w
-            value = _chart_numeric(domain_scores.get(domain))
-            intensity = (
-                0.15 if value is None else min(1.0, max(0.15, abs(value) / max_score))
+        parts.extend(
+            _domain_matrix_cells(
+                card, domain_order, label_w, cell_w, row_h, y, max_score
             )
-            parts.append(
-                f'<rect class="chart-cell" x="{x + 4}" y="{y + 4}"'
-                f' width="{cell_w - 8}" height="{row_h - 8}" rx="2"'
-                f' fill-opacity="{intensity:.2f}"></rect>'
-            )
-            display = (
-                "unavailable" if value is None else stringify(domain_scores.get(domain))
-            )
-            parts.append(
-                f'<text class="chart-value" x="{x + cell_w // 2}" y="{y + 24}"'
-                f' text-anchor="middle">{h_escape(display)}</text>'
-            )
+        )
     parts.append("</svg>")
     return "".join(parts)
+
+
+def _domain_matrix_order(cards: list[dict[str, Any]]) -> list[str]:
+    domain_order: list[str] = []
+    seen: set[str] = set()
+    for card in cards:
+        for domain in (card.get("domain_scores") or {}).keys():
+            if domain not in seen:
+                seen.add(domain)
+                domain_order.append(domain)
+    return domain_order
+
+
+def _domain_matrix_max_score(
+    cards: list[dict[str, Any]], domain_order: list[str]
+) -> float:
+    max_score = 1.0
+    for card in cards:
+        for domain in domain_order:
+            value = _chart_numeric((card.get("domain_scores") or {}).get(domain))
+            if value is not None and abs(value) > max_score:
+                max_score = abs(value)
+    return max_score
+
+
+def _domain_matrix_cells(
+    card: dict[str, Any],
+    domain_order: list[str],
+    label_w: int,
+    cell_w: int,
+    row_h: int,
+    y: int,
+    max_score: float,
+) -> list[str]:
+    domain_scores = card.get("domain_scores") or {}
+    parts: list[str] = []
+    for idx, domain in enumerate(domain_order):
+        x = label_w + idx * cell_w
+        value = _chart_numeric(domain_scores.get(domain))
+        intensity = 0.15 if value is None else min(1.0, max(0.15, abs(value) / max_score))
+        display = "unavailable" if value is None else stringify(domain_scores.get(domain))
+        parts.extend(
+            [
+                f'<rect class="chart-cell" x="{x + 4}" y="{y + 4}"'
+                f' width="{cell_w - 8}" height="{row_h - 8}" rx="2"'
+                f' fill-opacity="{intensity:.2f}"></rect>',
+                f'<text class="chart-value" x="{x + cell_w // 2}" y="{y + 24}"'
+                f' text-anchor="middle">{h_escape(display)}</text>',
+            ]
+        )
+    return parts
 
 
 def html_control_bars(control: dict[str, Any], limit: int, ctx: ReportContext) -> str:
@@ -1135,11 +1175,7 @@ def html_timeseries_cards(
     ctx: ReportContext,
     report_type: str,
 ) -> str:
-    metrics: list[dict[str, Any]] = []
-    for artifact in timeseries_artifacts(artifacts):
-        for metric in artifact.get("metrics", []):
-            if isinstance(metric, dict):
-                metrics.append(metric)
+    metrics = _timeseries_metrics(artifacts)
     if not metrics:
         return ""
     metrics = metrics[:limit] if limit else metrics
@@ -1163,74 +1199,26 @@ def html_timeseries_cards(
         row = index // cols
         x = col * (card_w + gap)
         y = 34 + row * (card_h + gap)
-        points = metric.get("points")
-        if not isinstance(points, list):
-            ctx.warn("Trend card skipped a metric because points were unavailable.")
+        current_values, baseline_values = _timeseries_metric_values(metric, ctx)
+        if current_values is None:
             continue
-        current_values = [
-            value
-            for point in points
-            if isinstance(point, dict)
-            and (value := _chart_numeric(point.get("current"))) is not None
-        ]
-        baseline_values = [
-            value
-            for point in points
-            if isinstance(point, dict)
-            and (value := _chart_numeric(point.get("baseline"))) is not None
-        ]
         if not current_values and not baseline_values:
             ctx.warn(
                 "Trend card skipped a metric because no numeric values were available."
             )
             continue
-        parts.append(
-            f'<rect class="chart-card" x="{x}" y="{y}" width="{card_w}" height="{card_h}" rx="4"></rect>'
-        )
-        label = metric.get("label") or human_metric_name(metric.get("name"))
-        parts.append(
-            f'<text class="chart-label" x="{x + 12}" y="{y + 22}">{h_escape(label)}</text>'
-        )
-        current_value = metric.get("current")
-        baseline_value = metric.get("baseline")
-        pct_change = metric.get("pct_change")
-        parts.append(
-            f'<text class="chart-value" x="{x + 12}" y="{y + 44}">'
-            f"{current_label} {h_escape(human_number(current_value))} vs "
-            f"{baseline_label.lower()} {h_escape(human_number(baseline_value))}"
-            "</text>"
-        )
-        parts.append(
-            f'<text class="chart-value" x="{x + 12}" y="{y + 62}">'
-            f"Delta vs {h_escape(baseline_label.lower())} "
-            f"{h_escape(human_number(pct_change, percent=True))}</text>"
-        )
-        spark_x = x + 14
-        spark_y = y + 78
-        spark_w = card_w - 28
-        spark_h = 42
-        all_values = current_values + baseline_values
-        min_value = min(all_values)
-        max_value = max(all_values)
-        span = max(max_value - min_value, 1.0)
-
-        def scaled(values: list[float]) -> str:
-            if not values:
-                return ""
-            if len(values) == 1:
-                return f"{spark_x},{spark_y + spark_h / 2:.1f}"
-            pts: list[str] = []
-            for idx, value in enumerate(values):
-                px = spark_x + (idx / (len(values) - 1)) * spark_w
-                py = spark_y + spark_h - ((value - min_value) / span) * spark_h
-                pts.append(f"{px:.1f},{py:.1f}")
-            return " ".join(pts)
-
-        parts.append(
-            f'<polyline points="{scaled(baseline_values)}" fill="none" stroke="#85c1e9" stroke-width="2"></polyline>'
-        )
-        parts.append(
-            f'<polyline points="{scaled(current_values)}" fill="none" stroke="#2474a6" stroke-width="2.5"></polyline>'
+        parts.extend(
+            _timeseries_card_parts(
+                metric,
+                current_values,
+                baseline_values,
+                x=x,
+                y=y,
+                card_w=card_w,
+                card_h=card_h,
+                current_label=current_label,
+                baseline_label=baseline_label,
+            )
         )
     parts.append("</svg>")
     return (
@@ -1240,71 +1228,112 @@ def html_timeseries_cards(
     )
 
 
+def _timeseries_metrics(artifacts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    metrics: list[dict[str, Any]] = []
+    for artifact in timeseries_artifacts(artifacts):
+        for metric in artifact.get("metrics", []):
+            if isinstance(metric, dict):
+                metrics.append(metric)
+    return metrics
+
+
+def _timeseries_metric_values(
+    metric: dict[str, Any], ctx: ReportContext
+) -> tuple[list[float], list[float]] | tuple[None, None]:
+    points = metric.get("points")
+    if not isinstance(points, list):
+        ctx.warn("Trend card skipped a metric because points were unavailable.")
+        return None, None
+    current_values = [
+        value
+        for point in points
+        if isinstance(point, dict)
+        and (value := _chart_numeric(point.get("current"))) is not None
+    ]
+    baseline_values = [
+        value
+        for point in points
+        if isinstance(point, dict)
+        and (value := _chart_numeric(point.get("baseline"))) is not None
+    ]
+    return current_values, baseline_values
+
+
+def _timeseries_card_parts(
+    metric: dict[str, Any],
+    current_values: list[float],
+    baseline_values: list[float],
+    *,
+    x: int,
+    y: int,
+    card_w: int,
+    card_h: int,
+    current_label: str,
+    baseline_label: str,
+) -> list[str]:
+    label = metric.get("label") or human_metric_name(metric.get("name"))
+    spark = _sparkline_parts(current_values, baseline_values, x, y, card_w)
+    return [
+        f'<rect class="chart-card" x="{x}" y="{y}" width="{card_w}" height="{card_h}" rx="4"></rect>',
+        f'<text class="chart-label" x="{x + 12}" y="{y + 22}">{h_escape(label)}</text>',
+        f'<text class="chart-value" x="{x + 12}" y="{y + 44}">'
+        f"{current_label} {h_escape(human_number(metric.get('current')))} vs "
+        f"{baseline_label.lower()} {h_escape(human_number(metric.get('baseline')))}"
+        "</text>",
+        f'<text class="chart-value" x="{x + 12}" y="{y + 62}">'
+        f"Delta vs {h_escape(baseline_label.lower())} "
+        f"{h_escape(human_number(metric.get('pct_change'), percent=True))}</text>",
+        *spark,
+    ]
+
+
+def _sparkline_parts(
+    current_values: list[float], baseline_values: list[float], x: int, y: int, card_w: int
+) -> list[str]:
+    spark_x = x + 14
+    spark_y = y + 78
+    spark_w = card_w - 28
+    spark_h = 42
+    all_values = current_values + baseline_values
+    min_value = min(all_values)
+    span = max(max(all_values) - min_value, 1.0)
+    return [
+        f'<polyline points="{_scaled_sparkline(baseline_values, spark_x, spark_y, spark_w, spark_h, min_value, span)}" fill="none" stroke="#85c1e9" stroke-width="2"></polyline>',
+        f'<polyline points="{_scaled_sparkline(current_values, spark_x, spark_y, spark_w, spark_h, min_value, span)}" fill="none" stroke="#2474a6" stroke-width="2.5"></polyline>',
+    ]
+
+
+def _scaled_sparkline(
+    values: list[float],
+    spark_x: int,
+    spark_y: int,
+    spark_w: int,
+    spark_h: int,
+    min_value: float,
+    span: float,
+) -> str:
+    if not values:
+        return ""
+    if len(values) == 1:
+        return f"{spark_x},{spark_y + spark_h / 2:.1f}"
+    pts: list[str] = []
+    for idx, value in enumerate(values):
+        px = spark_x + (idx / (len(values) - 1)) * spark_w
+        py = spark_y + spark_h - ((value - min_value) / span) * spark_h
+        pts.append(f"{px:.1f},{py:.1f}")
+    return " ".join(pts)
+
+
 def html_window_timeline(artifacts: list[dict[str, Any]], report_type: str) -> str:
     rows: list[dict[str, Any]] = []
     is_control_report = report_type == "control_review"
     for artifact in artifacts:
-        schema = artifact.get("schema_version")
-        if schema not in {
-            POSTURE_SCHEMA,
-            TIMESERIES_SCHEMA,
-            CONTROL_SCHEMA,
-            SCORECARD_SCHEMA,
-        }:
-            continue
-        if schema == CONTROL_SCHEMA:
-            current = artifact.get("after_window")
-            baseline = artifact.get("before_window")
-        else:
-            current = artifact.get("current_window")
-            baselines = artifact.get("baseline_windows")
-            if not isinstance(baselines, list) or not baselines:
-                continue
-            baseline = baselines[0]
-        if not isinstance(current, dict) or not isinstance(baseline, dict):
-            continue
-        current_start = parse_utc_timestamp(current.get("start"))
-        current_end = parse_utc_timestamp(current.get("end"))
-        baseline_start = parse_utc_timestamp(baseline.get("start"))
-        baseline_end = parse_utc_timestamp(baseline.get("end"))
-        if not all((current_start, current_end, baseline_start, baseline_end)):
-            continue
-        is_control_row = schema == CONTROL_SCHEMA or (
-            is_control_report and schema == TIMESERIES_SCHEMA
-        )
-        rows.append(
-            {
-                "label": artifact_display_name(artifact),
-                "baseline_start": baseline_start,
-                "baseline_end": baseline_end,
-                "current_start": current_start,
-                "current_end": current_end,
-                "baseline_label": "Expected" if is_control_row else "Baseline",
-                "current_label": "After" if is_control_row else "Current",
-            }
-        )
+        row = _timeline_row(artifact, is_control_report)
+        if row:
+            rows.append(row)
     if not rows:
         return ""
-    if len(rows) > 1:
-        endpoints = ("baseline_start", "baseline_end", "current_start", "current_end")
-        first = rows[0]
-        max_drift_seconds = max(
-            abs((row[field] - first[field]).total_seconds())
-            for row in rows[1:]
-            for field in endpoints
-        )
-        if max_drift_seconds < 3600:
-            rows = [
-                {
-                    "label": "Report comparison window",
-                    "baseline_start": min(row["baseline_start"] for row in rows),
-                    "baseline_end": max(row["baseline_end"] for row in rows),
-                    "current_start": min(row["current_start"] for row in rows),
-                    "current_end": max(row["current_end"] for row in rows),
-                    "baseline_label": rows[0].get("baseline_label", "Baseline"),
-                    "current_label": rows[0].get("current_label", "Current"),
-                }
-            ]
+    rows = _collapse_timeline_rows(rows)
     min_start = min(row["baseline_start"] for row in rows)
     max_end = max(row["current_end"] for row in rows)
     total_seconds = max((max_end - min_start).total_seconds(), 1.0)
@@ -1345,58 +1374,172 @@ def html_window_timeline(artifacts: list[dict[str, Any]], report_type: str) -> s
     return "".join(parts)
 
 
+def _timeline_row(
+    artifact: dict[str, Any], is_control_report: bool
+) -> dict[str, Any] | None:
+    schema = artifact.get("schema_version")
+    if schema not in {POSTURE_SCHEMA, TIMESERIES_SCHEMA, CONTROL_SCHEMA, SCORECARD_SCHEMA}:
+        return None
+    current, baseline = _timeline_windows(artifact, schema)
+    if not isinstance(current, dict) or not isinstance(baseline, dict):
+        return None
+    current_start = parse_utc_timestamp(current.get("start"))
+    current_end = parse_utc_timestamp(current.get("end"))
+    baseline_start = parse_utc_timestamp(baseline.get("start"))
+    baseline_end = parse_utc_timestamp(baseline.get("end"))
+    if not all((current_start, current_end, baseline_start, baseline_end)):
+        return None
+    is_control_row = schema == CONTROL_SCHEMA or (
+        is_control_report and schema == TIMESERIES_SCHEMA
+    )
+    return {
+        "label": artifact_display_name(artifact),
+        "baseline_start": baseline_start,
+        "baseline_end": baseline_end,
+        "current_start": current_start,
+        "current_end": current_end,
+        "baseline_label": "Expected" if is_control_row else "Baseline",
+        "current_label": "After" if is_control_row else "Current",
+    }
+
+
+def _timeline_windows(
+    artifact: dict[str, Any], schema: Any
+) -> tuple[Any, Any]:
+    if schema == CONTROL_SCHEMA:
+        return artifact.get("after_window"), artifact.get("before_window")
+    baselines = artifact.get("baseline_windows")
+    if not isinstance(baselines, list) or not baselines:
+        return None, None
+    return artifact.get("current_window"), baselines[0]
+
+
+def _collapse_timeline_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if len(rows) <= 1:
+        return rows
+    endpoints = ("baseline_start", "baseline_end", "current_start", "current_end")
+    first = rows[0]
+    max_drift_seconds = max(
+        abs((row[field] - first[field]).total_seconds())
+        for row in rows[1:]
+        for field in endpoints
+    )
+    if max_drift_seconds >= 3600:
+        return rows
+    return [
+        {
+            "label": "Report comparison window",
+            "baseline_start": min(row["baseline_start"] for row in rows),
+            "baseline_end": max(row["baseline_end"] for row in rows),
+            "current_start": min(row["current_start"] for row in rows),
+            "current_end": max(row["current_end"] for row in rows),
+            "baseline_label": rows[0].get("baseline_label", "Baseline"),
+            "current_label": rows[0].get("current_label", "Current"),
+        }
+    ]
+
+
 def html_chart_sections(
     report_type: str,
     selected: dict[str, Any],
     limit: int,
     ctx: ReportContext,
 ) -> str:
-    pieces: list[str] = []
-    if report_type == "executive_posture":
-        posture = selected["posture"]
-        pieces.append(html_metric_delta_cards(posture, limit, ctx))
-        pieces.append(html_current_baseline_bars(posture, limit, ctx))
-        if selected.get("index"):
-            pieces.append(html_ranking_bars(selected["index"], limit, ctx))
-        if selected.get("mover"):
-            pieces.append(html_mover_bars(selected["mover"], limit, ctx))
-        scorecards = selected.get("scorecards") or []
-        if scorecards:
-            pieces.append(html_domain_matrix(scorecards, limit, ctx))
-    elif report_type == "soc_triage":
-        pieces.append(html_ranking_bars(selected["index"], limit, ctx))
-        scorecards = selected.get("scorecards") or []
-        if scorecards:
-            pieces.append(html_domain_matrix(scorecards, limit, ctx))
-        else:
-            pieces.append(
-                _chart_skip(
-                    "Domain Score Matrix",
-                    "degraded SOC mode has no compatible scorecards",
-                    ctx,
-                )
-            )
-        if selected.get("mover"):
-            pieces.append(html_mover_bars(selected["mover"], limit, ctx))
-    elif report_type == "control_review":
-        pieces.append(html_control_bars(selected["control"], limit, ctx))
-    elif report_type == "scorecard_brief":
-        pieces.append(html_scorecard_feature_cards(selected["scorecard"], limit, ctx))
-    elif report_type in {"crawler_governance", "edge_ops_impact"}:
-        scorecards = selected.get("scorecards") or []
-        if selected.get("index"):
-            pieces.append(html_ranking_bars(selected["index"], limit, ctx))
-        else:
-            pieces.append(html_scorecard_score_bars(scorecards, limit, ctx))
-        pieces.append(html_domain_matrix(scorecards, limit, ctx))
-        if report_type == "edge_ops_impact" and selected.get("posture"):
-            pieces.append(html_current_baseline_bars(selected["posture"], limit, ctx))
-        if report_type == "edge_ops_impact" and selected.get("mover"):
-            pieces.append(html_mover_bars(selected["mover"], limit, ctx))
+    builder = _HTML_CHART_BUILDERS.get(report_type)
+    pieces = builder(selected, limit, ctx) if builder else []
     body = "".join(piece for piece in pieces if piece)
     if not body:
         return ""
     return '<section class="charts" aria-label="Charts">' + body + "</section>"
+
+
+def _executive_chart_pieces(
+    selected: dict[str, Any], limit: int, ctx: ReportContext
+) -> list[str]:
+    posture = selected["posture"]
+    pieces = [
+        html_metric_delta_cards(posture, limit, ctx),
+        html_current_baseline_bars(posture, limit, ctx),
+    ]
+    if selected.get("index"):
+        pieces.append(html_ranking_bars(selected["index"], limit, ctx))
+    if selected.get("mover"):
+        pieces.append(html_mover_bars(selected["mover"], limit, ctx))
+    scorecards = selected.get("scorecards") or []
+    if scorecards:
+        pieces.append(html_domain_matrix(scorecards, limit, ctx))
+    return pieces
+
+
+def _soc_chart_pieces(
+    selected: dict[str, Any], limit: int, ctx: ReportContext
+) -> list[str]:
+    pieces = [html_ranking_bars(selected["index"], limit, ctx)]
+    scorecards = selected.get("scorecards") or []
+    if scorecards:
+        pieces.append(html_domain_matrix(scorecards, limit, ctx))
+    else:
+        pieces.append(
+            _chart_skip(
+                "Domain Score Matrix",
+                "degraded SOC mode has no compatible scorecards",
+                ctx,
+            )
+        )
+    if selected.get("mover"):
+        pieces.append(html_mover_bars(selected["mover"], limit, ctx))
+    return pieces
+
+
+def _control_chart_pieces(
+    selected: dict[str, Any], limit: int, ctx: ReportContext
+) -> list[str]:
+    return [html_control_bars(selected["control"], limit, ctx)]
+
+
+def _scorecard_chart_pieces(
+    selected: dict[str, Any], limit: int, ctx: ReportContext
+) -> list[str]:
+    return [html_scorecard_feature_cards(selected["scorecard"], limit, ctx)]
+
+
+def _scorecard_family_chart_pieces(
+    selected: dict[str, Any], limit: int, ctx: ReportContext
+) -> list[str]:
+    scorecards = selected.get("scorecards") or []
+    return [
+        html_ranking_bars(selected["index"], limit, ctx)
+        if selected.get("index")
+        else html_scorecard_score_bars(scorecards, limit, ctx),
+        html_domain_matrix(scorecards, limit, ctx),
+    ]
+
+
+def _edge_ops_chart_pieces(
+    selected: dict[str, Any], limit: int, ctx: ReportContext
+) -> list[str]:
+    scorecards = selected.get("scorecards") or []
+    pieces = [
+        html_ranking_bars(selected["index"], limit, ctx)
+        if selected.get("index")
+        else html_scorecard_score_bars(scorecards, limit, ctx),
+        html_domain_matrix(scorecards, limit, ctx),
+    ]
+    if selected.get("posture"):
+        pieces.append(html_current_baseline_bars(selected["posture"], limit, ctx))
+    if selected.get("mover"):
+        pieces.append(html_mover_bars(selected["mover"], limit, ctx))
+    return pieces
+
+
+_HTML_CHART_BUILDERS = {
+    "executive_posture": _executive_chart_pieces,
+    "soc_triage": _soc_chart_pieces,
+    "control_review": _control_chart_pieces,
+    "scorecard_brief": _scorecard_chart_pieces,
+    "crawler_governance": _scorecard_family_chart_pieces,
+    "edge_ops_impact": _edge_ops_chart_pieces,
+}
 
 
 def markdown_to_simple_html(markdown: str) -> str:
@@ -1424,29 +1567,32 @@ def markdown_to_simple_html(markdown: str) -> str:
             table_lines.append(line)
             continue
         flush_table()
-        if not line.strip():
+        rendered = _simple_html_line(line)
+        if rendered is None:
             close_list()
             continue
-        if line.startswith("# "):
-            close_list()
-            output.append(f"<h1>{h_escape(_demd(line[2:]))}</h1>")
-        elif line.startswith("## "):
-            close_list()
-            output.append(f"<h2>{h_escape(_demd(line[3:]))}</h2>")
-        elif line.startswith("### "):
-            close_list()
-            output.append(f"<h3>{h_escape(_demd(line[4:]))}</h3>")
-        elif line.startswith("- "):
+        if rendered[0] == "li":
             if not list_open:
                 output.append("<ul>")
                 list_open = True
-            output.append(f"<li>{inline_html(line[2:])}</li>")
+            output.append(rendered[1])
         else:
             close_list()
-            output.append(f"<p>{inline_html(line)}</p>")
+            output.append(rendered[1])
     flush_table()
     close_list()
     return "".join(output)
+
+
+def _simple_html_line(line: str) -> tuple[str, str] | None:
+    if not line.strip():
+        return None
+    for marker, tag in (("# ", "h1"), ("## ", "h2"), ("### ", "h3")):
+        if line.startswith(marker):
+            return tag, f"<{tag}>{h_escape(_demd(line[len(marker):]))}</{tag}>"
+    if line.startswith("- "):
+        return "li", f"<li>{inline_html(line[2:])}</li>"
+    return "p", f"<p>{inline_html(line)}</p>"
 
 
 def inline_html(text: str) -> str:

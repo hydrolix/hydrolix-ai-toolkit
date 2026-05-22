@@ -202,8 +202,21 @@ def score_histogram_svg(
         f'<svg viewBox="0 0 {width} {height}" class="score-hist" '
         f'role="img" aria-label="Score distribution">'
     ]
+    x_for_score = lambda s: pad_l + (s / 100) * plot_w
 
-    # Band zones (background)
+    _append_score_histogram_zones(parts, x_for_score, pad_t, plot_h)
+    _append_score_histogram_bars(
+        parts, buckets, max_count, bin_size, x_for_score, color_for_score, pad_t, plot_h
+    )
+    axis_y = pad_t + plot_h
+    _append_score_histogram_axis(parts, x_for_score, pad_l, pad_r, width, axis_y)
+    _append_score_histogram_annotations(parts, x_for_score, axis_y, lowest, median)
+
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _append_score_histogram_zones(parts: list[str], x_for_score, pad_t: int, plot_h: int) -> None:
     zones = (
         ("Escalate", 0, 40, PALETTE["escalate_fill"]),
         ("Monitor", 40, 70, PALETTE["monitor_fill"]),
@@ -216,13 +229,22 @@ def score_histogram_svg(
             f'<rect x="{zx:.1f}" y="{pad_t}" width="{zw:.1f}" '
             f'height="{plot_h}" fill="{fill}" fill-opacity="0.40" />'
         )
-        center_x = zx + zw / 2
         parts.append(
-            f'<text x="{center_x:.1f}" y="{pad_t - 8}" '
+            f'<text x="{zx + zw / 2:.1f}" y="{pad_t - 8}" '
             f'text-anchor="middle" class="hist-zone-label">{label}</text>'
         )
 
-    # Bars (one per non-empty bucket)
+
+def _append_score_histogram_bars(
+    parts: list[str],
+    buckets: dict[int, int],
+    max_count: int,
+    bin_size: int,
+    x_for_score,
+    color_for_score,
+    pad_t: int,
+    plot_h: int,
+) -> None:
     bar_top_pad = 10
     for bin_key, count in sorted(buckets.items()):
         bx = x_for_score(bin_key)
@@ -241,8 +263,15 @@ def score_histogram_svg(
             f'text-anchor="middle" class="hist-bar-count">{count}</text>'
         )
 
-    # X-axis line + ticks
-    axis_y = pad_t + plot_h
+
+def _append_score_histogram_axis(
+    parts: list[str],
+    x_for_score,
+    pad_l: int,
+    pad_r: int,
+    width: int,
+    axis_y: int,
+) -> None:
     parts.append(
         f'<line x1="{pad_l}" y1="{axis_y}" x2="{width - pad_r}" y2="{axis_y}" '
         f'stroke="#d4d4d8" stroke-width="1" />'
@@ -258,7 +287,14 @@ def score_histogram_svg(
             f'class="hist-axis-tick">{tick}</text>'
         )
 
-    # Annotations: lowest + median
+
+def _append_score_histogram_annotations(
+    parts: list[str],
+    x_for_score,
+    axis_y: int,
+    lowest: int,
+    median: int,
+) -> None:
     annot_y = axis_y + 36
     if lowest == median:
         ax = x_for_score(lowest)
@@ -284,9 +320,6 @@ def score_histogram_svg(
                 f'<text x="{ax:.1f}" y="{annot_y}" text-anchor="middle" '
                 f'class="hist-annotation">{label} {value}</text>'
             )
-
-    parts.append("</svg>")
-    return "".join(parts)
 
 
 def triage_histogram_svg(

@@ -715,6 +715,80 @@ def _incident_phase1_window_and_timeseries(
         ctx.volume_timeseries = None
 
 
+def _incident_run_dimension(
+    args: argparse.Namespace,
+    ctx: _IncidentCtx,
+    table: str,
+    dimension: str,
+    label: str,
+    *,
+    start: datetime,
+    end: datetime,
+    baseline_start: datetime,
+    baseline_end: datetime,
+    sample_dir: Path,
+) -> list[dict]:
+    resolved_dimension = _summary_dimension_column(ctx, dimension)
+    if resolved_dimension is None:
+        ctx.limitations_scope.append(
+            f"Summary dimension {dimension} is not present on {ctx.summary_table}; "
+            f"{label.replace('_', ' ')} is omitted."
+        )
+        return []
+    return _capture_or_raise(
+        args,
+        _incident_dimension_sql(
+            table,
+            resolved_dimension,
+            start,
+            end,
+            baseline_start,
+            baseline_end,
+            args.host,
+            args.asn,
+            args.path_pattern,
+            ctx.top_n,
+            summary_time_column=ctx.summary_time_column,
+            summary_count_column=ctx.summary_count_column,
+            summary_path_pattern_column=ctx.summary_path_pattern_column,
+        ),
+        sample_dir / f"{args.report}-phase1-{label}.json",
+        label=label,
+    )
+
+
+def _incident_run_siem_dimension(
+    args: argparse.Namespace,
+    ctx: _IncidentCtx,
+    dimension: str,
+    label: str,
+    *,
+    start: datetime,
+    end: datetime,
+    baseline_start: datetime,
+    baseline_end: datetime,
+    sample_dir: Path,
+) -> list[dict]:
+    assert ctx.siem_table is not None
+    return _capture_or_raise(
+        args,
+        _incident_siem_dimension_sql(
+            ctx.siem_table,
+            dimension,
+            start,
+            end,
+            baseline_start,
+            baseline_end,
+            args.host,
+            args.asn,
+            args.path_pattern,
+            ctx.top_n,
+        ),
+        sample_dir / f"{args.report}-phase1-{label}.json",
+        label=label,
+    )
+
+
 def _incident_phase1_dimensions(
     args: argparse.Namespace,
     ctx: _IncidentCtx,
@@ -727,76 +801,33 @@ def _incident_phase1_dimensions(
 ) -> None:
     """Run dimension / status / edge-action / deny-rule / SIEM-dimension captures.
 
-    Assembles ``scope_meta`` and ``scope_artifact``. Uses two local
-    closures that share nine context vars; kept inline so those don't
-    have to thread through a free-function signature.
+    Assembles ``scope_meta`` and ``scope_artifact``.
     """
-    def _run_dimension(table: str, dimension: str, label: str) -> list[dict]:
-        resolved_dimension = _summary_dimension_column(ctx, dimension)
-        if resolved_dimension is None:
-            ctx.limitations_scope.append(
-                f"Summary dimension {dimension} is not present on {ctx.summary_table}; "
-                f"{label.replace('_', ' ')} is omitted."
-            )
-            return []
-        out_path = sample_dir / f"{args.report}-phase1-{label}.json"
-        return _capture_or_raise(
-            args,
-            _incident_dimension_sql(
-                table,
-                resolved_dimension,
-                start,
-                end,
-                baseline_start,
-                baseline_end,
-                args.host,
-                args.asn,
-                args.path_pattern,
-                ctx.top_n,
-                summary_time_column=ctx.summary_time_column,
-                summary_count_column=ctx.summary_count_column,
-                summary_path_pattern_column=ctx.summary_path_pattern_column,
-            ),
-            out_path,
-            label=label,
-        )
-
-    def _run_siem_dimension(dimension: str, label: str) -> list[dict]:
-        assert ctx.siem_table is not None
-        out_path = sample_dir / f"{args.report}-phase1-{label}.json"
-        return _capture_or_raise(
-            args,
-            _incident_siem_dimension_sql(
-                ctx.siem_table,
-                dimension,
-                start,
-                end,
-                baseline_start,
-                baseline_end,
-                args.host,
-                args.asn,
-                args.path_pattern,
-                ctx.top_n,
-            ),
-            out_path,
-            label=label,
-        )
-
-    hosts_rows = _run_dimension(ctx.summary_table, "reqHost", "top_hosts")
+    hosts_rows = _incident_run_dimension(
+        args, ctx, ctx.summary_table, "reqHost", "top_hosts",
+        start=start, end=end, baseline_start=baseline_start,
+        baseline_end=baseline_end, sample_dir=sample_dir,
+    )
     if not hosts_rows:
         ctx.limitations_scope.append(
             "Summary top-host rows were empty; raw logs were not used as a "
             "top-host fallback."
         )
-    path_rows = _run_dimension(
-        ctx.summary_table, "requestPathPattern", "top_path_patterns"
+    path_rows = _incident_run_dimension(
+        args, ctx, ctx.summary_table, "requestPathPattern", "top_path_patterns",
+        start=start, end=end, baseline_start=baseline_start,
+        baseline_end=baseline_end, sample_dir=sample_dir,
     )
     if not path_rows:
         ctx.limitations_scope.append(
             "Summary top path-pattern rows were empty; raw logs were not used "
             "as a top-path fallback."
         )
-    country_rows = _run_dimension(ctx.summary_table, "country", "country_mix")
+    country_rows = _incident_run_dimension(
+        args, ctx, ctx.summary_table, "country", "country_mix",
+        start=start, end=end, baseline_start=baseline_start,
+        baseline_end=baseline_end, sample_dir=sample_dir,
+    )
     status_rows = _capture_or_raise(
         args,
         _incident_status_mix_sql(
@@ -820,9 +851,21 @@ def _incident_phase1_dimensions(
     siem_policy_rows: list[dict] = []
     siem_bot_type_rows: list[dict] = []
     if ctx.siem_available:
-        siem_action_rows = _run_siem_dimension("actionClass", "siem_action")
-        siem_policy_rows = _run_siem_dimension("policyId", "siem_policy")
-        siem_bot_type_rows = _run_siem_dimension("botType", "siem_bot_type")
+        siem_action_rows = _incident_run_siem_dimension(
+            args, ctx, "actionClass", "siem_action",
+            start=start, end=end, baseline_start=baseline_start,
+            baseline_end=baseline_end, sample_dir=sample_dir,
+        )
+        siem_policy_rows = _incident_run_siem_dimension(
+            args, ctx, "policyId", "siem_policy",
+            start=start, end=end, baseline_start=baseline_start,
+            baseline_end=baseline_end, sample_dir=sample_dir,
+        )
+        siem_bot_type_rows = _incident_run_siem_dimension(
+            args, ctx, "botType", "siem_bot_type",
+            start=start, end=end, baseline_start=baseline_start,
+            baseline_end=baseline_end, sample_dir=sample_dir,
+        )
     edge_action_mix_rows: list[dict] = []
     deny_rule_mix_rows: list[dict] = []
     edge_action_timeseries_rows: list[dict] = []

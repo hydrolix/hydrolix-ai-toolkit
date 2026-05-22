@@ -132,79 +132,111 @@ def normalize_artifacts(
     explicit_input_ids: set[str] = set()
     normalized: list[dict[str, Any]] = []
 
-    def append_unique(
-        artifact: dict[str, Any],
-        *,
-        explicit_id: bool,
-        generated_parent_id: str | None = None,
-    ) -> None:
-        artifact_id = str(artifact["artifact_id"])
-        if artifact_id in all_ids:
-            raise ReportError(f"Duplicate normalized artifact_id {artifact_id}.")
-        all_ids.add(artifact_id)
-        ctx.artifact_id_explicit[artifact_id] = explicit_id
-        if generated_parent_id is not None:
-            ctx.generated_child_parent[artifact_id] = generated_parent_id
-        normalized.append(artifact)
-
     for index, raw in enumerate(artifacts, start=1):
         if not validate_artifact_schema(raw, allow_unknown, ctx):
             continue
-        had_explicit = "artifact_id" in raw and raw.get("artifact_id") is not None
-        if had_explicit and (
-            not isinstance(raw["artifact_id"], str) or not raw["artifact_id"].strip()
-        ):
-            raise ReportError("Explicit artifact_id must be a non-empty string.")
-        artifact_id = raw["artifact_id"] if had_explicit else f"artifact-{index}"
-        if reserved_artifact_id(artifact_id):
-            raise ReportError(
-                f"Artifact ID {artifact_id} uses a reserved generated child suffix."
-            )
-        if had_explicit:
-            if artifact_id in explicit_input_ids:
-                raise ReportError(f"Duplicate artifact_id {artifact_id}.")
-            explicit_input_ids.add(artifact_id)
-
+        artifact_id, had_explicit = _normalized_artifact_id(
+            raw, index, explicit_input_ids
+        )
         parent = artifact_with_id(raw, artifact_id)
-        append_unique(parent, explicit_id=had_explicit)
-
-        if schema_of(raw) == SCORECARD_PACKET_SCHEMA:
-            packet_index = raw.get("index")
-            if (
-                isinstance(packet_index, dict)
-                and schema_of(packet_index) == INDEX_SCHEMA
-            ):
-                child = copy.deepcopy(packet_index)
-                append_unique(
-                    artifact_with_id(
-                        child,
-                        f"{artifact_id}#index",
-                        parent_id=artifact_id,
-                        parent_pointer="/index",
-                    ),
-                    explicit_id=False,
-                    generated_parent_id=artifact_id,
-                )
-            scorecards = raw.get("scorecards")
-            if isinstance(scorecards, list):
-                for child_index, scorecard in enumerate(scorecards, start=1):
-                    if (
-                        not isinstance(scorecard, dict)
-                        or schema_of(scorecard) != SCORECARD_SCHEMA
-                    ):
-                        continue
-                    child = copy.deepcopy(scorecard)
-                    append_unique(
-                        artifact_with_id(
-                            child,
-                            f"{artifact_id}#scorecard-{child_index}",
-                            parent_id=artifact_id,
-                            parent_pointer=f"/scorecards/{child_index - 1}",
-                        ),
-                        explicit_id=False,
-                        generated_parent_id=artifact_id,
-                    )
+        _append_normalized_artifact(parent, all_ids, normalized, ctx, had_explicit)
+        _append_scorecard_packet_children(raw, artifact_id, all_ids, normalized, ctx)
     return normalized
+
+
+def _normalized_artifact_id(
+    raw: dict[str, Any], index: int, explicit_input_ids: set[str]
+) -> tuple[str, bool]:
+    had_explicit = "artifact_id" in raw and raw.get("artifact_id") is not None
+    if had_explicit and (
+        not isinstance(raw["artifact_id"], str) or not raw["artifact_id"].strip()
+    ):
+        raise ReportError("Explicit artifact_id must be a non-empty string.")
+    artifact_id = raw["artifact_id"] if had_explicit else f"artifact-{index}"
+    if reserved_artifact_id(artifact_id):
+        raise ReportError(
+            f"Artifact ID {artifact_id} uses a reserved generated child suffix."
+        )
+    if had_explicit:
+        if artifact_id in explicit_input_ids:
+            raise ReportError(f"Duplicate artifact_id {artifact_id}.")
+        explicit_input_ids.add(artifact_id)
+    return artifact_id, had_explicit
+
+
+def _append_normalized_artifact(
+    artifact: dict[str, Any],
+    all_ids: set[str],
+    normalized: list[dict[str, Any]],
+    ctx: ReportContext,
+    explicit_id: bool,
+    generated_parent_id: str | None = None,
+) -> None:
+    artifact_id = str(artifact["artifact_id"])
+    if artifact_id in all_ids:
+        raise ReportError(f"Duplicate normalized artifact_id {artifact_id}.")
+    all_ids.add(artifact_id)
+    ctx.artifact_id_explicit[artifact_id] = explicit_id
+    if generated_parent_id is not None:
+        ctx.generated_child_parent[artifact_id] = generated_parent_id
+    normalized.append(artifact)
+
+
+def _append_scorecard_packet_children(
+    raw: dict[str, Any],
+    artifact_id: str,
+    all_ids: set[str],
+    normalized: list[dict[str, Any]],
+    ctx: ReportContext,
+) -> None:
+    if schema_of(raw) != SCORECARD_PACKET_SCHEMA:
+        return
+    _append_packet_index_child(raw, artifact_id, all_ids, normalized, ctx)
+    scorecards = raw.get("scorecards")
+    if not isinstance(scorecards, list):
+        return
+    for child_index, scorecard in enumerate(scorecards, start=1):
+        _append_packet_scorecard_child(
+            scorecard, child_index, artifact_id, all_ids, normalized, ctx
+        )
+
+
+def _append_packet_index_child(
+    raw: dict[str, Any],
+    artifact_id: str,
+    all_ids: set[str],
+    normalized: list[dict[str, Any]],
+    ctx: ReportContext,
+) -> None:
+    packet_index = raw.get("index")
+    if not isinstance(packet_index, dict) or schema_of(packet_index) != INDEX_SCHEMA:
+        return
+    child = artifact_with_id(
+        copy.deepcopy(packet_index),
+        f"{artifact_id}#index",
+        parent_id=artifact_id,
+        parent_pointer="/index",
+    )
+    _append_normalized_artifact(child, all_ids, normalized, ctx, False, artifact_id)
+
+
+def _append_packet_scorecard_child(
+    scorecard: Any,
+    child_index: int,
+    artifact_id: str,
+    all_ids: set[str],
+    normalized: list[dict[str, Any]],
+    ctx: ReportContext,
+) -> None:
+    if not isinstance(scorecard, dict) or schema_of(scorecard) != SCORECARD_SCHEMA:
+        return
+    child = artifact_with_id(
+        copy.deepcopy(scorecard),
+        f"{artifact_id}#scorecard-{child_index}",
+        parent_id=artifact_id,
+        parent_pointer=f"/scorecards/{child_index - 1}",
+    )
+    _append_normalized_artifact(child, all_ids, normalized, ctx, False, artifact_id)
 
 
 def load_report_input(
@@ -220,61 +252,15 @@ def load_report_input(
     str | None,
     str | None,
 ]:
-    wrapper_report_type: str | None = None
-    wrapper_title: str | None = None
-    wrapper_limit: int | None = None
-    scope_label: str | None = None
-    notes: list[dict[str, Any]] = []
-    raw_mode: str | None = None
-
-    if isinstance(value, dict) and value.get("schema_version") == WRAPPER_SCHEMA:
-        wrapper_report_type = value.get("report_type")
-        if wrapper_report_type is not None and not isinstance(wrapper_report_type, str):
-            raise ReportError("Wrapper report_type must be a string.")
-        if wrapper_report_type is not None and wrapper_report_type not in REPORT_TYPES:
-            raise ReportError(f"Unsupported wrapper report_type {wrapper_report_type}.")
-        wrapper_title = value.get("title")
-        if wrapper_title is not None and not isinstance(wrapper_title, str):
-            raise ReportError("Wrapper title must be a string.")
-        wrapper_limit = value.get("limit")
-        if wrapper_limit is not None and (
-            not isinstance(wrapper_limit, int)
-            or isinstance(wrapper_limit, bool)
-            or wrapper_limit <= 0
-        ):
-            raise ReportError("Wrapper limit must be a positive integer.")
-        scope_label = value.get("scope_label")
-        if scope_label is not None and (
-            not isinstance(scope_label, str) or not scope_label.strip()
-        ):
-            raise ReportError("Wrapper scope_label must be a non-empty string.")
-        raw_notes = value.get("analyst_notes", [])
-        if raw_notes is None:
-            raw_notes = []
-        if not isinstance(raw_notes, list) or not all(
-            isinstance(note, dict) for note in raw_notes
-        ):
-            raise ReportError("Wrapper analyst_notes must be an array of objects.")
-        notes = raw_notes
-        raw_artifacts = value.get("artifacts")
-        if not isinstance(raw_artifacts, list) or not raw_artifacts:
-            raise ReportError("Wrapper artifacts must be a non-empty array.")
-    elif isinstance(value, dict) and "schema_version" in value:
-        raw_mode = "single"
-        raw_artifacts = [value]
-    elif isinstance(value, list):
-        if not value:
-            raise ReportError("Raw artifact array input must be non-empty.")
-        raw_mode = "array"
-        raw_artifacts = value
-        if args.report_type is None:
-            raise ReportError("Raw artifact array input requires --report-type.")
-    elif isinstance(value, dict):
-        raise ReportError("Raw artifact object input is missing schema_version.")
-    else:
-        raise ReportError(
-            "Input must be a known artifact object, a non-empty artifact array, or a bot_report_input.v1 wrapper."
-        )
+    (
+        raw_artifacts,
+        notes,
+        wrapper_report_type,
+        wrapper_title,
+        wrapper_limit,
+        scope_label,
+        raw_mode,
+    ) = _raw_report_input(value, args)
 
     if not all(isinstance(artifact, dict) for artifact in raw_artifacts):
         raise ReportError("All artifacts must be JSON objects.")
@@ -295,6 +281,111 @@ def load_report_input(
         scope_label,
         raw_mode,
     )
+
+
+def _raw_report_input(
+    value: Any, args: argparse.Namespace
+) -> tuple[
+    list[Any],
+    list[dict[str, Any]],
+    str | None,
+    str | None,
+    int | None,
+    str | None,
+    str | None,
+]:
+    if isinstance(value, dict) and value.get("schema_version") == WRAPPER_SCHEMA:
+        return _wrapper_report_input(value)
+    if isinstance(value, dict) and "schema_version" in value:
+        return [value], [], None, None, None, None, "single"
+    if isinstance(value, list):
+        if not value:
+            raise ReportError("Raw artifact array input must be non-empty.")
+        if args.report_type is None:
+            raise ReportError("Raw artifact array input requires --report-type.")
+        return value, [], None, None, None, None, "array"
+    if isinstance(value, dict):
+        raise ReportError("Raw artifact object input is missing schema_version.")
+    raise ReportError(
+        "Input must be a known artifact object, a non-empty artifact array, or a bot_report_input.v1 wrapper."
+    )
+
+
+def _wrapper_report_input(
+    value: dict[str, Any],
+) -> tuple[
+    list[Any],
+    list[dict[str, Any]],
+    str | None,
+    str | None,
+    int | None,
+    str | None,
+    str | None,
+]:
+    wrapper_report_type = _wrapper_report_type(value)
+    wrapper_title = _wrapper_title(value)
+    wrapper_limit = _wrapper_limit(value)
+    scope_label = _wrapper_scope_label(value)
+    notes = _wrapper_notes(value)
+    raw_artifacts = value.get("artifacts")
+    if not isinstance(raw_artifacts, list) or not raw_artifacts:
+        raise ReportError("Wrapper artifacts must be a non-empty array.")
+    return (
+        raw_artifacts,
+        notes,
+        wrapper_report_type,
+        wrapper_title,
+        wrapper_limit,
+        scope_label,
+        None,
+    )
+
+
+def _wrapper_report_type(value: dict[str, Any]) -> str | None:
+    wrapper_report_type = value.get("report_type")
+    if wrapper_report_type is not None and not isinstance(wrapper_report_type, str):
+        raise ReportError("Wrapper report_type must be a string.")
+    if wrapper_report_type is not None and wrapper_report_type not in REPORT_TYPES:
+        raise ReportError(f"Unsupported wrapper report_type {wrapper_report_type}.")
+    return wrapper_report_type
+
+
+def _wrapper_title(value: dict[str, Any]) -> str | None:
+    wrapper_title = value.get("title")
+    if wrapper_title is not None and not isinstance(wrapper_title, str):
+        raise ReportError("Wrapper title must be a string.")
+    return wrapper_title
+
+
+def _wrapper_limit(value: dict[str, Any]) -> int | None:
+    wrapper_limit = value.get("limit")
+    if wrapper_limit is not None and (
+        not isinstance(wrapper_limit, int)
+        or isinstance(wrapper_limit, bool)
+        or wrapper_limit <= 0
+    ):
+        raise ReportError("Wrapper limit must be a positive integer.")
+    return wrapper_limit
+
+
+def _wrapper_scope_label(value: dict[str, Any]) -> str | None:
+    scope_label = value.get("scope_label")
+    if scope_label is not None and (
+        not isinstance(scope_label, str) or not scope_label.strip()
+    ):
+        raise ReportError("Wrapper scope_label must be a non-empty string.")
+    return scope_label
+
+
+def _wrapper_notes(value: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_notes = value.get("analyst_notes", [])
+    if raw_notes is None:
+        raw_notes = []
+    if not isinstance(raw_notes, list) or not all(
+        isinstance(note, dict) for note in raw_notes
+    ):
+        raise ReportError("Wrapper analyst_notes must be an array of objects.")
+    return raw_notes
 
 
 def infer_report_type(
@@ -570,97 +661,8 @@ def validate_report_artifacts(
     artifacts: list[dict[str, Any]],
     ctx: ReportContext,
 ) -> dict[str, Any]:
-    if report_type == "executive_posture":
-        posture = require_one(artifacts, POSTURE_SCHEMA, report_type)
-        index = first_or_warn(artifacts, INDEX_SCHEMA, report_type, ctx)
-        mover = first_or_warn(artifacts, MOVER_SCHEMA, report_type, ctx)
-        index = filter_compatible_companion(posture, index, "index", ctx)
-        scorecards: list[dict[str, Any]] = []
-        if index:
-            scorecards = compatible_scorecards_for_index(
-                index,
-                by_schema(artifacts, SCORECARD_SCHEMA),
-                ctx,
-                required=False,
-            )
-        return {
-            "posture": posture,
-            "index": index,
-            "scorecards": scorecards,
-            "mover": filter_compatible_companion(posture, mover, "mover", ctx),
-        }
-    if report_type == "soc_triage":
-        index = require_one(artifacts, INDEX_SCHEMA, report_type)
-        scorecards = by_schema(artifacts, SCORECARD_SCHEMA)
-        scorecards = compatible_scorecards_for_index(
-            index, scorecards, ctx, required=bool(scorecards)
-        )
-        if not scorecards:
-            ctx.warn(
-                "SOC triage has only bot_scorecard_index.v1 and renders a degraded ranking-only report."
-            )
-        posture = first_or_warn(artifacts, POSTURE_SCHEMA, report_type, ctx)
-        mover = first_or_warn(artifacts, MOVER_SCHEMA, report_type, ctx)
-        return {
-            "index": index,
-            "scorecards": scorecards,
-            "posture": filter_compatible_companion(index, posture, "posture", ctx),
-            "mover": filter_compatible_companion(index, mover, "mover", ctx),
-        }
-    if report_type == "control_review":
-        control = require_one(artifacts, CONTROL_SCHEMA, report_type)
-        posture = first_or_warn(artifacts, POSTURE_SCHEMA, report_type, ctx)
-        mover = first_or_warn(artifacts, MOVER_SCHEMA, report_type, ctx)
-        return {
-            "control": control,
-            "posture": filter_compatible_companion(control, posture, "posture", ctx),
-            "mover": filter_compatible_companion(control, mover, "mover", ctx),
-        }
-    if report_type == "scorecard_brief":
-        scorecards = by_schema(artifacts, SCORECARD_SCHEMA)
-        if not scorecards:
-            raise ReportError(f"{report_type} requires {SCORECARD_SCHEMA}.")
-        index = first_or_warn(artifacts, INDEX_SCHEMA, report_type, ctx)
-        index_order_usable = False
-        if index:
-            scorecards, index_order_usable = (
-                compatible_scorecards_for_index_with_order_status(
-                    index, scorecards, ctx, required=True
-                )
-            )
-        scorecard = scorecards[0]
-        return {
-            "scorecard": scorecard,
-            "scorecards": scorecards,
-            "index": index,
-            "index_order_usable": index_order_usable,
-            "is_fleet": bool(index or len(scorecards) > 1),
-        }
-    if report_type == "crawler_governance":
-        scorecards = by_schema(artifacts, SCORECARD_SCHEMA)
-        if not scorecards:
-            raise ReportError(
-                "crawler_governance requires bot_entity_scorecard.v1 artifacts or a scorecard packet."
-            )
-        index = first_or_warn(artifacts, INDEX_SCHEMA, report_type, ctx)
-        index_order_usable = False
-        if index:
-            (
-                scorecards,
-                index_order_usable,
-            ) = compatible_scorecards_for_index_with_order_status(
-                index, scorecards, ctx, required=False
-            )
-        reference = index or (scorecards[0] if scorecards else None)
-        posture = first_or_warn(artifacts, POSTURE_SCHEMA, report_type, ctx)
-        mover = first_or_warn(artifacts, MOVER_SCHEMA, report_type, ctx)
-        return {
-            "scorecards": scorecards,
-            "index": index,
-            "index_order_usable": index_order_usable,
-            "posture": filter_compatible_companion(reference, posture, "posture", ctx),
-            "mover": filter_compatible_companion(reference, mover, "mover", ctx),
-        }
+    if report_type in _REPORT_VALIDATORS:
+        return _REPORT_VALIDATORS[report_type](artifacts, report_type, ctx)
     if report_type in {
         "incident_report",
         "incident_executive_view",
@@ -681,32 +683,126 @@ def validate_report_artifacts(
     if report_type == "threat_hunt":
         threat_hunt = require_one(artifacts, THREAT_HUNT_SCHEMA, report_type)
         return {"threat_hunt": threat_hunt}
-    if report_type == "edge_ops_impact":
-        scorecards = by_schema(artifacts, SCORECARD_SCHEMA)
-        if not scorecards:
-            raise ReportError(
-                "edge_ops_impact requires bot_entity_scorecard.v1 artifacts or a scorecard packet."
-            )
-        index = first_or_warn(artifacts, INDEX_SCHEMA, report_type, ctx)
-        index_order_usable = False
-        if index:
-            (
-                scorecards,
-                index_order_usable,
-            ) = compatible_scorecards_for_index_with_order_status(
-                index, scorecards, ctx, required=False
-            )
-        reference = index or (scorecards[0] if scorecards else None)
-        posture = first_or_warn(artifacts, POSTURE_SCHEMA, report_type, ctx)
-        mover = first_or_warn(artifacts, MOVER_SCHEMA, report_type, ctx)
-        return {
-            "scorecards": scorecards,
-            "index": index,
-            "index_order_usable": index_order_usable,
-            "posture": filter_compatible_companion(reference, posture, "posture", ctx),
-            "mover": filter_compatible_companion(reference, mover, "mover", ctx),
-        }
     raise ReportError(f"Unsupported report type {report_type}.")
+
+
+def _validate_executive_posture(
+    artifacts: list[dict[str, Any]], report_type: str, ctx: ReportContext
+) -> dict[str, Any]:
+    posture = require_one(artifacts, POSTURE_SCHEMA, report_type)
+    index = first_or_warn(artifacts, INDEX_SCHEMA, report_type, ctx)
+    mover = first_or_warn(artifacts, MOVER_SCHEMA, report_type, ctx)
+    index = filter_compatible_companion(posture, index, "index", ctx)
+    scorecards: list[dict[str, Any]] = []
+    if index:
+        scorecards = compatible_scorecards_for_index(
+            index, by_schema(artifacts, SCORECARD_SCHEMA), ctx, required=False
+        )
+    return {
+        "posture": posture,
+        "index": index,
+        "scorecards": scorecards,
+        "mover": filter_compatible_companion(posture, mover, "mover", ctx),
+    }
+
+
+def _validate_soc_triage(
+    artifacts: list[dict[str, Any]], report_type: str, ctx: ReportContext
+) -> dict[str, Any]:
+    index = require_one(artifacts, INDEX_SCHEMA, report_type)
+    scorecards = compatible_scorecards_for_index(
+        index, by_schema(artifacts, SCORECARD_SCHEMA), ctx,
+        required=bool(by_schema(artifacts, SCORECARD_SCHEMA)),
+    )
+    if not scorecards:
+        ctx.warn(
+            "SOC triage has only bot_scorecard_index.v1 and renders a degraded ranking-only report."
+        )
+    posture = first_or_warn(artifacts, POSTURE_SCHEMA, report_type, ctx)
+    mover = first_or_warn(artifacts, MOVER_SCHEMA, report_type, ctx)
+    return {
+        "index": index,
+        "scorecards": scorecards,
+        "posture": filter_compatible_companion(index, posture, "posture", ctx),
+        "mover": filter_compatible_companion(index, mover, "mover", ctx),
+    }
+
+
+def _validate_control_review(
+    artifacts: list[dict[str, Any]], report_type: str, ctx: ReportContext
+) -> dict[str, Any]:
+    control = require_one(artifacts, CONTROL_SCHEMA, report_type)
+    posture = first_or_warn(artifacts, POSTURE_SCHEMA, report_type, ctx)
+    mover = first_or_warn(artifacts, MOVER_SCHEMA, report_type, ctx)
+    return {
+        "control": control,
+        "posture": filter_compatible_companion(control, posture, "posture", ctx),
+        "mover": filter_compatible_companion(control, mover, "mover", ctx),
+    }
+
+
+def _validate_scorecard_brief(
+    artifacts: list[dict[str, Any]], report_type: str, ctx: ReportContext
+) -> dict[str, Any]:
+    scorecards = _require_scorecards(artifacts, report_type)
+    index = first_or_warn(artifacts, INDEX_SCHEMA, report_type, ctx)
+    index_order_usable = False
+    if index:
+        scorecards, index_order_usable = compatible_scorecards_for_index_with_order_status(
+            index, scorecards, ctx, required=True
+        )
+    return {
+        "scorecard": scorecards[0],
+        "scorecards": scorecards,
+        "index": index,
+        "index_order_usable": index_order_usable,
+        "is_fleet": bool(index or len(scorecards) > 1),
+    }
+
+
+def _validate_scorecard_family(
+    artifacts: list[dict[str, Any]], report_type: str, ctx: ReportContext
+) -> dict[str, Any]:
+    scorecards = _require_scorecards(artifacts, report_type)
+    index = first_or_warn(artifacts, INDEX_SCHEMA, report_type, ctx)
+    index_order_usable = False
+    if index:
+        scorecards, index_order_usable = compatible_scorecards_for_index_with_order_status(
+            index, scorecards, ctx, required=False
+        )
+    reference = index or (scorecards[0] if scorecards else None)
+    posture = first_or_warn(artifacts, POSTURE_SCHEMA, report_type, ctx)
+    mover = first_or_warn(artifacts, MOVER_SCHEMA, report_type, ctx)
+    return {
+        "scorecards": scorecards,
+        "index": index,
+        "index_order_usable": index_order_usable,
+        "posture": filter_compatible_companion(reference, posture, "posture", ctx),
+        "mover": filter_compatible_companion(reference, mover, "mover", ctx),
+    }
+
+
+def _require_scorecards(
+    artifacts: list[dict[str, Any]], report_type: str
+) -> list[dict[str, Any]]:
+    scorecards = by_schema(artifacts, SCORECARD_SCHEMA)
+    if scorecards:
+        return scorecards
+    if report_type == "scorecard_brief":
+        raise ReportError(f"{report_type} requires {SCORECARD_SCHEMA}.")
+    raise ReportError(
+        f"{report_type} requires bot_entity_scorecard.v1 artifacts or a scorecard packet."
+    )
+
+
+_REPORT_VALIDATORS = {
+    "executive_posture": _validate_executive_posture,
+    "soc_triage": _validate_soc_triage,
+    "control_review": _validate_control_review,
+    "scorecard_brief": _validate_scorecard_brief,
+    "crawler_governance": _validate_scorecard_family,
+    "edge_ops_impact": _validate_scorecard_family,
+}
 
 
 def same_packet(
@@ -830,37 +926,54 @@ def scan_metadata_warnings(artifacts: list[dict[str, Any]], ctx: ReportContext) 
         schema = schema_of(artifact)
         aid = artifact.get("artifact_id")
         if schema in {POSTURE_SCHEMA, SCORECARD_SCHEMA, INDEX_SCHEMA}:
-            if not artifact.get("current_window"):
-                ctx.warn(f"{aid} missing current_window metadata.")
-            if not artifact.get("baseline_windows"):
-                ctx.warn(f"{aid} missing baseline_windows metadata.")
+            _scan_window_metadata(artifact, aid, ctx)
         elif schema == CONTROL_SCHEMA:
-            if not artifact.get("before_window"):
-                ctx.warn(f"{aid} missing before_window metadata.")
-            if not artifact.get("after_window"):
-                ctx.warn(f"{aid} missing after_window metadata.")
-            effects = artifact.get("target_effects") or []
-            has_expected = any(
-                isinstance(effect, dict)
-                and "expected" in effect
-                and effect.get("expected") is not None
-                for effect in effects
-            )
-            basis = artifact.get("expected_basis")
-            if has_expected and (
-                not isinstance(basis, str) or basis not in CONTROL_EXPECTED_BASES
-            ):
-                ctx.warn(
-                    f"{aid} missing or unknown expected_basis with expected target effects."
-                )
-            if basis in {"before_window", "external_model"} and not artifact.get(
-                "expected_window"
-            ):
-                ctx.warn(
-                    f"{aid} missing expected_window metadata for expected_basis {basis}."
-                )
+            _scan_control_metadata(artifact, aid, ctx)
         elif schema == MOVER_SCHEMA:
-            if not artifact.get("dimension"):
-                ctx.warn(f"{aid} missing mover dimension metadata.")
-            if not artifact.get("metric"):
-                ctx.warn(f"{aid} missing mover metric metadata.")
+            _scan_mover_metadata(artifact, aid, ctx)
+
+
+def _scan_window_metadata(
+    artifact: dict[str, Any], aid: Any, ctx: ReportContext
+) -> None:
+    if not artifact.get("current_window"):
+        ctx.warn(f"{aid} missing current_window metadata.")
+    if not artifact.get("baseline_windows"):
+        ctx.warn(f"{aid} missing baseline_windows metadata.")
+
+
+def _scan_control_metadata(
+    artifact: dict[str, Any], aid: Any, ctx: ReportContext
+) -> None:
+    if not artifact.get("before_window"):
+        ctx.warn(f"{aid} missing before_window metadata.")
+    if not artifact.get("after_window"):
+        ctx.warn(f"{aid} missing after_window metadata.")
+    basis = artifact.get("expected_basis")
+    if _control_has_expected_effects(artifact) and (
+        not isinstance(basis, str) or basis not in CONTROL_EXPECTED_BASES
+    ):
+        ctx.warn(f"{aid} missing or unknown expected_basis with expected target effects.")
+    if basis in {"before_window", "external_model"} and not artifact.get(
+        "expected_window"
+    ):
+        ctx.warn(f"{aid} missing expected_window metadata for expected_basis {basis}.")
+
+
+def _control_has_expected_effects(artifact: dict[str, Any]) -> bool:
+    effects = artifact.get("target_effects") or []
+    return any(
+        isinstance(effect, dict)
+        and "expected" in effect
+        and effect.get("expected") is not None
+        for effect in effects
+    )
+
+
+def _scan_mover_metadata(
+    artifact: dict[str, Any], aid: Any, ctx: ReportContext
+) -> None:
+    if not artifact.get("dimension"):
+        ctx.warn(f"{aid} missing mover dimension metadata.")
+    if not artifact.get("metric"):
+        ctx.warn(f"{aid} missing mover metric metadata.")

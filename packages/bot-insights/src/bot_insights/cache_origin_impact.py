@@ -1144,32 +1144,63 @@ def _derive_share_and_contribution_metrics(
         data,
         metric_semantics,
     )
+    _derive_bot_share_metrics(row, current, share_denominators, scope, entity)
 
+    contribution_basis = _contribution_basis(data, metric_semantics)
+    if contribution_basis is None and data.get("rowset_complete") is True:
+        contribution_basis = "rowset_complete"
+    _derive_contribution_metrics(
+        row,
+        current,
+        deltas,
+        data=data,
+        metric_semantics=metric_semantics,
+        entity=entity,
+        contribution_totals=contribution_totals,
+        contribution_basis=contribution_basis,
+        complete_contribution=complete_contribution,
+        share_denominators=share_denominators,
+        not_evaluated=not_evaluated,
+        confidence_reasons=confidence_reasons,
+    )
+
+    return share_denominators, not_evaluated, confidence_reasons
+
+
+def _derive_bot_share_metrics(
+    row: dict[str, Any],
+    current: dict[str, float],
+    share_denominators: dict[str, Any],
+    scope: dict[str, Any],
+    entity: dict[str, Any],
+) -> None:
     selected_bot_classes = _selected_bot_classes(scope, entity)
     if selected_bot_classes:
         share_denominators["selected_bot_classes"] = selected_bot_classes
+    _derive_cache_miss_share(row, current, share_denominators)
+    _derive_origin_pressure_share(row, current, share_denominators)
 
+
+def _derive_cache_miss_share(
+    row: dict[str, Any],
+    current: dict[str, float],
+    share_denominators: dict[str, Any],
+) -> None:
     total_share_misses = _row_number(row, "current_total_cache_misses_for_share")
     selected_share_misses = _row_number(
-        row,
+        row, "current_selected_bot_class_cache_misses_for_share"
+    )
+    _store_denominator(
+        share_denominators, "current_total_cache_misses_for_share", total_share_misses
+    )
+    _store_denominator(
+        share_denominators,
         "current_selected_bot_class_cache_misses_for_share",
-    )
-    if total_share_misses is not None:
-        share_denominators["current_total_cache_misses_for_share"] = clean_number(
-            total_share_misses
-        )
-    if selected_share_misses is not None:
-        share_denominators[
-            "current_selected_bot_class_cache_misses_for_share"
-        ] = clean_number(selected_share_misses)
-
-    bot_miss_share = _row_number(row, "bot_miss_share_pct", "current_bot_miss_share_pct")
-    computed_bot_miss_share = _pct_from_parts(
         selected_share_misses,
-        total_share_misses,
     )
+    bot_miss_share = _row_number(row, "bot_miss_share_pct", "current_bot_miss_share_pct")
     if bot_miss_share is None:
-        bot_miss_share = computed_bot_miss_share
+        bot_miss_share = _pct_from_parts(selected_share_misses, total_share_misses)
     if bot_miss_share is not None:
         current["bot_miss_share_pct"] = bot_miss_share
         if total_share_misses is not None or selected_share_misses is not None:
@@ -1177,31 +1208,29 @@ def _derive_share_and_contribution_metrics(
                 "bot_miss_share_basis"
             ] = "selected_bot_classes_over_path_all_bot_classes_and_asn_types"
 
+
+def _derive_origin_pressure_share(
+    row: dict[str, Any],
+    current: dict[str, float],
+    share_denominators: dict[str, Any],
+) -> None:
     total_path_pressure = _row_number(row, "current_total_origin_pressure_for_path")
     selected_path_pressure = _row_number(
-        row,
+        row, "current_selected_bot_class_origin_pressure_for_path"
+    )
+    _store_denominator(
+        share_denominators, "current_total_origin_pressure_for_path", total_path_pressure
+    )
+    _store_denominator(
+        share_denominators,
         "current_selected_bot_class_origin_pressure_for_path",
-    )
-    if total_path_pressure is not None:
-        share_denominators["current_total_origin_pressure_for_path"] = clean_number(
-            total_path_pressure
-        )
-    if selected_path_pressure is not None:
-        share_denominators[
-            "current_selected_bot_class_origin_pressure_for_path"
-        ] = clean_number(selected_path_pressure)
-
-    bot_pressure_share = _row_number(
-        row,
-        "bot_origin_pressure_share_pct",
-        "current_bot_origin_pressure_share_pct",
-    )
-    computed_bot_pressure_share = _pct_from_parts(
         selected_path_pressure,
-        total_path_pressure,
+    )
+    bot_pressure_share = _row_number(
+        row, "bot_origin_pressure_share_pct", "current_bot_origin_pressure_share_pct"
     )
     if bot_pressure_share is None:
-        bot_pressure_share = computed_bot_pressure_share
+        bot_pressure_share = _pct_from_parts(selected_path_pressure, total_path_pressure)
     if bot_pressure_share is not None:
         current["bot_origin_pressure_share_pct"] = bot_pressure_share
         if total_path_pressure is not None or selected_path_pressure is not None:
@@ -1209,78 +1238,117 @@ def _derive_share_and_contribution_metrics(
                 "bot_origin_pressure_share_basis"
             ] = "selected_bot_classes_over_path_all_bot_classes_and_asn_types"
 
-    contribution_basis = _contribution_basis(data, metric_semantics)
-    if contribution_basis is None and data.get("rowset_complete") is True:
-        contribution_basis = "rowset_complete"
+
+def _store_denominator(
+    share_denominators: dict[str, Any], key: str, value: float | None
+) -> None:
+    if value is not None:
+        share_denominators[key] = clean_number(value)
+
+
+def _derive_contribution_metrics(
+    row: dict[str, Any],
+    current: dict[str, float],
+    deltas: dict[str, float],
+    *,
+    data: dict[str, Any],
+    metric_semantics: dict[str, Any],
+    entity: dict[str, Any],
+    contribution_totals: dict[str, float],
+    contribution_basis: str | None,
+    complete_contribution: bool,
+    share_denominators: dict[str, Any],
+    not_evaluated: list[dict[str, Any]],
+    confidence_reasons: list[str],
+) -> None:
     if contribution_basis is not None:
         share_denominators["cache_miss_contribution_basis"] = contribution_basis
         share_denominators["origin_pressure_contribution_basis"] = contribution_basis
-
     if complete_contribution:
-        total_contribution_misses = _row_number(
-            row,
-            "current_total_cache_misses_for_contribution",
+        _derive_complete_contributions(
+            row, current, deltas, data, contribution_totals, share_denominators
         )
-        if total_contribution_misses is None and data.get("rowset_complete") is True:
-            total_contribution_misses = contribution_totals.get("cache_misses")
-        if total_contribution_misses is not None:
-            share_denominators[
-                "current_total_cache_misses_for_contribution"
-            ] = clean_number(total_contribution_misses)
-        cache_miss_contribution = _row_number(
-            row,
-            "cache_miss_contribution_pct",
-            "current_cache_miss_contribution_pct",
-        )
-        if cache_miss_contribution is None:
-            cache_miss_contribution = _pct_from_parts(
-                current.get("cache_misses"),
-                total_contribution_misses,
-            )
-        if cache_miss_contribution is not None:
-            deltas["cache_miss_contribution_pct"] = cache_miss_contribution
-
-        total_origin_pressure = _row_number(
-            row,
-            "current_total_origin_pressure_score",
-            "current_total_origin_pressure_for_contribution",
-        )
-        if total_origin_pressure is None and data.get("rowset_complete") is True:
-            total_origin_pressure = contribution_totals.get("origin_pressure_score")
-        if total_origin_pressure is not None:
-            share_denominators[
-                "current_total_origin_pressure_score"
-            ] = clean_number(total_origin_pressure)
-        origin_pressure_contribution = _row_number(
-            row,
-            "origin_pressure_contribution_pct",
-            "current_origin_pressure_contribution_pct",
-        )
-        if origin_pressure_contribution is None:
-            origin_pressure_contribution = _pct_from_parts(
-                current.get("origin_pressure_score"),
-                total_origin_pressure,
-            )
-        if origin_pressure_contribution is not None:
-            deltas["origin_pressure_contribution_pct"] = origin_pressure_contribution
         confidence_reasons.append("complete_scope_contribution")
     elif _contribution_withheld(row, data, metric_semantics):
-        for name in (
-            "cache_miss_contribution_pct",
-            "origin_pressure_contribution_pct",
-        ):
-            not_evaluated.append(
-                {
-                    "entity": entity,
-                    "name": name,
-                    "reason": "contribution_withheld_source_limited",
-                }
-            )
+        _append_withheld_contributions(not_evaluated, entity)
         confidence_reasons.append("contribution_withheld_source_limited")
     elif contribution_basis in SOURCE_LIMITED_BASIS_VALUES:
         confidence_reasons.append("contribution_withheld_source_limited")
 
-    return share_denominators, not_evaluated, confidence_reasons
+
+def _derive_complete_contributions(
+    row: dict[str, Any],
+    current: dict[str, float],
+    deltas: dict[str, float],
+    data: dict[str, Any],
+    contribution_totals: dict[str, float],
+    share_denominators: dict[str, Any],
+) -> None:
+    total_misses = _contribution_denominator(
+        row,
+        data,
+        contribution_totals,
+        "current_total_cache_misses_for_contribution",
+        "cache_misses",
+    )
+    _store_denominator(
+        share_denominators, "current_total_cache_misses_for_contribution", total_misses
+    )
+    cache_miss_contribution = _row_number(
+        row, "cache_miss_contribution_pct", "current_cache_miss_contribution_pct"
+    )
+    if cache_miss_contribution is None:
+        cache_miss_contribution = _pct_from_parts(current.get("cache_misses"), total_misses)
+    if cache_miss_contribution is not None:
+        deltas["cache_miss_contribution_pct"] = cache_miss_contribution
+
+    total_pressure = _contribution_denominator(
+        row,
+        data,
+        contribution_totals,
+        "current_total_origin_pressure_score",
+        "origin_pressure_score",
+        "current_total_origin_pressure_for_contribution",
+    )
+    _store_denominator(
+        share_denominators, "current_total_origin_pressure_score", total_pressure
+    )
+    origin_pressure_contribution = _row_number(
+        row, "origin_pressure_contribution_pct", "current_origin_pressure_contribution_pct"
+    )
+    if origin_pressure_contribution is None:
+        origin_pressure_contribution = _pct_from_parts(
+            current.get("origin_pressure_score"), total_pressure
+        )
+    if origin_pressure_contribution is not None:
+        deltas["origin_pressure_contribution_pct"] = origin_pressure_contribution
+
+
+def _contribution_denominator(
+    row: dict[str, Any],
+    data: dict[str, Any],
+    contribution_totals: dict[str, float],
+    key: str,
+    total_key: str,
+    *alternate_keys: str,
+) -> float | None:
+    value = _row_number(row, key, *alternate_keys)
+    if value is None and data.get("rowset_complete") is True:
+        return contribution_totals.get(total_key)
+    return value
+
+
+def _append_withheld_contributions(
+    not_evaluated: list[dict[str, Any]], entity: dict[str, Any]
+) -> None:
+    for name in ("cache_miss_contribution_pct", "origin_pressure_contribution_pct"):
+        not_evaluated.append(
+            {
+                "entity": entity,
+                "name": name,
+                "reason": "contribution_withheld_source_limited",
+            }
+        )
 
 
 def _current_bucket_is_partial(data: dict[str, Any]) -> bool:
@@ -1423,50 +1491,57 @@ def _candidate_limitations(
 ) -> list[str]:
     limitations: set[str] = set()
     reason_set = set(confidence_reasons)
-    if "query_string_cardinality_approximate" in reason_set:
-        limitations.add("query_string_cardinality_approximate")
-    if "request_level_query" in reason_set:
-        limitations.add("request_level_query")
-    if "missing_retained_dimension" in reason_set:
-        limitations.add("missing_retained_dimension")
-    if "contribution_withheld_source_limited" in reason_set:
-        limitations.add("contribution_withheld_source_limited")
-    if "partial_current_bucket" in reason_set:
-        limitations.add("partial_current_bucket")
+    limitations.update(
+        reason
+        for reason in (
+            "query_string_cardinality_approximate",
+            "request_level_query",
+            "missing_retained_dimension",
+            "contribution_withheld_source_limited",
+            "partial_current_bucket",
+        )
+        if reason in reason_set
+    )
 
     response_metadata = optional_metadata.get("response_bytes")
     if isinstance(response_metadata, dict) and not response_metadata.get("available"):
         limitations.add("response_byte_metadata_not_available")
-    bot_context = optional_metadata.get("summary_context")
-    if isinstance(bot_context, dict):
-        limitations.update(
-            limitation
-            for limitation in bot_context.get("limitations", [])
-            if isinstance(limitation, str)
-        )
-
-    if any(entry.get("reason") == "baseline_absent" for entry in not_evaluated):
-        limitations.add("missing_baseline")
-    if any(
-        entry.get("name")
-        in {"cache_miss_contribution_pct", "origin_pressure_contribution_pct"}
-        and entry.get("reason") == "complete_scope_denominator_absent"
-        for entry in not_evaluated
-    ):
-        limitations.add("contribution_denominator_absent")
-    if any(
-        entry.get("name")
-        in {"cache_miss_contribution_pct", "origin_pressure_contribution_pct"}
-        and entry.get("reason") == "contribution_withheld_source_limited"
-        for entry in not_evaluated
-    ):
-        limitations.add("contribution_withheld_source_limited")
+    limitations.update(_summary_context_limitations(optional_metadata))
+    limitations.update(_not_evaluated_limitations(not_evaluated))
     if data.get("source_limited") is True or data.get("rowset_complete") is False:
         limitations.add("source_limited_rowset")
     request_level_scope = str(data.get("request_level_scope") or "").lower()
     if request_level_scope == "broad" or data.get("broad_request_level_query") is True:
         limitations.add("broad_request_level_query")
     return sorted(limitations)
+
+
+def _summary_context_limitations(optional_metadata: dict[str, Any]) -> set[str]:
+    bot_context = optional_metadata.get("summary_context")
+    if not isinstance(bot_context, dict):
+        return set()
+    return {
+        limitation
+        for limitation in bot_context.get("limitations", [])
+        if isinstance(limitation, str)
+    }
+
+
+def _not_evaluated_limitations(not_evaluated: list[dict[str, Any]]) -> set[str]:
+    limitations: set[str] = set()
+    if any(entry.get("reason") == "baseline_absent" for entry in not_evaluated):
+        limitations.add("missing_baseline")
+    for entry in not_evaluated:
+        if entry.get("name") not in {
+            "cache_miss_contribution_pct",
+            "origin_pressure_contribution_pct",
+        }:
+            continue
+        if entry.get("reason") == "complete_scope_denominator_absent":
+            limitations.add("contribution_denominator_absent")
+        if entry.get("reason") == "contribution_withheld_source_limited":
+            limitations.add("contribution_withheld_source_limited")
+    return limitations
 
 
 def _confidence_label(
@@ -1677,6 +1752,20 @@ def _score_features(
 ) -> tuple[list[dict[str, Any]], int, str]:
     features: list[dict[str, Any]] = []
 
+    _append_query_string_features(features, current, deltas)
+    _append_miss_rate_features(features, current, deltas)
+    _append_origin_impact_features(features, current, deltas)
+    _append_bot_and_volume_features(features, current)
+
+    score = min(sum(feature["points"] for feature in features), 100)
+    return features, score, _score_band(score)
+
+
+def _append_query_string_features(
+    features: list[dict[str, Any]],
+    current: dict[str, float],
+    deltas: dict[str, float],
+) -> None:
     qs_ratio = current.get("qs_diversity_ratio")
     if qs_ratio is not None and qs_ratio >= SCORING_THRESHOLDS["high_query_string_diversity"]:
         features.append(
@@ -1713,6 +1802,12 @@ def _score_features(
             )
         )
 
+
+def _append_miss_rate_features(
+    features: list[dict[str, Any]],
+    current: dict[str, float],
+    deltas: dict[str, float],
+) -> None:
     miss_rate = current.get("miss_rate_pct")
     if miss_rate is not None and miss_rate >= SCORING_THRESHOLDS["high_miss_rate"]:
         features.append(
@@ -1735,6 +1830,12 @@ def _score_features(
             )
         )
 
+
+def _append_origin_impact_features(
+    features: list[dict[str, Any]],
+    current: dict[str, float],
+    deltas: dict[str, float],
+) -> None:
     origin_p95_delta = deltas.get("origin_p95_delta_ms")
     origin_p95_pct_change = deltas.get("origin_p95_pct_change")
     if (
@@ -1773,6 +1874,10 @@ def _score_features(
             )
         )
 
+
+def _append_bot_and_volume_features(
+    features: list[dict[str, Any]], current: dict[str, float]
+) -> None:
     bot_share = max(
         current.get("bot_miss_share_pct", 0),
         current.get("bot_origin_pressure_share_pct", 0),
@@ -1801,16 +1906,15 @@ def _score_features(
             )
         )
 
-    score = min(sum(feature["points"] for feature in features), 100)
+
+def _score_band(score: int) -> str:
     if score >= 70:
-        band = "high"
-    elif score >= 45:
-        band = "medium"
-    elif score >= 20:
-        band = "low"
-    else:
-        band = "informational"
-    return features, score, band
+        return "high"
+    if score >= 45:
+        return "medium"
+    if score >= 20:
+        return "low"
+    return "informational"
 
 
 def _volume_sufficient(candidate: dict[str, Any]) -> bool:

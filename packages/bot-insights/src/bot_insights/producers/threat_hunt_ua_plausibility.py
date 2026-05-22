@@ -84,58 +84,17 @@ def _stable_major_as_of(
 def parse_user_agent(user_agent: str) -> dict[str, Any]:
     ua = str(user_agent or "")
     ua_lower = ua.lower()
-    browser_family = "Unknown"
-    browser_version = None
-    browser_major = None
-    for family, pattern in _TOKEN_PATTERNS:
-        match = pattern.search(ua)
-        if not match:
-            continue
-        browser_family = family
-        browser_version = match.group(1)
-        try:
-            browser_major = int(browser_version.split(".", 1)[0])
-        except ValueError:
-            browser_major = None
-        break
-
-    platform = "unknown"
-    if "Android" in ua:
-        platform = "Android"
-    elif "iPhone" in ua or "iPad" in ua:
-        platform = "iOS"
-    elif "Mac OS X" in ua or "Macintosh" in ua:
-        platform = "macOS"
-    elif "Windows" in ua:
-        platform = "Windows"
-    elif "Linux" in ua or "X11" in ua:
-        platform = "Linux"
-
-    device_class = "mobile" if re.search(r"\b(Mobile|Android|iPhone|iPad)\b", ua) else "desktop"
+    browser_family, browser_version, browser_major = _browser_token(ua)
+    platform = _platform_from_ua(ua)
+    device_class = _device_class_from_ua(ua)
     if "iPad" in ua or "Tablet" in ua:
         device_class = "tablet"
     client_family = browser_family
     ua_class = "browser" if browser_family != "Unknown" else "unknown"
     if ua_class == "unknown":
-        first_party_match = re.match(r"\s*(Expedia|Vrbo|Hotels\.com)/", ua, re.I)
-        if first_party_match and "cfnetwork" in ua_lower:
-            ua_class = "first_party_native_app"
-            client_family = first_party_match.group(1)
-            if platform == "unknown":
-                platform = "iOS"
-            device_class = "mobile"
-        elif re.search(r"\bokhttp/", ua, re.I) or re.search(r"\bDalvik/", ua, re.I):
-            ua_class = "http_client_library"
-            client_family = "okhttp" if re.search(r"\bokhttp/", ua, re.I) else "Dalvik"
-            if platform == "unknown" and ("Dalvik/" in ua or "Android" in ua):
-                platform = "Android"
-            device_class = "mobile" if platform == "Android" else "unknown"
-        elif "cfnetwork" in ua_lower:
-            ua_class = "native_sdk"
-            client_family = "CFNetwork"
-            if platform == "unknown":
-                platform = "iOS"
-            device_class = "mobile"
+        ua_class, client_family, platform, device_class = _non_browser_client(
+            ua, ua_lower, platform, device_class
+        )
 
     return {
         "browser_family": browser_family,
@@ -146,6 +105,58 @@ def parse_user_agent(user_agent: str) -> dict[str, Any]:
         "ua_class": ua_class,
         "client_family": client_family,
     }
+
+
+def _browser_token(ua: str) -> tuple[str, str | None, int | None]:
+    for family, pattern in _TOKEN_PATTERNS:
+        match = pattern.search(ua)
+        if not match:
+            continue
+        version = match.group(1)
+        try:
+            major = int(version.split(".", 1)[0])
+        except ValueError:
+            major = None
+        return family, version, major
+    return "Unknown", None, None
+
+
+def _platform_from_ua(ua: str) -> str:
+    if "Android" in ua:
+        return "Android"
+    if "iPhone" in ua or "iPad" in ua:
+        return "iOS"
+    if "Mac OS X" in ua or "Macintosh" in ua:
+        return "macOS"
+    if "Windows" in ua:
+        return "Windows"
+    if "Linux" in ua or "X11" in ua:
+        return "Linux"
+    return "unknown"
+
+
+def _device_class_from_ua(ua: str) -> str:
+    return "mobile" if re.search(r"\b(Mobile|Android|iPhone|iPad)\b", ua) else "desktop"
+
+
+def _non_browser_client(
+    ua: str, ua_lower: str, platform: str, device_class: str
+) -> tuple[str, str, str, str]:
+    first_party_match = re.match(r"\s*(Expedia|Vrbo|Hotels\.com)/", ua, re.I)
+    if first_party_match and "cfnetwork" in ua_lower:
+        return "first_party_native_app", first_party_match.group(1), _ios_if_unknown(platform), "mobile"
+    if re.search(r"\bokhttp/", ua, re.I) or re.search(r"\bDalvik/", ua, re.I):
+        client_family = "okhttp" if re.search(r"\bokhttp/", ua, re.I) else "Dalvik"
+        resolved_platform = "Android" if platform == "unknown" and ("Dalvik/" in ua or "Android" in ua) else platform
+        resolved_device = "mobile" if resolved_platform == "Android" else "unknown"
+        return "http_client_library", client_family, resolved_platform, resolved_device
+    if "cfnetwork" in ua_lower:
+        return "native_sdk", "CFNetwork", _ios_if_unknown(platform), "mobile"
+    return "unknown", "Unknown", platform, device_class
+
+
+def _ios_if_unknown(platform: str) -> str:
+    return "iOS" if platform == "unknown" else platform
 
 
 def _signal(status: str, score: float, **fields: Any) -> dict[str, Any]:
@@ -182,12 +193,26 @@ def _version_currency(
 
 def _structural(user_agent: str, parsed: dict[str, Any]) -> dict[str, Any]:
     ua = str(user_agent or "")
-    checks: list[str] = []
     version = str(parsed.get("browser_version") or "")
     family = str(parsed.get("browser_family") or "")
     platform = str(parsed.get("platform") or "")
     device = str(parsed.get("device_class") or "")
+    checks = _structural_checks(ua, version, family, platform, device, parsed)
 
+    if not checks:
+        return _signal("normal", 0.0, checks=[])
+    return _signal("anomalous", _structural_score(checks), checks=checks)
+
+
+def _structural_checks(
+    ua: str,
+    version: str,
+    family: str,
+    platform: str,
+    device: str,
+    parsed: dict[str, Any],
+) -> list[str]:
+    checks: list[str] = []
     if re.search(r"Android 10;\s*K[;\)]", ua):
         checks.append("android_10_k_anachronism")
     if version and re.fullmatch(r"\d+\.0\.0\.0", version):
@@ -200,9 +225,10 @@ def _structural(user_agent: str, parsed: dict[str, Any]) -> dict[str, Any]:
         checks.append("android_mobile_desktop_token_mismatch")
     if platform in {"Windows", "macOS", "Linux"} and "Mobile Safari" in ua and "iPhone" not in ua and "Android" not in ua:
         checks.append("desktop_platform_mobile_safari_mismatch")
+    return checks
 
-    if not checks:
-        return _signal("normal", 0.0, checks=[])
+
+def _structural_score(checks: list[str]) -> float:
     score = 0.25
     if "android_10_k_anachronism" in checks:
         score = max(score, 0.35)
@@ -212,7 +238,7 @@ def _structural(user_agent: str, parsed: dict[str, Any]) -> dict[str, Any]:
         score = max(score, 0.6)
     if any("mismatch" in check for check in checks):
         score = max(score, 0.4)
-    return _signal("anomalous", score, checks=checks)
+    return score
 
 
 def _fanout(
@@ -222,18 +248,9 @@ def _fanout(
     fanout_by_ua: dict[str, dict[str, Any]],
     fallback_unique_ips: Any,
 ) -> dict[str, Any]:
-    row = fanout_by_ua.get(user_agent)
-    source = "summary_hour"
-    if row:
-        source = str(row.get("source") or source)
-        unique_ips = _num(row.get("unique_ips") if row.get("unique_ips") is not None else row.get("unique_client_ips"))
-        requests = _num(row.get("hits") if row.get("hits") is not None else row.get("requests"))
-        probe_window_hours = _num(row.get("probe_window_hours"), 0.0) or None
-    else:
-        source = "cooccurrence_lower_bound" if fallback_unique_ips is not None else "unavailable"
-        unique_ips = _num(fallback_unique_ips)
-        requests = 0.0
-        probe_window_hours = None
+    source, unique_ips, requests, probe_window_hours = _fanout_inputs(
+        user_agent, fanout_by_ua, fallback_unique_ips
+    )
     if source == "unavailable" or unique_ips <= 0:
         return _signal(
             "unavailable",
@@ -250,48 +267,11 @@ def _fanout(
     family = str(parsed.get("browser_family") or "")
     device = str(parsed.get("device_class") or "")
     ua_class = str(parsed.get("ua_class") or "unknown")
-    if ua_class == "browser":
-        strong_threshold = 100_000 if device in {"mobile", "tablet"} or family == "Safari" else 50_000
-        elevated_threshold = strong_threshold / 5
-    elif ua_class == "first_party_native_app":
-        strong_threshold = 5_000_000
-        elevated_threshold = 250_000
-    elif ua_class == "http_client_library":
-        strong_threshold = 1_000_000
-        elevated_threshold = 100_000
-    elif ua_class == "native_sdk":
-        strong_threshold = 2_500_000
-        elevated_threshold = 250_000
-    else:
-        strong_threshold = 100_000
-        elevated_threshold = 20_000
-    if source == "logs_probe":
-        effective_ips = unique_ips * min((probe_window_hours or 1.0) * 3.0, 24.0)
-        caveat = (
-            f"Peak-hour raw-log probe observed {int(unique_ips):,} IPs; "
-            f"effective IPs use a conservative bounded lower-bound estimate over {probe_window_hours or 1:g} hour(s)."
-        )
-    elif source == "cooccurrence_lower_bound":
-        effective_ips = unique_ips
-        caveat = (
-            f"Existing cooccurrence evidence observed at least {int(unique_ips):,} IPs; "
-            "true full-window fan-out is unknown and no extrapolation is applied."
-        )
-    else:
-        effective_ips = unique_ips
-        caveat = f"Full-window summary-hour fan-out observed {int(unique_ips):,} unique IPs for this byte-identical UA."
-    if effective_ips >= strong_threshold:
-        status = "strong_shared_exact_ua" if ua_class == "browser" else f"strong_{ua_class}_fanout"
-        score = 1.0 if ua_class == "browser" else 0.6 if ua_class == "first_party_native_app" else 0.45
-        threshold_class = "strong"
-    elif effective_ips >= elevated_threshold:
-        status = "elevated_shared_exact_ua" if ua_class == "browser" else f"normal_{ua_class}_scale_distribution"
-        score = 0.45 if ua_class == "browser" else 0.15 if ua_class == "first_party_native_app" else 0.25
-        threshold_class = "elevated"
-    else:
-        status = "normal"
-        score = 0.0
-        threshold_class = "normal"
+    strong_threshold, elevated_threshold = _fanout_thresholds(ua_class, device, family)
+    effective_ips, caveat = _fanout_effective_ips(source, unique_ips, probe_window_hours)
+    status, score, threshold_class = _fanout_status(
+        effective_ips, strong_threshold, elevated_threshold, ua_class
+    )
     return _signal(
         status,
         score,
@@ -308,6 +288,72 @@ def _fanout(
         elevated_threshold=elevated_threshold,
         ua_class=ua_class,
     )
+
+
+def _fanout_inputs(
+    user_agent: str,
+    fanout_by_ua: dict[str, dict[str, Any]],
+    fallback_unique_ips: Any,
+) -> tuple[str, float, float, float | None]:
+    row = fanout_by_ua.get(user_agent)
+    if row:
+        source = str(row.get("source") or "summary_hour")
+        unique_ips = _num(row.get("unique_ips") if row.get("unique_ips") is not None else row.get("unique_client_ips"))
+        requests = _num(row.get("hits") if row.get("hits") is not None else row.get("requests"))
+        return source, unique_ips, requests, _num(row.get("probe_window_hours"), 0.0) or None
+    source = "cooccurrence_lower_bound" if fallback_unique_ips is not None else "unavailable"
+    return source, _num(fallback_unique_ips), 0.0, None
+
+
+def _fanout_thresholds(
+    ua_class: str, device: str, family: str
+) -> tuple[float, float]:
+    if ua_class == "browser":
+        strong = 100_000 if device in {"mobile", "tablet"} or family == "Safari" else 50_000
+        return strong, strong / 5
+    if ua_class == "first_party_native_app":
+        return 5_000_000, 250_000
+    if ua_class == "http_client_library":
+        return 1_000_000, 100_000
+    if ua_class == "native_sdk":
+        return 2_500_000, 250_000
+    return 100_000, 20_000
+
+
+def _fanout_effective_ips(
+    source: str, unique_ips: float, probe_window_hours: float | None
+) -> tuple[float, str]:
+    if source == "logs_probe":
+        effective_ips = unique_ips * min((probe_window_hours or 1.0) * 3.0, 24.0)
+        return effective_ips, (
+            f"Peak-hour raw-log probe observed {int(unique_ips):,} IPs; "
+            f"effective IPs use a conservative bounded lower-bound estimate over {probe_window_hours or 1:g} hour(s)."
+        )
+    if source == "cooccurrence_lower_bound":
+        return unique_ips, (
+            f"Existing cooccurrence evidence observed at least {int(unique_ips):,} IPs; "
+            "true full-window fan-out is unknown and no extrapolation is applied."
+        )
+    return unique_ips, (
+        f"Full-window summary-hour fan-out observed {int(unique_ips):,} unique IPs for this byte-identical UA."
+    )
+
+
+def _fanout_status(
+    effective_ips: float,
+    strong_threshold: float,
+    elevated_threshold: float,
+    ua_class: str,
+) -> tuple[str, float, str]:
+    if effective_ips >= strong_threshold:
+        status = "strong_shared_exact_ua" if ua_class == "browser" else f"strong_{ua_class}_fanout"
+        score = 1.0 if ua_class == "browser" else 0.6 if ua_class == "first_party_native_app" else 0.45
+        return status, score, "strong"
+    if effective_ips >= elevated_threshold:
+        status = "elevated_shared_exact_ua" if ua_class == "browser" else f"normal_{ua_class}_scale_distribution"
+        score = 0.45 if ua_class == "browser" else 0.15 if ua_class == "first_party_native_app" else 0.25
+        return status, score, "elevated"
+    return "normal", 0.0, "normal"
 
 
 def _homogeneity(

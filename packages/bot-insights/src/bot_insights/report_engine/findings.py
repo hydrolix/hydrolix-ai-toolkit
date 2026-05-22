@@ -43,67 +43,11 @@ def build_scorecard_brief_findings(
     coverage: dict[str, dict[str, int]],
 ) -> list[Finding]:
     findings: list[Finding] = []
-
-    rule_fires: Counter = Counter()
-    for sc in scorecards:
-        for r in scorecards_mod.normalize_rule_results(sc):
-            if r.get("status") == "triggered":
-                rule_fires[r.get("name") or ""] += 1
-
-    if rule_fires and n_with_triggers > 0:
-        top_rule, top_n = rule_fires.most_common(1)[0]
-        primary = next(
-            (d for d, _ in domain_counts.most_common() if d != "none"),
-            None,
-        )
-        domain_phrase = (
-            DOMAIN_LABELS.get(primary, primary).lower() if primary else "rule"
-        )
-
-        if top_n >= 3 and top_n >= 0.8 * n_with_triggers:
-            findings.append(
-                Finding(
-                    finding_id="shared_signal",
-                    title=(
-                        f"{top_n} hosts share one {domain_phrase} signal — "
-                        f"investigate as one issue, not {top_n}"
-                    ),
-                    body=(
-                        f"`{top_rule}` fired on {top_n} of {n_total} hosts; "
-                        f"the other triggered rules are sparse. A shared signal "
-                        f"more often points to a single fleet-wide cause than to "
-                        f"{top_n} independent occurrences."
-                    ),
-                    priority=10,
-                )
-            )
-        else:
-            findings.append(
-                Finding(
-                    finding_id="multi_signal",
-                    title=(
-                        f"{n_with_triggers} of {n_total} hosts triggered at least one rule"
-                    ),
-                    body=(
-                        f"Top rule: `{top_rule}` ({top_n} hosts). "
-                        f"The signal mix is varied — investigate per-host before "
-                        f"concluding a shared cause."
-                    ),
-                    priority=8,
-                )
-            )
-    elif n_total > 0:
-        findings.append(
-            Finding(
-                finding_id="all_clean",
-                title=f"All {n_total} hosts produced no triggered rules",
-                body=(
-                    "No mechanical signals crossed thresholds in this window. "
-                    "Treat as a baseline observation rather than a positive control."
-                ),
-                priority=10,
-            )
-        )
+    shared_signal = _shared_signal_finding(
+        scorecards, n_total, n_with_triggers, domain_counts
+    )
+    if shared_signal:
+        findings.append(shared_signal)
 
     total_missing = sum(c.get("missing_input", 0) for c in coverage.values())
     total_rules = sum(sum(c.values()) for c in coverage.values())
@@ -183,6 +127,64 @@ def build_scorecard_brief_findings(
 
     findings.sort(key=lambda f: -f.priority)
     return findings
+
+
+def _shared_signal_finding(
+    scorecards: list[dict],
+    n_total: int,
+    n_with_triggers: int,
+    domain_counts: Counter,
+) -> Finding | None:
+    rule_fires = _triggered_rule_counts(scorecards)
+    if rule_fires and n_with_triggers > 0:
+        top_rule, top_n = rule_fires.most_common(1)[0]
+        primary = next((d for d, _ in domain_counts.most_common() if d != "none"), None)
+        domain_phrase = DOMAIN_LABELS.get(primary, primary).lower() if primary else "rule"
+        if top_n >= 3 and top_n >= 0.8 * n_with_triggers:
+            return Finding(
+                finding_id="shared_signal",
+                title=(
+                    f"{top_n} hosts share one {domain_phrase} signal — "
+                    f"investigate as one issue, not {top_n}"
+                ),
+                body=(
+                    f"`{top_rule}` fired on {top_n} of {n_total} hosts; "
+                    f"the other triggered rules are sparse. A shared signal "
+                    f"more often points to a single fleet-wide cause than to "
+                    f"{top_n} independent occurrences."
+                ),
+                priority=10,
+            )
+        return Finding(
+            finding_id="multi_signal",
+            title=f"{n_with_triggers} of {n_total} hosts triggered at least one rule",
+            body=(
+                f"Top rule: `{top_rule}` ({top_n} hosts). "
+                f"The signal mix is varied — investigate per-host before "
+                f"concluding a shared cause."
+            ),
+            priority=8,
+        )
+    if n_total > 0:
+        return Finding(
+            finding_id="all_clean",
+            title=f"All {n_total} hosts produced no triggered rules",
+            body=(
+                "No mechanical signals crossed thresholds in this window. "
+                "Treat as a baseline observation rather than a positive control."
+            ),
+            priority=10,
+        )
+    return None
+
+
+def _triggered_rule_counts(scorecards: list[dict]) -> Counter:
+    rule_fires: Counter = Counter()
+    for sc in scorecards:
+        for r in scorecards_mod.normalize_rule_results(sc):
+            if r.get("status") == "triggered":
+                rule_fires[r.get("name") or ""] += 1
+    return rule_fires
 
 
 def apply_finding_overrides(

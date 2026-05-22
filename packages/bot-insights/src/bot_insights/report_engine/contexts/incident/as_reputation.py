@@ -136,18 +136,24 @@ def _read_structured_file(path: Path):
 
 def _iter_snapshot_records(raw) -> Iterable[dict]:
     if isinstance(raw, list):
-        for item in raw:
-            if isinstance(item, dict):
-                yield item
+        yield from _dict_items(raw)
         return
     if not isinstance(raw, dict):
         return
     for key in ("records", "entries", "asndrop", "asn_drop", "data"):
         if isinstance(raw.get(key), list):
-            for item in raw[key]:
-                if isinstance(item, dict):
-                    yield item
+            yield from _dict_items(raw[key])
             return
+    yield from _keyed_snapshot_records(raw)
+
+
+def _dict_items(items) -> Iterable[dict]:
+    for item in items:
+        if isinstance(item, dict):
+            yield item
+
+
+def _keyed_snapshot_records(raw: dict) -> Iterable[dict]:
     for key, value in raw.items():
         if isinstance(value, dict):
             record = dict(value)
