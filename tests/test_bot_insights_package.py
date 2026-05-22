@@ -429,19 +429,7 @@ def test_bot_insights_package_file_length_audit() -> None:
         "_render_report/legacy_html.py",
         "_render_report/legacy_markdown.py",
         "_render_report/validators.py",
-        "attribution.py",
-        "bot_insights_capture.py",
-        "cache_origin_impact.py",
-        "producers/cli.py",
-        "producers/evidence/incident.py",
-        "producers/orchestrators/incident_report.py",
-        "producers/sql/incident.py",
-        "producers/threat_hunt.py",
-        "producers/threat_hunt_campaigns.py",
-        "report_engine/contexts/incident/module.py",
-        "report_engine/contexts/incident/print_adapter.py",
-        "report_engine/contexts/threat_hunt.py",
-        "scorecard.py",
+        "producers/cli/part_03.py",
     }
     oversized = {
         _rel(path)

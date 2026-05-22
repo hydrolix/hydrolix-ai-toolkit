@@ -72,6 +72,7 @@ repeated, or likely to be reimplemented inconsistently by agents.
 Run these checks before opening a pull request:
 
 ```bash
+uv run python scripts/check-source-lines.py
 uv run python scripts/validate-skill-examples.py --strict
 uv run python -m unittest discover -s tests
 scripts/generate-site.sh
