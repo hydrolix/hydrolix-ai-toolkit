@@ -7,14 +7,15 @@ import json
 import os
 import re
 import shutil
-import ssl
 import sys
 import tempfile
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import httpx
+from sqlglot import exp, parse
+from sqlglot.errors import ParseError
 
 
 TIME_PREDICATE_RE = re.compile(
@@ -26,6 +27,8 @@ PLACEHOLDER_RE = re.compile(r"\{\{[^}]+\}\}|\$\{[^}]+\}")
 SENTINEL_ENV = "REPORTKIT_CAPTURE_OP_RUN"
 CLUSTER_DIR_ENV = ("HYDROLIX_CLUSTER_DIR", "HDX_CLUSTER_DIR")
 DEFAULT_HANDOFF_SCHEMA = "hydrolix_mcp_query_request.v1"
+DEFAULT_QUERY_TIMEOUT_SECONDS = 60.0
+TIMEOUT_ENV = "REPORTKIT_HYDROLIX_TIMEOUT_SECONDS"
 
 
 @dataclass(frozen=True)
@@ -298,66 +301,56 @@ def ensure_format_json(sql: str) -> str:
     return f"{sql.rstrip(';')} FORMAT JSON"
 
 
-def split_sql_statements(sql: str) -> list[str]:
-    statements: list[str] = []
-    start = 0
-    in_single_quote = False
-    i = 0
-    while i < len(sql):
-        ch = sql[i]
-        if ch == "'":
-            if in_single_quote and i + 1 < len(sql) and sql[i + 1] == "'":
-                i += 2
-                continue
-            in_single_quote = not in_single_quote
-        elif ch == ";" and not in_single_quote:
-            statement = sql[start:i].strip()
-            if statement:
-                statements.append(statement)
-            start = i + 1
-        i += 1
-    tail = sql[start:].strip()
-    if tail:
-        statements.append(tail)
-    return statements
-
-
 def reject_invalid_sql(sql: str, *, require_time_range: bool) -> None:
     compact = sql.strip()
     if not compact:
         raise SystemExit("SQL is empty.")
-    body = re.sub(r"\bFORMAT\s+\w+\s*$", "", compact, flags=re.IGNORECASE).strip()
-    statements = split_sql_statements(body)
-    if len(statements) > 1:
-        raise SystemExit("SQL must contain exactly one SELECT statement.")
-    if not re.match(r"^(?:WITH\b[\s\S]+?\bSELECT\b|SELECT\b)", statements[0], re.IGNORECASE):
-        raise SystemExit("Only SELECT SQL is allowed.")
     if PLACEHOLDER_RE.search(compact):
         raise SystemExit("SQL contains unresolved placeholders.")
+    try:
+        statements = parse(compact, read="clickhouse")
+    except ParseError as exc:
+        raise SystemExit(f"SQL could not be parsed: {exc}") from exc
+    statements = [statement for statement in statements if statement is not None]
+    if len(statements) != 1:
+        raise SystemExit("SQL must contain exactly one SELECT statement.")
+    if not isinstance(statements[0], exp.Select):
+        raise SystemExit("Only SELECT SQL is allowed.")
     if require_time_range and not TIME_PREDICATE_RE.search(compact):
         raise SystemExit("SQL must include a timestamp or reqTimeSec predicate.")
 
 
-def query_hydrolix(sql: str, config: QueryConfig) -> tuple[dict[str, Any], dict[str, Any]]:
-    context = None
-    if config.url.startswith("https://") and not config.verify_tls:
-        context = ssl._create_unverified_context()
-    request = urllib.request.Request(
-        config.url,
-        data=sql.encode("utf-8"),
-        headers=config.headers,
-        method="POST",
-    )
+def query_timeout_seconds(env: dict[str, str] | None = None) -> float:
+    source = env or os.environ
+    raw_value = source.get(TIMEOUT_ENV)
+    if not raw_value:
+        return DEFAULT_QUERY_TIMEOUT_SECONDS
     try:
-        with urllib.request.urlopen(request, context=context) as response:
-            body = response.read()
+        value = float(raw_value)
+    except ValueError as exc:
+        raise SystemExit(f"{TIMEOUT_ENV} must be a positive number of seconds.") from exc
+    if value <= 0:
+        raise SystemExit(f"{TIMEOUT_ENV} must be a positive number of seconds.")
+    return value
+
+
+def query_hydrolix(sql: str, config: QueryConfig) -> tuple[dict[str, Any], dict[str, Any]]:
+    timeout = query_timeout_seconds()
+    try:
+        with httpx.Client(verify=config.verify_tls, timeout=timeout) as client:
+            response = client.post(config.url, content=sql.encode("utf-8"), headers=config.headers)
+            status = response.status_code
             headers = dict(response.headers.items())
-            status = response.status
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:1000]
-        raise SystemExit(f"Hydrolix query failed with HTTP {exc.code}: {detail}") from exc
-    except urllib.error.URLError as exc:
-        raise SystemExit(f"Hydrolix query failed: {exc.reason}") from exc
+            body = response.content
+            response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        detail = exc.response.text[:1000]
+        raise SystemExit(
+            f"Hydrolix query failed with HTTP {exc.response.status_code}: {detail}"
+        ) from exc
+    except httpx.RequestError as exc:
+        reason = str(exc) or exc.__class__.__name__
+        raise SystemExit(f"Hydrolix query failed: {reason}") from exc
 
     try:
         parsed = json.loads(body.decode("utf-8"))

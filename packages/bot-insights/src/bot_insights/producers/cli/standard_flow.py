@@ -29,7 +29,7 @@ def run_standard_flow(
         run_func=run_func,
         load_raw_query_result_func=load_raw_query_result_func,
     )
-    if capture_summary in {NEEDS_MCP_EXIT, 0}:
+    if isinstance(capture_summary, int) and capture_summary in {NEEDS_MCP_EXIT, 0}:
         return capture_summary
     raw_value = _add_metadata(args, raw_value, plan, baseline_start)
     paths["raw"].write_text(

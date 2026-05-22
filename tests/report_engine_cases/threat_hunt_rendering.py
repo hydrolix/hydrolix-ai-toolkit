@@ -69,7 +69,7 @@ def test_threat_hunt_registered_and_renders_markdown(tmp_path):
     html = _render(path)
     assert 'class="report-header"' not in html
     assert '<div class="thr">' in html
-    assert '<header class="thr-header">' in html
+    assert 'class="thr-header header-titles"' in html
     assert "Hydrolix" in html
     assert "2026-05-01T00:00:00Z to 2026-05-02T00:00:00Z" in html
     assert 'data-hx-export-all' in html
@@ -88,7 +88,7 @@ def test_threat_hunt_registered_and_renders_markdown(tmp_path):
     assert '<div class="thr-eyebrow">Verdict</div>' not in html
     assert '<span class="thr-h1-sub"> · Threat Hunt</span>' in html
     assert "scraper coordination hunt" not in html
-    assert 'class="thr-lede-grid" aria-label="Threat hunt topline"' in html
+    assert 'class="thr-lede-grid dek" aria-label="Threat hunt topline"' in html
     assert html.index("What the hunt found") < html.index("Hunt impact")
     assert html.index("Impact of those findings") < html.index("Hunt impact")
     assert html.index("Recommended actions") < html.index("Hunt impact")

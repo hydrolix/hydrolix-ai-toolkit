@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 import re
 
-from producers.formatting import sql_literal
+from producers.formatting import sql_literal, sql_ts
 
 _SIMPLE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 def _incident_identifier(name: str) -> str:

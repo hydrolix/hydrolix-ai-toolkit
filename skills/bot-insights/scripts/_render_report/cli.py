@@ -227,26 +227,13 @@ def render(
     selected = validate_report_artifacts(report_type, artifacts, ctx)
     scan_metadata_warnings(artifacts, ctx)
     validate_analyst_notes(notes, artifacts)
-    # Wrapper inputs route through the report_engine by default. The
-    # legacy renderer for wrappers stays reachable via the
-    # ``BOT_INSIGHTS_RENDER_PATH=legacy`` test override; M4.5 retired
-    # the parity gates that previously consumed the override but the
-    # mechanism survives as test infrastructure for the wrapper-mode
-    # legacy regression tests in ``tests/test_skill_scripts.py``
-    # (``BotInsightsScriptTests``). Removing the override would
-    # require rewriting ~28 tests against engine output, deferred to
-    # a follow-up PR (see plan.md M4.5 trailer). Plan v3 M4.1
-    # confirmed Path B (raw-mode preserved) which the
-    # raw-artifact short-circuit at the top of ``_render_via_engine``
-    # also depends on.
-    render_path = os.environ.get("BOT_INSIGHTS_RENDER_PATH", "auto").lower()
     output_format = "html" if args.format == "pdf" else args.format
     profile = "print" if args.format == "pdf" else getattr(args, "profile", "screen")
     theme_mode = getattr(args, "theme", "auto")
     if profile == "print" and theme_mode == "auto":
         theme_mode = "light"
 
-    if render_path != "legacy":
+    if not raw_mode:
         engine_output = _render_via_engine(
             report_type=report_type,
             value=value,
@@ -261,16 +248,9 @@ def render(
         )
         if engine_output is not None:
             return engine_output, ctx.warnings
-        # ``None`` here means the raw-artifact short-circuit fired:
-        # the input is not a ``bot_report_input.v1`` wrapper. M3.3
-        # tightened the engine bridge so wrapper inputs always
-        # either return a rendered string or raise ``ReportError``.
-        if render_path == "engine":
-            raise ReportError(
-                f"BOT_INSIGHTS_RENDER_PATH=engine but engine returned "
-                f"None for report_type {report_type!r} — input is not "
-                "a wrapper or engine deps unavailable."
-            )
+        raise ReportError(
+            f"Report engine returned None for wrapper report_type {report_type!r}."
+        )
     if output_format == "html":
         return (
             render_html(

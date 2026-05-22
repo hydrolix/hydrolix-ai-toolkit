@@ -10,6 +10,7 @@ dependencies = [
   "pydantic>=2.0",
   "pyyaml>=6.0",
   "reportkit",
+  "ua-parser>=1.0.2",
 ]
 
 [project.scripts]
@@ -65,6 +66,14 @@ max-complexity = 10
 # infer_dimensions, validate_baseline_metadata, normalize_input_rows,
 # classify_row, build_buckets, normalize_attribution.
 "src/bot_insights/attribution.py" = ["C901"]
+"src/bot_insights/attribution/part_03.py" = ["C901"]
+"src/bot_insights/attribution/part_04.py" = ["C901"]
+"src/bot_insights/attribution/part_05.py" = ["C901"]
+"src/bot_insights/attribution/part_07.py" = ["C901"]
+"src/bot_insights/attribution/part_08.py" = ["C901"]
+"src/bot_insights/attribution/part_09.py" = ["C901"]
+"src/bot_insights/attribution/part_10.py" = ["C901"]
+"src/bot_insights/attribution/part_11.py" = ["C901"]
 # Remaining CLI follow-up: split main into report command handlers while
 # preserving argparse behavior and bot_insights_report shim patch points.
 "src/bot_insights/producers/cli.py" = ["C901"]

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from producers.formatting import choose_granularity, sql_ts
+from producers.formatting import choose_granularity, sql_literal, sql_ts
 
 
 SCORECARD_ENTITY_SQL = {
@@ -258,7 +258,7 @@ def cache_origin_path_sql(
 ) -> str:
     granularity = choose_granularity(start, end)
     table = f"{database}.bot_agg_path_{granularity}"
-    host_clause = f"\n  AND request_host = '{host_filter}'" if host_filter else ""
+    host_clause = f"\n  AND request_host = {sql_literal(host_filter)}" if host_filter else ""
     limit_clause = f"\nLIMIT {producer_limit}" if producer_limit > 0 else ""
     return f"""
 WITH

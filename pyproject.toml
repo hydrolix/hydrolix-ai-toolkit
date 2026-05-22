@@ -35,9 +35,20 @@ max-complexity = 10
 # infer_dimensions, validate_baseline_metadata, normalize_input_rows,
 # classify_row, build_buckets, normalize_attribution.
 "packages/bot-insights/src/bot_insights/attribution.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/attribution/part_03.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/attribution/part_04.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/attribution/part_05.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/attribution/part_07.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/attribution/part_08.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/attribution/part_09.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/attribution/part_10.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/attribution/part_11.py" = ["C901"]
 # Remaining CLI follow-up: split main into report command handlers while
 # preserving argparse behavior and bot_insights_report shim patch points.
 "packages/bot-insights/src/bot_insights/producers/cli.py" = ["C901"]
+# Existing chart helper follow-up: split score histogram geometry from SVG
+# assembly without changing report snapshots.
+"reportkit/src/reportkit/charts.py" = ["C901"]
 
 [tool.pyright]
 pythonVersion = "3.11"

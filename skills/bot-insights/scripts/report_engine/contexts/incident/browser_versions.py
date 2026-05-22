@@ -17,12 +17,13 @@ Suggested refresh sources:
 from __future__ import annotations
 
 import json
-import re
 import sys
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from ua_parser import parse as parse_ua
 
 _SCRIPTS_DIR = Path(__file__).resolve().parents[4]
 if str(_SCRIPTS_DIR) not in sys.path:
@@ -39,14 +40,6 @@ __all__ = [
 ]
 
 
-_TOKEN_PATTERNS = (
-    ("Edge", re.compile(r"\bEdg(?:e|A|iOS)?/(\d+)", re.I)),
-    ("Firefox", re.compile(r"\bFirefox/(\d+)", re.I)),
-    ("Chrome", re.compile(r"\b(?:Chrome|CriOS)/(\d+)", re.I)),
-    ("Safari", re.compile(r"\bVersion/(\d+)(?:\.\d+)*\s+Safari/", re.I)),
-)
-
-
 @dataclass(frozen=True)
 class BrowserToken:
     family: str
@@ -56,14 +49,24 @@ class BrowserToken:
 
 
 def parse_browser_user_agent(user_agent: str) -> dict[str, Any]:
-    """Parse browser family/version with deterministic precedence."""
+    """Parse browser family/version while preserving report-facing fields."""
     ua = str(user_agent or "")
-    for family, pattern in _TOKEN_PATTERNS:
-        match = pattern.search(ua)
-        if not match:
-            continue
-        caveat = None
+    parsed = parse_ua(ua).user_agent
+    parser_family = str(parsed.family or "") if parsed is not None else ""
+    major = _safe_number(parsed.major) if parsed is not None else None
+    family: str | None = None
+    if parser_family == "Edge" or parser_family.startswith("Edge "):
+        family = "Edge"
+    elif parser_family == "Firefox" or parser_family.startswith("Firefox "):
+        family = "Firefox"
+    elif "Chrome" in parser_family or "Chromium" in parser_family:
+        family = "Chrome"
+    elif parser_family == "Safari" or parser_family.startswith("Mobile Safari"):
+        family = "Safari"
+
+    if family and major is not None:
         label = family
+        caveat = None
         if family == "Chrome":
             label = "Chrome/Chromium token"
             caveat = (
@@ -72,7 +75,7 @@ def parse_browser_user_agent(user_agent: str) -> dict[str, Any]:
             )
         return {
             "family": family,
-            "major_version": int(match.group(1)),
+            "major_version": int(major),
             "label": label,
             "caveat": caveat,
         }

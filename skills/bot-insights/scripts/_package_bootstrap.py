@@ -40,7 +40,7 @@ def main_proxy(module: ModuleType, namespace: dict[str, object]):
                 "_module",
             }:
                 continue
-            module.__dict__[name] = value
+            setattr(module, name, value)
         return module.main(*args, **kwargs)
 
     return _main

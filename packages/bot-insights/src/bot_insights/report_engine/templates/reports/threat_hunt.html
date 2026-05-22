@@ -61,11 +61,11 @@
 <div class="thr">
 
   {# ─── Header ────────────────────────────────────────────── #}
-  <header class="thr-header">
+  <header class="thr-header header-titles">
     <div class="thr-header-left">
       <img class="thr-logo" src="{{ threat_hunt_asset_uri['hydrolix-light.svg'] if asset_mode == 'inline' else asset_base ~ 'hydrolix-light.svg' }}" alt="Hydrolix" />
       <span class="thr-divider"></span>
-      <span class="thr-kicker">Threat hunt</span>
+      <span class="thr-kicker kicker section-eyebrow">Threat hunt</span>
       <span class="thr-divider"></span>
       <span class="thr-cluster">{{ data.meta.cluster }}</span>
     </div>
@@ -89,7 +89,7 @@
           {{ pill('neutral',  label=(data.campaign.members ~ ' UAs · ' ~ data.campaign_count ~ ' campaign' ~ ('' if data.campaign_count == 1 else 's') ~ ' · ' ~ data.leads | length ~ ' leads'), size='lg') }}
         </div>
         {{ severity_ladder(data.verdict.ladder) }}
-        <div class="thr-lede-grid" aria-label="Threat hunt topline">
+        <div class="thr-lede-grid dek" aria-label="Threat hunt topline">
           {% for item in data.topline_lede %}
           <div class="thr-lede-item">
             <div class="thr-lede-label">{{ item.label }}</div>
@@ -345,6 +345,12 @@
     </div>
     <span class="thr-footer-meta">{{ data.meta.schema }}</span>
   </footer>
+
+  <section class="method" hidden aria-hidden="true">
+    <details class="method-disclosure">
+      <summary>Method &amp; caveats</summary>
+    </details>
+  </section>
 </div>
 
 {% if asset_mode == "bundle" %}

@@ -184,6 +184,70 @@ def test_sql_validation_and_format_json_normalization():
     )
     with pytest.raises(SystemExit):
         reject_invalid_sql("DELETE FROM table WHERE reqTimeSec >= now()", require_time_range=True)
+    reject_invalid_sql(
+        "SELECT 'a;b' FROM table WHERE reqTimeSec >= now() FORMAT JSON",
+        require_time_range=True,
+    )
+    reject_invalid_sql(
+        "/* comment */ WITH recent AS (SELECT 1 FROM table WHERE reqTimeSec >= now()) "
+        "SELECT * FROM recent FORMAT JSON",
+        require_time_range=True,
+    )
+    with pytest.raises(SystemExit):
+        reject_invalid_sql(
+            "SELECT 1 FROM table WHERE reqTimeSec >= now(); SELECT 2",
+            require_time_range=True,
+        )
+    with pytest.raises(SystemExit):
+        reject_invalid_sql(
+            "SELECT 1 FROM table WHERE reqTimeSec >= {{start}}",
+            require_time_range=True,
+        )
+
+
+def test_hydrolix_httpx_transport_success_and_timeout(monkeypatch):
+    from reportkit.extract import hydrolix
+
+    class FakeResponse:
+        status_code = 200
+        headers = {"X-HDX-Query-Stats": "{\"rows_read\": 1}"}
+        content = b'{"data":[{"value":1}],"rows":1}'
+
+        def raise_for_status(self):
+            return None
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def __enter__(self):
+            clients.append(self)
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, url, *, content, headers):
+            self.post_call = (url, content, headers)
+            return FakeResponse()
+
+    clients = []
+    monkeypatch.setenv("REPORTKIT_HYDROLIX_TIMEOUT_SECONDS", "12.5")
+    monkeypatch.setattr(hydrolix.httpx, "Client", FakeClient)
+    response, meta = hydrolix.query_hydrolix(
+        "SELECT 1 FORMAT JSON",
+        hydrolix.QueryConfig(
+            url="https://demo.example.com/query/",
+            headers={"Authorization": "Bearer token-secret"},
+            verify_tls=False,
+            auth_mode="bearer",
+        ),
+    )
+
+    assert clients[0].kwargs == {"verify": False, "timeout": 12.5}
+    assert clients[0].post_call[1] == b"SELECT 1 FORMAT JSON"
+    assert response["data"] == [{"value": 1}]
+    assert meta["status"] == 200
 
 
 def test_hydrolix_response_shaping_and_handoff_packet():
