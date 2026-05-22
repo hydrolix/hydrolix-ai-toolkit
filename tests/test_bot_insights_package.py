@@ -425,9 +425,7 @@ def test_legacy_script_path_reexports_package_module() -> None:
 
 
 def test_bot_insights_package_file_length_audit() -> None:
-    allowed = {
-        "_render_report/validators.py",
-    }
+    allowed: set[str] = set()
     oversized = {
         _rel(path)
         for path in PACKAGE_SRC.rglob("*.py")
