@@ -57,6 +57,7 @@ __all__ = [
     '_CHART_SELECTION_RULE',
     '_CHART_SELECTION_REASONS',
     '_impact_view',
+    '_window_timeline_view',
     '_volume_chart_view',
     '_interpolate_time_label',
     '_duration_display',
