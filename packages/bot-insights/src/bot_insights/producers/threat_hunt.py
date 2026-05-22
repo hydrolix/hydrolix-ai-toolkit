@@ -4083,9 +4083,12 @@ def _apply_impact_lane_hunt(
     baseline_row: dict[str, Any] | None,
 ) -> None:
     if current_row:
+        hunt["scope"] = "hunt_high_partial_confidence"
+        hunt["bytes"] = _num(current_row.get("response_body_bytes"))
         hunt["response_body_bytes"] = _num(current_row.get("response_body_bytes"))
         hunt["akamai_billed_bytes"] = _num(current_row.get("akamai_billed_bytes"))
     if baseline_row:
+        hunt["baseline_bytes"] = _num(baseline_row.get("response_body_bytes"))
         hunt["baseline_response_body_bytes"] = _num(baseline_row.get("response_body_bytes"))
         hunt["baseline_akamai_billed_bytes"] = _num(baseline_row.get("akamai_billed_bytes"))
 
@@ -4229,6 +4232,15 @@ def _recompute_impact_lane_shares(
         )
         impact[share_field] = _lane_share(current_value, current_total)
         impact[baseline_share_field] = _lane_share(baseline_value, baseline_total)
+    if impact.get("response_body_byte_share") is not None:
+        impact["byte_share"] = impact["response_body_byte_share"]
+    if impact.get("baseline_response_body_byte_share") is not None:
+        impact["baseline_byte_share"] = impact["baseline_response_body_byte_share"]
+    if impact.get("byte_share") is not None or impact.get("baseline_byte_share") is not None:
+        impact["share_direction"] = _share_direction(
+            impact.get("byte_share"),
+            impact.get("baseline_byte_share"),
+        )
 
 
 def _rank_dimension(rows: list[dict[str, Any]], field: str, top_n: int) -> list[dict[str, Any]]:
