@@ -427,7 +427,6 @@ def test_legacy_script_path_reexports_package_module() -> None:
 def test_bot_insights_package_file_length_audit() -> None:
     allowed = {
         "_render_report/legacy_html.py",
-        "_render_report/legacy_markdown.py",
         "_render_report/validators.py",
     }
     oversized = {
