@@ -10,7 +10,6 @@ MAX_LINES = 500
 ROOT = Path(__file__).resolve().parents[1]
 
 ALLOWED_OVERSIZED = {
-    "packages/bot-insights/src/bot_insights/_render_report/legacy_html.py",
     "packages/bot-insights/src/bot_insights/_render_report/validators.py",
     "scripts/validate-skill-examples.py",
     "tests/test_skill_scripts.py",
