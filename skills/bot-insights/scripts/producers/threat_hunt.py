@@ -27,6 +27,9 @@ from producers.threat_hunt_ua_plausibility import parse_user_agent, score_ua_pla
 
 SCHEMA = "bot_threat_hunt.v3"
 RAW_COOCCURRENCE_MAX_SECONDS = 21_600
+RAW_ACTOR_MAX_SECONDS = 3_600
+RAW_ACTOR_HASH_BUCKETS = 16
+RAW_ACTOR_TOPK_CANDIDATE_MULTIPLIER = 5
 DEFAULT_COOCCURRENCE_TOP_N = 50
 DEFAULT_MUX_PROJECT = Path.home() / "src/mcp-hydrolix-mux"
 
@@ -392,6 +395,9 @@ def _raw_actor_sql(
     akamai_billed_bytes_column: str = "totalBytes",
     hydrolix_log_ingest_bytes_column: str | None = None,
     path_column: str = "reqPath",
+    hash_bucket_count: int | None = None,
+    hash_bucket_index: int | None = None,
+    topk_candidate_count: int | None = None,
 ) -> str:
     if actor_type == "client_ip":
         value_expr = "toString(cliIP)"
@@ -405,7 +411,34 @@ def _raw_actor_sql(
         if hydrolix_log_ingest_bytes_column
         else "CAST(NULL, 'Nullable(Float64)')"
     )
-    return f"""
+    bucket_clause = ""
+    prefix = ""
+    actor_filter = f"AND nullIf({value_expr}, '') IS NOT NULL"
+    if topk_candidate_count is not None and hash_bucket_count is not None:
+        raise SystemExit("topk candidate selection and hash buckets are mutually exclusive")
+    if topk_candidate_count is not None:
+        if topk_candidate_count <= 0:
+            raise SystemExit("topk_candidate_count must be positive")
+        prefix = f"""
+WITH (
+  SELECT topK({int(topk_candidate_count)})({value_expr})
+  FROM {database}.logs
+  WHERE reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC')
+    AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')
+    AND nullIf({value_expr}, '') IS NOT NULL
+) AS top_values
+""".strip() + "\n"
+        actor_filter = f"AND has(top_values, {value_expr})"
+    if hash_bucket_count is not None:
+        if hash_bucket_count <= 0:
+            raise SystemExit("hash_bucket_count must be positive")
+        if hash_bucket_index is None or not 0 <= hash_bucket_index < hash_bucket_count:
+            raise SystemExit("hash_bucket_index must be between 0 and hash_bucket_count - 1")
+        bucket_clause = (
+            f"\n    AND modulo(cityHash64({value_expr}), {int(hash_bucket_count)}) = "
+            f"{int(hash_bucket_index)}"
+        )
+    return f"""{prefix}\
 SELECT
   {value_field},
   requests,
@@ -431,7 +464,7 @@ FROM (
   FROM {database}.logs
   WHERE reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC')
     AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')
-    AND nullIf({value_expr}, '') IS NOT NULL
+    {actor_filter}{bucket_clause}
   GROUP BY {value_field}
 )
 ORDER BY requests DESC
@@ -823,7 +856,19 @@ def export_raw_actor_fixtures(
     database: str = "akamai",
     top_n: int = DEFAULT_COOCCURRENCE_TOP_N,
     hydrolix_log_ingest_bytes_column: str | None = None,
+    chunk_seconds: int = RAW_ACTOR_MAX_SECONDS,
+    extraction_mode: str = "topk",
+    hash_buckets: int = RAW_ACTOR_HASH_BUCKETS,
+    topk_candidate_multiplier: int = RAW_ACTOR_TOPK_CANDIDATE_MULTIPLIER,
 ) -> Path:
+    if chunk_seconds <= 0:
+        raise SystemExit("chunk_seconds must be positive")
+    if hash_buckets <= 0:
+        raise SystemExit("hash_buckets must be positive")
+    if topk_candidate_multiplier <= 0:
+        raise SystemExit("topk_candidate_multiplier must be positive")
+    if extraction_mode not in {"topk", "hash"}:
+        raise SystemExit("extraction_mode must be one of topk, hash")
     output_dir = Path(actor_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     windows = {
@@ -838,24 +883,48 @@ def export_raw_actor_fixtures(
         for period, (window_start, window_end) in windows.items():
             for actor_type in ("client_ip", "user_agent"):
                 chunk_rows: list[dict[str, Any]] = []
+                actor_hash_buckets = (
+                    hash_buckets
+                    if extraction_mode == "hash" and actor_type == "client_ip"
+                    else 1
+                )
+                topk_candidate_count = (
+                    max(int(top_n) * int(topk_candidate_multiplier), int(top_n))
+                    if extraction_mode == "topk"
+                    else None
+                )
                 for index, (chunk_start, chunk_end) in enumerate(
-                    split_raw_cooccurrence_window(window_start, window_end),
+                    split_raw_cooccurrence_window(
+                        window_start,
+                        window_end,
+                        max_seconds=chunk_seconds,
+                    ),
                     start=1,
                 ):
-                    chunk_output = tmp / f"{period}-{actor_type}-{index}.json"
-                    _run_mux_export(
-                        cluster,
-                        _raw_actor_sql(
-                            database=database,
-                            actor_type=actor_type,
-                            start=chunk_start,
-                            end=chunk_end,
-                            top_n=top_n,
-                            hydrolix_log_ingest_bytes_column=hydrolix_log_ingest_bytes_column,
-                        ),
-                        chunk_output,
-                    )
-                    chunk_rows.extend(_read_json_rows(chunk_output))
+                    for bucket_index in range(actor_hash_buckets):
+                        chunk_output = (
+                            tmp / f"{period}-{actor_type}-{index}-bucket-{bucket_index}.json"
+                        )
+                        _run_mux_export(
+                            cluster,
+                            _raw_actor_sql(
+                                database=database,
+                                actor_type=actor_type,
+                                start=chunk_start,
+                                end=chunk_end,
+                                top_n=top_n,
+                                hydrolix_log_ingest_bytes_column=hydrolix_log_ingest_bytes_column,
+                                hash_bucket_count=actor_hash_buckets
+                                if actor_hash_buckets > 1
+                                else None,
+                                hash_bucket_index=bucket_index
+                                if actor_hash_buckets > 1
+                                else None,
+                                topk_candidate_count=topk_candidate_count,
+                            ),
+                            chunk_output,
+                        )
+                        chunk_rows.extend(_read_json_rows(chunk_output))
                 merged = _merge_actor_rows(chunk_rows, actor_type, top_n, period)
                 output_path = output_dir / f"expedia-actors-{period}-{actor_type}.json"
                 output_path.write_text(

@@ -26,9 +26,26 @@ from producers.threat_hunt_ua_plausibility import parse_user_agent, score_ua_pla
 
 
 SCHEMA = "bot_threat_hunt.v3"
+HUNT_IMPACT_INCLUDED_CONFIDENCE_QUALIFIERS = ("high", "partial")
+HUNT_IMPACT_EXCLUDED_CONFIDENCE_QUALIFIERS = ("low", "unavailable")
+HUNT_IMPACT_SCOPE_NOTE = (
+    "Impact rows are scoped to high and partial confidence threat-hunt leads only; "
+    "low-confidence and unavailable-confidence leads are excluded from impact totals."
+)
 RAW_COOCCURRENCE_MAX_SECONDS = 21_600
+RAW_ACTOR_MAX_SECONDS = 3_600
+RAW_ACTOR_HASH_BUCKETS = 16
+RAW_ACTOR_TOPK_CANDIDATE_MULTIPLIER = 5
 DEFAULT_COOCCURRENCE_TOP_N = 50
 DEFAULT_MUX_PROJECT = Path.home() / "src/mcp-hydrolix-mux"
+IMPACT_LANE_TOTAL_SCOPES = ("current_total", "baseline_total")
+IMPACT_LANE_SCOPED_HUNT_SCOPES = ("current_high_partial", "baseline_high_partial")
+IMPACT_LANE_REQUIRED_FIELDS = (
+    "scope",
+    "requests",
+    "response_body_bytes",
+    "akamai_billed_bytes",
+)
 
 
 _PATH_MARKERS = {
@@ -392,6 +409,9 @@ def _raw_actor_sql(
     akamai_billed_bytes_column: str = "totalBytes",
     hydrolix_log_ingest_bytes_column: str | None = None,
     path_column: str = "reqPath",
+    hash_bucket_count: int | None = None,
+    hash_bucket_index: int | None = None,
+    topk_candidate_count: int | None = None,
 ) -> str:
     if actor_type == "client_ip":
         value_expr = "toString(cliIP)"
@@ -405,7 +425,34 @@ def _raw_actor_sql(
         if hydrolix_log_ingest_bytes_column
         else "CAST(NULL, 'Nullable(Float64)')"
     )
-    return f"""
+    bucket_clause = ""
+    prefix = ""
+    actor_filter = f"AND nullIf({value_expr}, '') IS NOT NULL"
+    if topk_candidate_count is not None and hash_bucket_count is not None:
+        raise SystemExit("topk candidate selection and hash buckets are mutually exclusive")
+    if topk_candidate_count is not None:
+        if topk_candidate_count <= 0:
+            raise SystemExit("topk_candidate_count must be positive")
+        prefix = f"""
+WITH (
+  SELECT topK({int(topk_candidate_count)})({value_expr})
+  FROM {database}.logs
+  WHERE reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC')
+    AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')
+    AND nullIf({value_expr}, '') IS NOT NULL
+) AS top_values
+""".strip() + "\n"
+        actor_filter = f"AND has(top_values, {value_expr})"
+    if hash_bucket_count is not None:
+        if hash_bucket_count <= 0:
+            raise SystemExit("hash_bucket_count must be positive")
+        if hash_bucket_index is None or not 0 <= hash_bucket_index < hash_bucket_count:
+            raise SystemExit("hash_bucket_index must be between 0 and hash_bucket_count - 1")
+        bucket_clause = (
+            f"\n    AND modulo(cityHash64({value_expr}), {int(hash_bucket_count)}) = "
+            f"{int(hash_bucket_index)}"
+        )
+    return f"""{prefix}\
 SELECT
   {value_field},
   requests,
@@ -431,7 +478,7 @@ FROM (
   FROM {database}.logs
   WHERE reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC')
     AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC')
-    AND nullIf({value_expr}, '') IS NOT NULL
+    {actor_filter}{bucket_clause}
   GROUP BY {value_field}
 )
 ORDER BY requests DESC
@@ -465,6 +512,197 @@ WHERE timestamp >= toDateTime('{sql_ts(start)}', 'UTC')
   AND table_name = {sql_literal(table_name)}
   AND catchall['project_deployment_id'] = {sql_literal(project_deployment_id)}
 """.strip()
+
+
+def _raw_impact_lane_sql(
+    *,
+    database: str,
+    start: datetime,
+    end: datetime,
+    scope: str,
+    user_agents: list[str] | None = None,
+) -> str:
+    ua_clause = ""
+    if user_agents is not None:
+        if not user_agents:
+            raise SystemExit("impact lane scoped export requires at least one user agent")
+        ua_clause = f"\n    AND UA IN ({_sql_in(user_agents)})"
+    return f"""
+SELECT
+  {sql_literal(scope)} AS scope,
+  count() AS requests,
+  sum(bytes) AS response_body_bytes,
+  sum(totalBytes) AS akamai_billed_bytes
+FROM {database}.logs
+WHERE reqTimeSec >= toDateTime('{sql_ts(start)}', 'UTC')
+  AND reqTimeSec < toDateTime('{sql_ts(end)}', 'UTC'){ua_clause}
+""".strip()
+
+
+def _normalize_impact_lane_row(row: dict[str, Any]) -> dict[str, Any]:
+    scope = str(_first(row, ("scope",), "")).strip()
+    if scope not in {*IMPACT_LANE_TOTAL_SCOPES, *IMPACT_LANE_SCOPED_HUNT_SCOPES}:
+        raise SystemExit(f"impact lane row has unsupported scope: {scope or '<missing>'}")
+    missing = [
+        field
+        for field in IMPACT_LANE_REQUIRED_FIELDS
+        if field not in row or row.get(field) in (None, "")
+    ]
+    if missing:
+        raise SystemExit(
+            "impact lane row is missing required field(s): " + ", ".join(missing)
+        )
+    normalized = {
+        "scope": scope,
+        "requests": _num(row.get("requests")),
+        "response_body_bytes": _num(row.get("response_body_bytes")),
+        "akamai_billed_bytes": _num(row.get("akamai_billed_bytes")),
+    }
+    for field in ("requests", "response_body_bytes", "akamai_billed_bytes"):
+        if float(normalized[field]).is_integer():
+            normalized[field] = int(normalized[field])
+    return normalized
+
+
+def read_impact_lane_rows(path_value: str | None) -> list[dict[str, Any]]:
+    """Read and aggregate raw-log impact lane rows from JSON/CSV/parquet input."""
+    if not path_value:
+        return []
+    rows = [_normalize_impact_lane_row(row) for row in _read_optional_rows(path_value)]
+    return merge_impact_lane_rows(rows)
+
+
+def merge_impact_lane_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    cells: dict[str, dict[str, Any]] = {}
+    for raw in rows:
+        row = _normalize_impact_lane_row(raw)
+        scope = row["scope"]
+        cell = cells.setdefault(
+            scope,
+            {
+                "scope": scope,
+                "requests": 0.0,
+                "response_body_bytes": 0.0,
+                "akamai_billed_bytes": 0.0,
+            },
+        )
+        cell["requests"] += _num(row.get("requests"))
+        cell["response_body_bytes"] += _num(row.get("response_body_bytes"))
+        cell["akamai_billed_bytes"] += _num(row.get("akamai_billed_bytes"))
+    ordered_scopes = (*IMPACT_LANE_TOTAL_SCOPES, *IMPACT_LANE_SCOPED_HUNT_SCOPES)
+    merged = [cells[scope] for scope in ordered_scopes if scope in cells]
+    for cell in merged:
+        for field in ("requests", "response_body_bytes", "akamai_billed_bytes"):
+            if float(cell[field]).is_integer():
+                cell[field] = int(cell[field])
+    return merged
+
+
+def _impact_lane_rows_by_scope(rows: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {str(row["scope"]): row for row in merge_impact_lane_rows(rows)}
+
+
+def export_impact_lane_totals(
+    *,
+    output: str,
+    start: str,
+    end: str,
+    baseline_start: str,
+    baseline_end: str,
+    cluster: str,
+    database: str = "akamai",
+    chunk_seconds: int = RAW_COOCCURRENCE_MAX_SECONDS,
+) -> list[dict[str, Any]]:
+    output_path = Path(output).expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    windows = {
+        "current_total": (parse_time(start, "start"), parse_time(end, "end")),
+        "baseline_total": (
+            parse_time(baseline_start, "baseline-start"),
+            parse_time(baseline_end, "baseline-end"),
+        ),
+    }
+    rows = _export_impact_lane_windows(
+        cluster=cluster,
+        database=database,
+        windows=windows,
+        user_agents=None,
+        chunk_seconds=chunk_seconds,
+    )
+    output_path.write_text(json.dumps(rows, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return rows
+
+
+def export_impact_lane_scoped_hunt(
+    *,
+    output: str,
+    start: str,
+    end: str,
+    baseline_start: str,
+    baseline_end: str,
+    cluster: str,
+    user_agents: list[str],
+    database: str = "akamai",
+    chunk_seconds: int = RAW_COOCCURRENCE_MAX_SECONDS,
+) -> list[dict[str, Any]]:
+    if not user_agents:
+        raise SystemExit("scoped Hunt impact lane export requires high/partial user agents")
+    output_path = Path(output).expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    windows = {
+        "current_high_partial": (parse_time(start, "start"), parse_time(end, "end")),
+        "baseline_high_partial": (
+            parse_time(baseline_start, "baseline-start"),
+            parse_time(baseline_end, "baseline-end"),
+        ),
+    }
+    rows = _export_impact_lane_windows(
+        cluster=cluster,
+        database=database,
+        windows=windows,
+        user_agents=user_agents,
+        chunk_seconds=chunk_seconds,
+    )
+    output_path.write_text(json.dumps(rows, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return rows
+
+
+def _export_impact_lane_windows(
+    *,
+    cluster: str,
+    database: str,
+    windows: dict[str, tuple[datetime, datetime]],
+    user_agents: list[str] | None,
+    chunk_seconds: int,
+) -> list[dict[str, Any]]:
+    if chunk_seconds <= 0:
+        raise SystemExit("chunk_seconds must be positive")
+    chunk_rows: list[dict[str, Any]] = []
+    with tempfile.TemporaryDirectory(prefix="threat-hunt-impact-lanes-") as tmpdir:
+        tmp = Path(tmpdir)
+        for scope, (window_start, window_end) in windows.items():
+            for index, (chunk_start, chunk_end) in enumerate(
+                split_raw_cooccurrence_window(
+                    window_start,
+                    window_end,
+                    max_seconds=chunk_seconds,
+                ),
+                start=1,
+            ):
+                chunk_output = tmp / f"{scope}-{index}.json"
+                _run_mux_export(
+                    cluster,
+                    _raw_impact_lane_sql(
+                        database=database,
+                        start=chunk_start,
+                        end=chunk_end,
+                        scope=scope,
+                        user_agents=user_agents,
+                    ),
+                    chunk_output,
+                )
+                chunk_rows.extend(_read_json_rows(chunk_output))
+    return merge_impact_lane_rows(chunk_rows)
 
 
 def _merge_actor_rows(
@@ -508,24 +746,50 @@ def _merge_actor_rows(
             )
         cell["status_429"] += _num(_first(row, ("status_429", "requests_429", "429", "req_429")))
         cell["status_5xx"] += _num(_first(row, ("status_5xx", "requests_5xx", "5xx", "req_5xx")))
-        country = str(_first(row, ("country", "country_code"), "")).strip()
-        if country:
-            countries[value].add(country)
-        request_path = str(_first(row, ("request_path", "requestPath", "path"), "")).strip()
-        if request_path:
-            paths[value].add(request_path)
+        _merge_actor_dimension(row, value, countries, paths)
     for value, cell in cells.items():
-        if countries[value]:
-            cell["country"] = sorted(countries[value])[0]
-        if paths[value]:
-            cell["request_path"] = sorted(paths[value])[0]
-        for key in ("requests", "bytes", "response_body_bytes", "akamai_billed_bytes", "hydrolix_log_ingest_bytes", "status_429", "status_5xx"):
-            if cell[key] is not None and float(cell[key]).is_integer():
-                cell[key] = int(cell[key])
+        _finalize_actor_cell(cell, value, countries, paths)
     return sorted(
         cells.values(),
         key=lambda row: (-_num(row.get("requests")), str(row.get("value"))),
     )[:top_n]
+
+
+def _merge_actor_dimension(
+    row: dict[str, Any],
+    value: str,
+    countries: dict[str, set[str]],
+    paths: dict[str, set[str]],
+) -> None:
+    country = str(_first(row, ("country", "country_code"), "")).strip()
+    if country:
+        countries[value].add(country)
+    request_path = str(_first(row, ("request_path", "requestPath", "path"), "")).strip()
+    if request_path:
+        paths[value].add(request_path)
+
+
+def _finalize_actor_cell(
+    cell: dict[str, Any],
+    value: str,
+    countries: dict[str, set[str]],
+    paths: dict[str, set[str]],
+) -> None:
+    if countries[value]:
+        cell["country"] = sorted(countries[value])[0]
+    if paths[value]:
+        cell["request_path"] = sorted(paths[value])[0]
+    for key in (
+        "requests",
+        "bytes",
+        "response_body_bytes",
+        "akamai_billed_bytes",
+        "hydrolix_log_ingest_bytes",
+        "status_429",
+        "status_5xx",
+    ):
+        if cell[key] is not None and float(cell[key]).is_integer():
+            cell[key] = int(cell[key])
 
 
 def _raw_cooccurrence_sql(
@@ -823,7 +1087,19 @@ def export_raw_actor_fixtures(
     database: str = "akamai",
     top_n: int = DEFAULT_COOCCURRENCE_TOP_N,
     hydrolix_log_ingest_bytes_column: str | None = None,
+    chunk_seconds: int = RAW_ACTOR_MAX_SECONDS,
+    extraction_mode: str = "topk",
+    hash_buckets: int = RAW_ACTOR_HASH_BUCKETS,
+    topk_candidate_multiplier: int = RAW_ACTOR_TOPK_CANDIDATE_MULTIPLIER,
 ) -> Path:
+    if chunk_seconds <= 0:
+        raise SystemExit("chunk_seconds must be positive")
+    if hash_buckets <= 0:
+        raise SystemExit("hash_buckets must be positive")
+    if topk_candidate_multiplier <= 0:
+        raise SystemExit("topk_candidate_multiplier must be positive")
+    if extraction_mode not in {"topk", "hash"}:
+        raise SystemExit("extraction_mode must be one of topk, hash")
     output_dir = Path(actor_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     windows = {
@@ -838,24 +1114,48 @@ def export_raw_actor_fixtures(
         for period, (window_start, window_end) in windows.items():
             for actor_type in ("client_ip", "user_agent"):
                 chunk_rows: list[dict[str, Any]] = []
+                actor_hash_buckets = (
+                    hash_buckets
+                    if extraction_mode == "hash" and actor_type == "client_ip"
+                    else 1
+                )
+                topk_candidate_count = (
+                    max(int(top_n) * int(topk_candidate_multiplier), int(top_n))
+                    if extraction_mode == "topk"
+                    else None
+                )
                 for index, (chunk_start, chunk_end) in enumerate(
-                    split_raw_cooccurrence_window(window_start, window_end),
+                    split_raw_cooccurrence_window(
+                        window_start,
+                        window_end,
+                        max_seconds=chunk_seconds,
+                    ),
                     start=1,
                 ):
-                    chunk_output = tmp / f"{period}-{actor_type}-{index}.json"
-                    _run_mux_export(
-                        cluster,
-                        _raw_actor_sql(
-                            database=database,
-                            actor_type=actor_type,
-                            start=chunk_start,
-                            end=chunk_end,
-                            top_n=top_n,
-                            hydrolix_log_ingest_bytes_column=hydrolix_log_ingest_bytes_column,
-                        ),
-                        chunk_output,
-                    )
-                    chunk_rows.extend(_read_json_rows(chunk_output))
+                    for bucket_index in range(actor_hash_buckets):
+                        chunk_output = (
+                            tmp / f"{period}-{actor_type}-{index}-bucket-{bucket_index}.json"
+                        )
+                        _run_mux_export(
+                            cluster,
+                            _raw_actor_sql(
+                                database=database,
+                                actor_type=actor_type,
+                                start=chunk_start,
+                                end=chunk_end,
+                                top_n=top_n,
+                                hydrolix_log_ingest_bytes_column=hydrolix_log_ingest_bytes_column,
+                                hash_bucket_count=actor_hash_buckets
+                                if actor_hash_buckets > 1
+                                else None,
+                                hash_bucket_index=bucket_index
+                                if actor_hash_buckets > 1
+                                else None,
+                                topk_candidate_count=topk_candidate_count,
+                            ),
+                            chunk_output,
+                        )
+                        chunk_rows.extend(_read_json_rows(chunk_output))
                 merged = _merge_actor_rows(chunk_rows, actor_type, top_n, period)
                 output_path = output_dir / f"expedia-actors-{period}-{actor_type}.json"
                 output_path.write_text(
@@ -1619,67 +1919,14 @@ def export_fanout_enrichment(
     rows: list[dict[str, Any]] = []
 
     if strategy in {"auto", "summary_hour"}:
-        if _summary_hour_supports_ua(cluster=cluster, database=database):
-            try:
-                rows = _export_fanout_query_rows(
-                    cluster=cluster,
-                    sql_rows=[
-                        (
-                            "summary_hour",
-                            _summary_hour_fanout_sql(
-                                database=database,
-                                start=start_dt,
-                                end=end_dt,
-                                user_agent=user_agent,
-                            ),
-                        )
-                        for user_agent in user_agents
-                    ],
-                )
-                selected_strategy = "summary_hour"
-            except SystemExit as exc:
-                errors.append(str(exc))
-                rows = []
-        elif strategy == "summary_hour":
-            errors.append(f"{database}.summary_hour does not expose UA in system.columns")
-        if strategy == "summary_hour" and not rows:
-            raise SystemExit("--fanout-strategy summary_hour could not produce usable fan-out rows: " + "; ".join(errors))
+        rows, selected_strategy = _try_summary_hour_fanout(
+            cluster, database, start_dt, end_dt, user_agents, strategy, errors
+        )
 
     if strategy in {"auto", "logs_probe"} and not rows:
-        hourly = _scraper_hourly_rows(scraper_hourly_in)
-        peak_hours = _peak_hours_by_ua(hourly)
-        missing = [ua for ua in user_agents if ua not in peak_hours]
-        if peak_hours:
-            try:
-                rows = _export_fanout_query_rows(
-                    cluster=cluster,
-                    sql_rows=[
-                        (
-                            "logs_probe",
-                            _logs_probe_fanout_sql(
-                                database=database,
-                                start=hour,
-                                end=min(hour + timedelta(hours=1), end_dt),
-                                user_agent=user_agent,
-                            ),
-                        )
-                        for user_agent, hour in peak_hours.items()
-                        if user_agent in user_agents
-                    ],
-                )
-                rows = [{**row, "probe_window_hours": 1} for row in rows]
-                selected_strategy = "logs_probe"
-            except SystemExit as exc:
-                errors.append(str(exc))
-                rows = []
-        elif strategy == "logs_probe":
-            errors.append("--fanout-strategy logs_probe requires --scraper-hourly-in peak-hour rows")
-        if strategy == "logs_probe" and (not rows or missing):
-            raise SystemExit(
-                "--fanout-strategy logs_probe could not produce usable fan-out rows"
-                + (f"; missing peak-hour rows for {len(missing)} lead UA(s)" if missing else "")
-                + ("; " + "; ".join(errors) if errors else "")
-            )
+        rows, selected_strategy = _try_logs_probe_fanout(
+            cluster, database, end_dt, user_agents, strategy, scraper_hourly_in, errors
+        )
 
     if strategy in {"auto", "skip"} and not rows:
         rows = cooccurrence_fanout_lower_bound_rows(_cooccurrence_rows(cooccurrence_in, "ua"))
@@ -1700,6 +1947,74 @@ def export_fanout_enrichment(
             }
         )
     return merged
+
+
+def _try_summary_hour_fanout(
+    cluster: str,
+    database: str,
+    start_dt: datetime,
+    end_dt: datetime,
+    user_agents: list[str],
+    strategy: str,
+    errors: list[str],
+) -> tuple[list[dict[str, Any]], str]:
+    rows: list[dict[str, Any]] = []
+    selected_strategy = strategy
+    if _summary_hour_supports_ua(cluster=cluster, database=database):
+        try:
+            rows = _export_fanout_query_rows(
+                cluster=cluster,
+                sql_rows=[
+                    ("summary_hour", _summary_hour_fanout_sql(database=database, start=start_dt, end=end_dt, user_agent=user_agent))
+                    for user_agent in user_agents
+                ],
+            )
+            selected_strategy = "summary_hour"
+        except SystemExit as exc:
+            errors.append(str(exc))
+    elif strategy == "summary_hour":
+        errors.append(f"{database}.summary_hour does not expose UA in system.columns")
+    if strategy == "summary_hour" and not rows:
+        raise SystemExit("--fanout-strategy summary_hour could not produce usable fan-out rows: " + "; ".join(errors))
+    return rows, selected_strategy
+
+
+def _try_logs_probe_fanout(
+    cluster: str,
+    database: str,
+    end_dt: datetime,
+    user_agents: list[str],
+    strategy: str,
+    scraper_hourly_in: str | None,
+    errors: list[str],
+) -> tuple[list[dict[str, Any]], str]:
+    rows: list[dict[str, Any]] = []
+    selected_strategy = strategy
+    peak_hours = _peak_hours_by_ua(_scraper_hourly_rows(scraper_hourly_in))
+    missing = [ua for ua in user_agents if ua not in peak_hours]
+    if peak_hours:
+        try:
+            rows = _export_fanout_query_rows(
+                cluster=cluster,
+                sql_rows=[
+                    ("logs_probe", _logs_probe_fanout_sql(database=database, start=hour, end=min(hour + timedelta(hours=1), end_dt), user_agent=user_agent))
+                    for user_agent, hour in peak_hours.items()
+                    if user_agent in user_agents
+                ],
+            )
+            rows = [{**row, "probe_window_hours": 1} for row in rows]
+            selected_strategy = "logs_probe"
+        except SystemExit as exc:
+            errors.append(str(exc))
+    elif strategy == "logs_probe":
+        errors.append("--fanout-strategy logs_probe requires --scraper-hourly-in peak-hour rows")
+    if strategy == "logs_probe" and (not rows or missing):
+        raise SystemExit(
+            "--fanout-strategy logs_probe could not produce usable fan-out rows"
+            + (f"; missing peak-hour rows for {len(missing)} lead UA(s)" if missing else "")
+            + ("; " + "; ".join(errors) if errors else "")
+        )
+    return rows, selected_strategy
 
 
 def export_background_ua_sample(
@@ -2320,7 +2635,13 @@ def _attach_impact_assessments(
         }
         action_tiers[str(action.get("tier") or "tier_4")].update(uas)
 
-    all_uas = {ua for case in scraper_cases if (ua := str(case.get("user_agent") or ""))}
+    scoped_uas = {
+        ua
+        for case in scraper_cases
+        if (ua := str(case.get("user_agent") or ""))
+        and str(((case.get("confidence_assessment") or {}).get("qualifier") or "unavailable")).lower()
+        in HUNT_IMPACT_INCLUDED_CONFIDENCE_QUALIFIERS
+    }
     tiers = {
         tier: _impact_for_uas(
             scope=tier,
@@ -2349,9 +2670,15 @@ def _attach_impact_assessments(
                 "akamai_billed_bytes": _num(baseline_totals.get("akamai_billed_bytes")),
             },
         },
+        "impact_scope": {
+            "included_confidence_qualifiers": list(HUNT_IMPACT_INCLUDED_CONFIDENCE_QUALIFIERS),
+            "excluded_confidence_qualifiers": list(HUNT_IMPACT_EXCLUDED_CONFIDENCE_QUALIFIERS),
+            "included_user_agent_count": len(scoped_uas),
+            "note": HUNT_IMPACT_SCOPE_NOTE,
+        },
         "hunt": _impact_for_uas(
             scope="hunt",
-            user_agents=all_uas,
+            user_agents=scoped_uas,
             case_by_ua=case_by_ua,
             current_totals=current_totals,
             baseline_totals=baseline_totals,
@@ -2359,9 +2686,233 @@ def _attach_impact_assessments(
         ),
         "tiers": tiers,
     }
+    assessment["hunt"]["impact_scope_note"] = HUNT_IMPACT_SCOPE_NOTE
     if cost_config:
         assessment["cost_config"] = cost_config
     return assessment
+
+
+def merge_impact_lanes_into_artifact(
+    artifact: dict[str, Any],
+    *,
+    total_rows: list[dict[str, Any]] | None = None,
+    scoped_hunt_rows: list[dict[str, Any]] | None = None,
+    required: bool = False,
+) -> dict[str, Any]:
+    """Merge raw-log byte lane totals into a generated threat-hunt artifact."""
+    impact = artifact.get("impact_assessment")
+    if not isinstance(impact, dict):
+        raise SystemExit("threat-hunt artifact is missing impact_assessment")
+    totals = impact.get("totals")
+    hunt = impact.get("hunt")
+    if not isinstance(totals, dict) or not isinstance(hunt, dict):
+        raise SystemExit("threat-hunt artifact has malformed impact_assessment")
+    total_by_scope = _impact_lane_rows_by_scope(total_rows or [])
+    hunt_by_scope = _impact_lane_rows_by_scope(scoped_hunt_rows or [])
+    if required:
+        missing_total = [scope for scope in IMPACT_LANE_TOTAL_SCOPES if scope not in total_by_scope]
+        missing_hunt = [
+            scope for scope in IMPACT_LANE_SCOPED_HUNT_SCOPES if scope not in hunt_by_scope
+        ]
+        if missing_total or missing_hunt:
+            missing = [*missing_total, *missing_hunt]
+            raise SystemExit(
+                "impact lane rows missing required scope(s): " + ", ".join(missing)
+            )
+
+    current_totals = totals.get("current")
+    baseline_totals = totals.get("baseline")
+    if not isinstance(current_totals, dict) or not isinstance(baseline_totals, dict):
+        raise SystemExit("threat-hunt artifact has malformed impact_assessment totals")
+
+    current_total_lane = total_by_scope.get("current_total")
+    baseline_total_lane = total_by_scope.get("baseline_total")
+    current_hunt_lane = hunt_by_scope.get("current_high_partial")
+    baseline_hunt_lane = hunt_by_scope.get("baseline_high_partial")
+
+    _apply_impact_lane_totals(current_totals, current_total_lane)
+    _apply_impact_lane_totals(baseline_totals, baseline_total_lane)
+    _apply_impact_lane_hunt(hunt, current_hunt_lane, baseline_hunt_lane)
+    _apply_impact_lane_hunt_request_shares(
+        hunt,
+        current_total_lane=current_total_lane,
+        baseline_total_lane=baseline_total_lane,
+        current_hunt_lane=current_hunt_lane,
+        baseline_hunt_lane=baseline_hunt_lane,
+    )
+    _apply_impact_lane_hydrolix_estimate(
+        impact,
+        current_total_lane=current_total_lane,
+        baseline_total_lane=baseline_total_lane,
+        current_hunt_lane=current_hunt_lane,
+        baseline_hunt_lane=baseline_hunt_lane,
+    )
+    _recompute_artifact_impact_lane_shares(artifact)
+    return artifact
+
+
+def _apply_impact_lane_totals(
+    totals: dict[str, Any],
+    row: dict[str, Any] | None,
+) -> None:
+    if not row:
+        return
+    totals["response_body_bytes"] = _num(row.get("response_body_bytes"))
+    totals["akamai_billed_bytes"] = _num(row.get("akamai_billed_bytes"))
+
+
+def _apply_impact_lane_hunt(
+    hunt: dict[str, Any],
+    current_row: dict[str, Any] | None,
+    baseline_row: dict[str, Any] | None,
+) -> None:
+    if current_row:
+        hunt["response_body_bytes"] = _num(current_row.get("response_body_bytes"))
+        hunt["akamai_billed_bytes"] = _num(current_row.get("akamai_billed_bytes"))
+    if baseline_row:
+        hunt["baseline_response_body_bytes"] = _num(baseline_row.get("response_body_bytes"))
+        hunt["baseline_akamai_billed_bytes"] = _num(baseline_row.get("akamai_billed_bytes"))
+
+
+def _apply_impact_lane_hunt_request_shares(
+    hunt: dict[str, Any],
+    *,
+    current_total_lane: dict[str, Any] | None,
+    baseline_total_lane: dict[str, Any] | None,
+    current_hunt_lane: dict[str, Any] | None,
+    baseline_hunt_lane: dict[str, Any] | None,
+) -> None:
+    if not (current_total_lane and baseline_total_lane and current_hunt_lane and baseline_hunt_lane):
+        return
+    requests = _num(current_hunt_lane.get("requests"))
+    baseline_requests = _num(baseline_hunt_lane.get("requests"))
+    current_total_requests = _num(current_total_lane.get("requests"))
+    baseline_total_requests = _num(baseline_total_lane.get("requests"))
+    request_share = _share_fraction(requests, current_total_requests)
+    baseline_request_share = _share_fraction(baseline_requests, baseline_total_requests)
+    hunt["requests"] = requests
+    hunt["baseline_requests"] = baseline_requests
+    hunt["request_delta"] = requests - baseline_requests
+    hunt["request_share"] = request_share
+    hunt["baseline_request_share"] = baseline_request_share
+    hunt["request_share_delta"] = (
+        request_share - baseline_request_share
+        if request_share is not None and baseline_request_share is not None
+        else None
+    )
+    hunt["request_share_ratio"] = (
+        request_share / baseline_request_share
+        if request_share is not None and baseline_request_share not in (None, 0)
+        else None
+    )
+    hunt["share_severity"] = _share_severity(request_share)
+    hunt["trend_severity"] = _trend_severity(request_share, baseline_request_share)
+    hunt["share_direction"] = _share_direction(request_share, baseline_request_share)
+
+
+def _impact_lane_hydrolix_bytes(
+    metadata: dict[str, Any],
+    row: dict[str, Any] | None,
+) -> float | None:
+    if not row or metadata.get("availability") != "available":
+        return None
+    bytes_per_row = _num(metadata.get("billing_bytes_per_row"))
+    if bytes_per_row <= 0:
+        return None
+    return _num(row.get("requests")) * bytes_per_row
+
+
+def _apply_impact_lane_hydrolix_estimate(
+    impact: dict[str, Any],
+    *,
+    current_total_lane: dict[str, Any] | None,
+    baseline_total_lane: dict[str, Any] | None,
+    current_hunt_lane: dict[str, Any] | None,
+    baseline_hunt_lane: dict[str, Any] | None,
+) -> None:
+    metadata = impact.get("hydrolix_log_ingest_metadata")
+    if not isinstance(metadata, dict):
+        return
+    totals = impact["totals"]
+    hunt = impact["hunt"]
+    current_total = _impact_lane_hydrolix_bytes(metadata, current_total_lane)
+    baseline_total = _impact_lane_hydrolix_bytes(metadata, baseline_total_lane)
+    current_hunt = _impact_lane_hydrolix_bytes(metadata, current_hunt_lane)
+    baseline_hunt = _impact_lane_hydrolix_bytes(metadata, baseline_hunt_lane)
+    if current_total is not None:
+        totals["current"]["hydrolix_log_ingest_bytes"] = current_total
+    if baseline_total is not None:
+        totals["baseline"]["hydrolix_log_ingest_bytes"] = baseline_total
+    if current_hunt is not None:
+        hunt["hydrolix_log_ingest_bytes"] = current_hunt
+    if baseline_hunt is not None:
+        hunt["baseline_hydrolix_log_ingest_bytes"] = baseline_hunt
+
+
+def _recompute_artifact_impact_lane_shares(artifact: dict[str, Any]) -> None:
+    impact = artifact["impact_assessment"]
+    totals = impact["totals"]
+    current_totals = totals["current"]
+    baseline_totals = totals["baseline"]
+    for row in _walk_dicts(artifact):
+        if "baseline_request_share" in row and (
+            "response_body_byte_share" in row or "akamai_billed_byte_share" in row
+        ):
+            _recompute_impact_lane_shares(row, current_totals, baseline_totals)
+        row_impact = row.get("impact_assessment")
+        estimated = row.get("estimated_observed_window_impact")
+        if isinstance(estimated, dict) and isinstance(row_impact, dict):
+            for field in BYTE_LANE_FIELDS:
+                share_field = field.replace("_bytes", "_byte_share")
+                estimated[field] = row_impact.get(field)
+                estimated[share_field] = row_impact.get(share_field)
+
+
+def _walk_dicts(value: Any) -> Iterable[dict[str, Any]]:
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from _walk_dicts(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _walk_dicts(child)
+
+
+def _recompute_impact_lane_shares(
+    impact: dict[str, Any],
+    current_totals: dict[str, Any],
+    baseline_totals: dict[str, Any],
+) -> None:
+    lanes = (
+        ("response_body_bytes", "response_body_byte_share"),
+        ("akamai_billed_bytes", "akamai_billed_byte_share"),
+        ("hydrolix_log_ingest_bytes", "hydrolix_log_ingest_byte_share"),
+    )
+    for field, share_field in lanes:
+        baseline_field = f"baseline_{field}"
+        baseline_share_field = f"baseline_{share_field}"
+        current_total = (
+            _num(current_totals.get(field))
+            if current_totals.get(field) not in (None, "")
+            else None
+        )
+        baseline_total = (
+            _num(baseline_totals.get(field))
+            if baseline_totals.get(field) not in (None, "")
+            else None
+        )
+        current_value = (
+            _num(impact.get(field))
+            if impact.get(field) not in (None, "")
+            else None
+        )
+        baseline_value = (
+            _num(impact.get(baseline_field))
+            if impact.get(baseline_field) not in (None, "")
+            else None
+        )
+        impact[share_field] = _lane_share(current_value, current_total)
+        impact[baseline_share_field] = _lane_share(baseline_value, baseline_total)
 
 
 def _rank_dimension(rows: list[dict[str, Any]], field: str, top_n: int) -> list[dict[str, Any]]:
@@ -3784,51 +4335,96 @@ def _baseline_growth_family(requests: float, baseline_requests: float, request_d
 def _row_evidence_families(row: dict[str, Any], *, window_end: datetime | None = None) -> set[str]:
     raw_flags = row.get("evidence_flags")
     if isinstance(raw_flags, list):
-        return {str(flag) for flag in raw_flags if str(flag) in SCRAPER_EVIDENCE_FAMILIES}
+        return _explicit_evidence_families(raw_flags)
     user_agent = str(_first(row, ("user_agent", "userAgent", "UA", "ua"), ""))
-    requests = _num(_first(row, ("requests", "request_count", "count", "hits")))
-    baseline_requests = _num(_first(row, ("baseline_requests", "baseline_count", "previous_requests")))
-    unique_ips = _num(_first(row, ("unique_client_ips", "distinct_client_ips", "client_ip_count", "ips")))
-    unique_asns = _num(_first(row, ("unique_asns", "distinct_asns", "asn_count")))
-    unique_countries = _num(_first(row, ("unique_countries", "distinct_countries", "country_count")))
-    targeted = _num(_first(row, ("targeted_endpoint_requests", "endpoint_target_requests", "api_requests")))
-    status_429 = _num(_first(row, ("status_429", "requests_429", "429", "req_429")))
-    status_5xx = _num(_first(row, ("status_5xx", "requests_5xx", "5xx", "req_5xx")))
-    families: set[str] = set()
-    if unique_ips >= 10 or unique_asns >= 2:
-        families.add("ua_ip_fanout")
-    path = str(_first(row, ("request_path", "any_path", "path", "requestPath"), ""))
-    if targeted > 0 or _path_markers(path):
-        families.add("endpoint_targeting")
+    metrics = _row_evidence_metrics(row)
+    families = _row_metric_families(row, metrics)
     if _automation_signature(user_agent):
         families.add("automation_signature")
-    if baseline_requests <= 10 and requests >= 100:
-        families.add("baseline_novelty_or_growth")
-    elif baseline_requests >= 1_000 and _pct(requests - baseline_requests, baseline_requests) and _pct(requests - baseline_requests, baseline_requests) >= 50:
-        families.add("baseline_novelty_or_growth")
-    if requests > 0 and any(_pct(value, requests) and _pct(value, requests) >= 2 for value in (status_429, status_5xx)):
-        families.add("rate_limit_or_error_pressure")
-    if unique_asns >= 3 or unique_countries >= 3:
-        families.add("infrastructure_topology")
-    explicit_temporal = str(_first(row, ("temporal_regularity", "timing_status", "temporal_status"), "")).lower()
-    if explicit_temporal in {"regular", "metronome", "jittered_metronome", "burst_pause", "rotation_mask"}:
+    if _row_temporal_family(row):
         families.add("temporal_regularity")
-    if _first(row, ("classification_gap", "coverage_gap"), None) in {True, "true", "yes", "1"}:
+    if _row_classification_gap(row):
         families.add("classification_gap")
-    if window_end is not None:
-        plausibility = score_ua_plausibility(
-            user_agent=user_agent,
-            window_end=window_end,
-            fanout_by_ua={},
-            fallback_unique_ips=unique_ips,
-            family_request_totals=Counter(),
-            total_family_requests=0,
-            browser_fingerprint_count=0,
-            source="background_sample",
-        )
-        if plausibility.get("counts_for_verdict"):
-            families.add("ua_anomaly")
+    if _row_ua_anomaly(user_agent, metrics["unique_ips"], window_end):
+        families.add("ua_anomaly")
     return families
+
+
+def _row_metric_families(row: dict[str, Any], metrics: dict[str, float]) -> set[str]:
+    families: set[str] = set()
+    path = str(_first(row, ("request_path", "any_path", "path", "requestPath"), ""))
+    if metrics["unique_ips"] >= 10 or metrics["unique_asns"] >= 2:
+        families.add("ua_ip_fanout")
+    if metrics["targeted"] > 0 or _path_markers(path):
+        families.add("endpoint_targeting")
+    if _row_baseline_growth(metrics["requests"], metrics["baseline_requests"]):
+        families.add("baseline_novelty_or_growth")
+    if _row_rate_pressure(metrics["requests"], metrics["status_429"], metrics["status_5xx"]):
+        families.add("rate_limit_or_error_pressure")
+    if metrics["unique_asns"] >= 3 or metrics["unique_countries"] >= 3:
+        families.add("infrastructure_topology")
+    return families
+
+
+def _row_temporal_family(row: dict[str, Any]) -> bool:
+    explicit_temporal = str(_first(row, ("temporal_regularity", "timing_status", "temporal_status"), "")).lower()
+    return explicit_temporal in {"regular", "metronome", "jittered_metronome", "burst_pause", "rotation_mask"}
+
+
+def _row_classification_gap(row: dict[str, Any]) -> bool:
+    return _first(row, ("classification_gap", "coverage_gap"), None) in {True, "true", "yes", "1"}
+
+
+def _row_ua_anomaly(
+    user_agent: str, unique_ips: float, window_end: datetime | None
+) -> bool:
+    if window_end is None:
+        return False
+    plausibility = score_ua_plausibility(
+        user_agent=user_agent,
+        window_end=window_end,
+        fanout_by_ua={},
+        fallback_unique_ips=unique_ips,
+        family_request_totals=Counter(),
+        total_family_requests=0,
+        browser_fingerprint_count=0,
+        source="background_sample",
+    )
+    return bool(plausibility.get("counts_for_verdict"))
+
+
+def _explicit_evidence_families(raw_flags: list[Any]) -> set[str]:
+    return {str(flag) for flag in raw_flags if str(flag) in SCRAPER_EVIDENCE_FAMILIES}
+
+
+def _row_evidence_metrics(row: dict[str, Any]) -> dict[str, float]:
+    return {
+        "requests": _num(_first(row, ("requests", "request_count", "count", "hits"))),
+        "baseline_requests": _num(_first(row, ("baseline_requests", "baseline_count", "previous_requests"))),
+        "unique_ips": _num(_first(row, ("unique_client_ips", "distinct_client_ips", "client_ip_count", "ips"))),
+        "unique_asns": _num(_first(row, ("unique_asns", "distinct_asns", "asn_count"))),
+        "unique_countries": _num(_first(row, ("unique_countries", "distinct_countries", "country_count"))),
+        "targeted": _num(_first(row, ("targeted_endpoint_requests", "endpoint_target_requests", "api_requests"))),
+        "status_429": _num(_first(row, ("status_429", "requests_429", "429", "req_429"))),
+        "status_5xx": _num(_first(row, ("status_5xx", "requests_5xx", "5xx", "req_5xx"))),
+    }
+
+
+def _row_baseline_growth(requests: float, baseline_requests: float) -> bool:
+    if baseline_requests <= 10 and requests >= 100:
+        return True
+    delta = _pct(requests - baseline_requests, baseline_requests)
+    return bool(baseline_requests >= 1_000 and delta is not None and delta >= 50)
+
+
+def _row_rate_pressure(requests: float, status_429: float, status_5xx: float) -> bool:
+    return bool(
+        requests > 0
+        and any(
+            (share := _pct(value, requests)) is not None and share >= 2
+            for value in (status_429, status_5xx)
+        )
+    )
 
 
 def _background_rates(
@@ -3996,43 +4592,9 @@ def _confidence_assessment(
         and isinstance(background_families.get(family), dict)
         and background_families[family].get("concern") == "high"
     ]
-    score = min(0.92, len(flags) * 0.16 + len(present_checks) * 0.13)
-    if baseline_significance.get("status") == "available":
-        z = _num(baseline_significance.get("z_score"))
-        if z >= 5:
-            score += 0.10
-        elif z >= 3:
-            score += 0.06
-    if high_background:
-        score -= 0.18
-    if not flags:
-        score = 0.0
-    score = max(0.0, min(score, 1.0))
-    if not flags:
-        qualifier = "unavailable"
-    elif score >= 0.70 and present_checks and not high_background:
-        qualifier = "high"
-    elif score >= 0.40:
-        qualifier = "partial"
-    else:
-        qualifier = "low"
-    reasons = []
-    if present_checks:
-        reasons.extend(check["summary"] for check in present_checks)
-    if high_background:
-        reasons.append(
-            "Some evidence families also fire in the organic background sample: "
-            + ", ".join(sorted(high_background))
-            + "."
-        )
-    if baseline_significance.get("status") == "available":
-        reasons.append(
-            f"Per-UA baseline bucket z-score is {baseline_significance.get('z_score'):.2f}."
-        )
-    elif baseline_significance.get("status") == "unavailable":
-        reasons.append("Per-UA baseline bucket distribution was unavailable; ratio-based baseline growth is preserved.")
-    if not reasons:
-        reasons.append("Confidence is bounded by the available evidence families and missing corroboration.")
+    score = _confidence_score(flags, present_checks, high_background, baseline_significance)
+    qualifier = _confidence_qualifier(flags, score, present_checks, high_background)
+    reasons = _confidence_reasons(present_checks, high_background, baseline_significance)
     return {
         "qualifier": qualifier,
         "score": round(score, 3),
@@ -4048,6 +4610,64 @@ def _confidence_assessment(
     }
 
 
+def _confidence_score(
+    flags: set[str],
+    present_checks: list[dict[str, Any]],
+    high_background: list[str],
+    baseline_significance: dict[str, Any],
+) -> float:
+    score = min(0.92, len(flags) * 0.16 + len(present_checks) * 0.13)
+    if baseline_significance.get("status") == "available":
+        z = _num(baseline_significance.get("z_score"))
+        if z >= 5:
+            score += 0.10
+        elif z >= 3:
+            score += 0.06
+    if high_background:
+        score -= 0.18
+    if not flags:
+        score = 0.0
+    return max(0.0, min(score, 1.0))
+
+
+def _confidence_qualifier(
+    flags: set[str],
+    score: float,
+    present_checks: list[dict[str, Any]],
+    high_background: list[str],
+) -> str:
+    if not flags:
+        return "unavailable"
+    if score >= 0.70 and present_checks and not high_background:
+        return "high"
+    if score >= 0.40:
+        return "partial"
+    return "low"
+
+
+def _confidence_reasons(
+    present_checks: list[dict[str, Any]],
+    high_background: list[str],
+    baseline_significance: dict[str, Any],
+) -> list[str]:
+    reasons = [check["summary"] for check in present_checks]
+    if high_background:
+        reasons.append(
+            "Some evidence families also fire in the organic background sample: "
+            + ", ".join(sorted(high_background))
+            + "."
+        )
+    if baseline_significance.get("status") == "available":
+        reasons.append(
+            f"Per-UA baseline bucket z-score is {baseline_significance.get('z_score'):.2f}."
+        )
+    elif baseline_significance.get("status") == "unavailable":
+        reasons.append("Per-UA baseline bucket distribution was unavailable; ratio-based baseline growth is preserved.")
+    if not reasons:
+        reasons.append("Confidence is bounded by the available evidence families and missing corroboration.")
+    return reasons
+
+
 def _attach_confidence_assessments(
     scraper_cases: list[dict[str, Any]],
     campaigns: list[dict[str, Any]],
@@ -4057,71 +4677,121 @@ def _attach_confidence_assessments(
 ) -> None:
     case_by_ua = {str(case.get("user_agent")): case for case in scraper_cases if case.get("user_agent")}
     for case in scraper_cases:
-        baseline_significance = _baseline_significance_for_case(case, baseline_by_ua)
-        case["confidence_assessment"] = _confidence_assessment(case, background, baseline_significance)
-        qualifier = case["confidence_assessment"]["qualifier"]
-        if qualifier in {"partial", "low"}:
-            for family, rate in (case["confidence_assessment"].get("background_rates") or {}).items():
-                if isinstance(rate, dict) and rate.get("concern") == "high":
-                    case.setdefault("case_against", []).append(
-                        f"{family.replace('_', ' ').title()} fired, but the organic background rate is high ({_num(rate.get('rate_pct')):.1f}%)."
-                    )
+        _attach_case_confidence(case, background, baseline_by_ua)
     for campaign in campaigns:
-        member_assessments = [
-            case_by_ua[ua].get("confidence_assessment")
-            for ua in campaign.get("leads") or []
-            if ua in case_by_ua and isinstance(case_by_ua[ua].get("confidence_assessment"), dict)
-        ]
-        qualifiers = Counter(str(item.get("qualifier") or "unavailable") for item in member_assessments)
-        reinforcing = Counter()
-        max_background = {"family": None, "rate_pct": None, "concern": "unavailable"}
-        baseline_available = 0
-        for item in member_assessments:
-            for check in item.get("consistency_checks") or []:
-                if isinstance(check, dict) and check.get("status") == "present":
-                    reinforcing[str(check.get("check"))] += 1
-            for family, rate in (item.get("background_rates") or {}).items():
-                if isinstance(rate, dict) and rate.get("rate_pct") is not None:
-                    if max_background["rate_pct"] is None or _num(rate.get("rate_pct")) > _num(max_background["rate_pct"]):
-                        max_background = {"family": family, "rate_pct": rate.get("rate_pct"), "concern": rate.get("concern")}
-            baseline = item.get("baseline_significance") if isinstance(item.get("baseline_significance"), dict) else {}
-            if baseline.get("status") == "available":
-                baseline_available += 1
-        member_count = len(member_assessments)
-        ua_summary = campaign.get("ua_plausibility_summary") if isinstance(campaign.get("ua_plausibility_summary"), dict) else {}
-        confirmed_ua = _num(ua_summary.get("anomalous_member_count"))
-        elevated_ua = _num(ua_summary.get("weak_member_count"))
-        confirmed_or_elevated_share = (
-            (confirmed_ua + elevated_ua) / member_count
-            if member_count
-            else 0.0
-        )
-        confirmed_share = confirmed_ua / member_count if member_count else 0.0
-        dominant = qualifiers.most_common(1)[0][0] if qualifiers else "unavailable"
-        evidence_weighted = dominant
-        if member_count and confirmed_share >= 0.50:
-            evidence_weighted = "high"
-        elif member_count and confirmed_or_elevated_share >= 0.50:
-            evidence_weighted = "partial"
-        elif reinforcing and sum(reinforcing.values()) / member_count >= 0.50 and dominant == "low":
-            evidence_weighted = "partial"
-        campaign["confidence_summary"] = {
-            "member_count": member_count,
-            "qualifier_counts": dict(sorted(qualifiers.items())),
-            "dominant_qualifier": evidence_weighted,
-            "raw_dominant_qualifier": dominant,
-            "aggregate_support": {
-                "confirmed_or_elevated_ua_members": int(confirmed_ua + elevated_ua),
-                "confirmed_ua_members": int(confirmed_ua),
-                "confirmed_or_elevated_share": round(confirmed_or_elevated_share, 3),
-            },
-            "strongest_reinforcing_combinations": [
-                {"check": name, "member_count": count}
-                for name, count in reinforcing.most_common(3)
-            ],
-            "max_background_rate_concern": max_background,
-            "baseline_significance_available_count": baseline_available,
-        }
+        campaign["confidence_summary"] = _campaign_confidence_summary(campaign, case_by_ua)
+
+
+def _attach_case_confidence(
+    case: dict[str, Any],
+    background: dict[str, Any],
+    baseline_by_ua: dict[str, dict[str, Any]],
+) -> None:
+    baseline_significance = _baseline_significance_for_case(case, baseline_by_ua)
+    case["confidence_assessment"] = _confidence_assessment(
+        case, background, baseline_significance
+    )
+    if case["confidence_assessment"]["qualifier"] in {"partial", "low"}:
+        _append_background_case_against(case)
+
+
+def _append_background_case_against(case: dict[str, Any]) -> None:
+    for family, rate in (case["confidence_assessment"].get("background_rates") or {}).items():
+        if isinstance(rate, dict) and rate.get("concern") == "high":
+            case.setdefault("case_against", []).append(
+                f"{family.replace('_', ' ').title()} fired, but the organic background rate is high ({_num(rate.get('rate_pct')):.1f}%)."
+            )
+
+
+def _campaign_member_assessments(
+    campaign: dict[str, Any], case_by_ua: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    return [
+        case_by_ua[ua].get("confidence_assessment")
+        for ua in campaign.get("leads") or []
+        if ua in case_by_ua and isinstance(case_by_ua[ua].get("confidence_assessment"), dict)
+    ]
+
+
+def _campaign_confidence_summary(
+    campaign: dict[str, Any], case_by_ua: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    member_assessments = _campaign_member_assessments(campaign, case_by_ua)
+    qualifiers = Counter(str(item.get("qualifier") or "unavailable") for item in member_assessments)
+    reinforcing, max_background, baseline_available = _campaign_confidence_counters(member_assessments)
+    member_count = len(member_assessments)
+    confirmed_ua, elevated_ua = _campaign_ua_counts(campaign)
+    confirmed_or_elevated_share = (confirmed_ua + elevated_ua) / member_count if member_count else 0.0
+    confirmed_share = confirmed_ua / member_count if member_count else 0.0
+    dominant = qualifiers.most_common(1)[0][0] if qualifiers else "unavailable"
+    evidence_weighted = _campaign_weighted_qualifier(
+        member_count, confirmed_share, confirmed_or_elevated_share, reinforcing, dominant
+    )
+    return {
+        "member_count": member_count,
+        "qualifier_counts": dict(sorted(qualifiers.items())),
+        "dominant_qualifier": evidence_weighted,
+        "raw_dominant_qualifier": dominant,
+        "aggregate_support": {
+            "confirmed_or_elevated_ua_members": int(confirmed_ua + elevated_ua),
+            "confirmed_ua_members": int(confirmed_ua),
+            "confirmed_or_elevated_share": round(confirmed_or_elevated_share, 3),
+        },
+        "strongest_reinforcing_combinations": [
+            {"check": name, "member_count": count}
+            for name, count in reinforcing.most_common(3)
+        ],
+        "max_background_rate_concern": max_background,
+        "baseline_significance_available_count": baseline_available,
+    }
+
+
+def _campaign_confidence_counters(
+    member_assessments: list[dict[str, Any]],
+) -> tuple[Counter[str], dict[str, Any], int]:
+    reinforcing: Counter[str] = Counter()
+    max_background: dict[str, Any] = {"family": None, "rate_pct": None, "concern": "unavailable"}
+    baseline_available = 0
+    for item in member_assessments:
+        for check in item.get("consistency_checks") or []:
+            if isinstance(check, dict) and check.get("status") == "present":
+                reinforcing[str(check.get("check"))] += 1
+        max_background = _max_background_rate(item, max_background)
+        baseline = item.get("baseline_significance") if isinstance(item.get("baseline_significance"), dict) else {}
+        if baseline.get("status") == "available":
+            baseline_available += 1
+    return reinforcing, max_background, baseline_available
+
+
+def _max_background_rate(
+    item: dict[str, Any], current: dict[str, Any]
+) -> dict[str, Any]:
+    for family, rate in (item.get("background_rates") or {}).items():
+        if isinstance(rate, dict) and rate.get("rate_pct") is not None:
+            if current["rate_pct"] is None or _num(rate.get("rate_pct")) > _num(current["rate_pct"]):
+                current = {"family": family, "rate_pct": rate.get("rate_pct"), "concern": rate.get("concern")}
+    return current
+
+
+def _campaign_ua_counts(campaign: dict[str, Any]) -> tuple[float, float]:
+    ua_summary = campaign.get("ua_plausibility_summary") if isinstance(campaign.get("ua_plausibility_summary"), dict) else {}
+    return _num(ua_summary.get("anomalous_member_count")), _num(ua_summary.get("weak_member_count"))
+
+
+def _campaign_weighted_qualifier(
+    member_count: int,
+    confirmed_share: float,
+    confirmed_or_elevated_share: float,
+    reinforcing: Counter[str],
+    dominant: str,
+) -> str:
+    if member_count and confirmed_share >= 0.50:
+        return "high"
+    if member_count and confirmed_or_elevated_share >= 0.50:
+        return "partial"
+    if reinforcing and sum(reinforcing.values()) / member_count >= 0.50 and dominant == "low":
+        return "partial"
+    return dominant
 
 
 def _future_dated_ua(case: dict[str, Any]) -> bool:
@@ -4457,17 +5127,9 @@ def _scraper_cases(
         for fp in fingerprints
         if fp.get("user_agent")
     }
-    family_request_totals: Counter[str] = Counter()
-    total_family_requests = 0.0
-    browser_fingerprint_count = 0
-    for fp in fingerprints:
-        ua = str(fp.get("user_agent") or "")
-        family = str((parsed_by_ua.get(ua) or {}).get("browser_family") or "Unknown")
-        requests = _num(fp.get("requests"))
-        if family != "Unknown" and requests > 0:
-            family_request_totals[family] += requests
-            total_family_requests += requests
-            browser_fingerprint_count += 1
+    family_request_totals, total_family_requests, browser_fingerprint_count = (
+        _family_request_context(fingerprints, parsed_by_ua)
+    )
     for fp in fingerprints[:top_n]:
         user_agent = str(fp.get("user_agent") or "")
         if not user_agent:
@@ -4525,32 +5187,14 @@ def _scraper_cases(
                 rows=endpoint_rows,
             )
 
-        if temporal:
-            if temporal.get("resolution") == "hourly_coarse":
-                label = "Hourly drilldown shows coarse timing regularity; request-level timestamp samples were not supplied."
-            else:
-                label = f"Request-level timing sample shows {str(temporal.get('archetype')).replace('_', ' ')} regularity."
-            _add_family(
-                families,
-                "temporal_regularity",
-                label=label,
-                rows=[temporal],
-            )
+        _add_temporal_family(families, temporal)
 
         baseline_requests = _num(fp.get("baseline_requests"))
         requests = _num(fp.get("requests"))
         baseline_growth = _baseline_growth_family(
             requests, baseline_requests, fp.get("request_delta")
         )
-        if baseline_growth:
-            _add_family(
-                families,
-                "baseline_novelty_or_growth",
-                label=str(baseline_growth["label"]),
-                rows=[
-                    {key: value for key, value in baseline_growth.items() if key != "label"}
-                ],
-            )
+        _add_baseline_family(families, baseline_growth)
 
         if _automation_signature(user_agent):
             _add_family(
@@ -4560,53 +5204,11 @@ def _scraper_cases(
                 rows=[{"user_agent": user_agent}],
             )
 
-        ua_requests = _num(actor.get("requests")) or requests
-        ua_429 = _pct(_num(actor.get("status_429")), ua_requests)
-        ua_5xx = _pct(_num(actor.get("status_5xx")), ua_requests)
-        drill_429 = drilldown.get("rate_429_pct")
-        drill_5xx = drilldown.get("rate_5xx_pct")
-        if any(_num(value) >= 2 for value in (ua_429, ua_5xx, drill_429, drill_5xx)):
-            _add_family(
-                families,
-                "rate_limit_or_error_pressure",
-                label="The UA carried elevated 429 or 5xx pressure in supplied rows.",
-                rows=[
-                    {
-                        "actor_rate_429_pct": ua_429,
-                        "actor_rate_5xx_pct": ua_5xx,
-                        "drilldown_rate_429_pct": drill_429,
-                        "drilldown_rate_5xx_pct": drill_5xx,
-                    }
-                ],
-            )
+        _add_rate_pressure_family(families, actor, drilldown, requests)
 
-        if _int(fp.get("unique_asns")) >= 3 or _int(fp.get("unique_countries")) >= 3:
-            _add_family(
-                families,
-                "infrastructure_topology",
-                label="The UA spans multiple ASNs or countries in the exact cooccurrence evidence.",
-                rows=[
-                    {
-                        "unique_asns": fp.get("unique_asns"),
-                        "unique_countries": fp.get("unique_countries"),
-                        "sample_asns": fp.get("sample_asns") or [],
-                        "sample_countries": fp.get("sample_countries") or [],
-                    }
-                ],
-            )
+        _add_infrastructure_family(families, fp)
 
-        if _classification_gap_is_signal(classification):
-            _add_family(
-                families,
-                "classification_gap",
-                label="Optional classification artifacts show incomplete bot/edge coverage.",
-                rows=[
-                    {
-                        "coverage_pct": classification.get("coverage_pct"),
-                        "verdict": classification.get("verdict"),
-                    }
-                ],
-            )
+        _add_classification_family(families, classification)
 
         ua_plausibility = score_ua_plausibility(
             user_agent=user_agent,
@@ -4619,30 +5221,7 @@ def _scraper_cases(
             source=ua_fanout_source,
         )
         fanout_signal = (ua_plausibility.get("signals") or {}).get("fanout")
-        if isinstance(fanout_signal, dict) and fanout_signal.get("threshold_class") in {"strong", "elevated"}:
-            label = str(fanout_signal.get("caveat") or "Source-aware UA fan-out enrichment crossed the suspicious threshold.")
-            _add_family(
-                families,
-                "ua_ip_fanout",
-                label=label,
-                rows=[
-                    {
-                        "unique_ips": fanout_signal.get("unique_ips"),
-                        "effective_ips": fanout_signal.get("effective_ips"),
-                        "source": fanout_signal.get("source"),
-                        "threshold_class": fanout_signal.get("threshold_class"),
-                        "probe_window_hours": fanout_signal.get("probe_window_hours"),
-                        "caveat": fanout_signal.get("caveat"),
-                    }
-                ],
-            )
-        if ua_plausibility.get("counts_for_verdict"):
-            _add_family(
-                families,
-                "ua_anomaly",
-                label=str(ua_plausibility.get("trigger_reason") or "UA plausibility anomaly confirmed."),
-                rows=[ua_plausibility],
-            )
+        _add_ua_plausibility_families(families, ua_plausibility, fanout_signal)
 
         case_for, case_against = _case_for_against(families, drilldown_coverage, endpoint_evidence)
         if ua_plausibility.get("verdict") == "elevated":
@@ -4701,6 +5280,178 @@ def _scraper_cases(
     )
 
 
+def _family_request_context(
+    fingerprints: list[dict[str, Any]], parsed_by_ua: dict[str, dict[str, Any]]
+) -> tuple[Counter[str], float, int]:
+    family_request_totals: Counter[str] = Counter()
+    total_family_requests = 0.0
+    browser_fingerprint_count = 0
+    for fp in fingerprints:
+        ua = str(fp.get("user_agent") or "")
+        family = str((parsed_by_ua.get(ua) or {}).get("browser_family") or "Unknown")
+        requests = _num(fp.get("requests"))
+        if family != "Unknown" and requests > 0:
+            family_request_totals[family] += requests
+            total_family_requests += requests
+            browser_fingerprint_count += 1
+    return family_request_totals, total_family_requests, browser_fingerprint_count
+
+
+def _add_temporal_family(
+    families: dict[str, dict[str, Any]], temporal: dict[str, Any] | None
+) -> None:
+    if not temporal:
+        return
+    if temporal.get("resolution") == "hourly_coarse":
+        label = "Hourly drilldown shows coarse timing regularity; request-level timestamp samples were not supplied."
+    else:
+        label = f"Request-level timing sample shows {str(temporal.get('archetype')).replace('_', ' ')} regularity."
+    _add_family(families, "temporal_regularity", label=label, rows=[temporal])
+
+
+def _add_baseline_family(
+    families: dict[str, dict[str, Any]], baseline_growth: dict[str, Any] | None
+) -> None:
+    if not baseline_growth:
+        return
+    _add_family(
+        families,
+        "baseline_novelty_or_growth",
+        label=str(baseline_growth["label"]),
+        rows=[{key: value for key, value in baseline_growth.items() if key != "label"}],
+    )
+
+
+def _add_rate_pressure_family(
+    families: dict[str, dict[str, Any]],
+    actor: dict[str, Any],
+    drilldown: dict[str, Any],
+    requests: float,
+) -> None:
+    ua_requests = _num(actor.get("requests")) or requests
+    ua_429 = _pct(_num(actor.get("status_429")), ua_requests)
+    ua_5xx = _pct(_num(actor.get("status_5xx")), ua_requests)
+    drill_429 = drilldown.get("rate_429_pct")
+    drill_5xx = drilldown.get("rate_5xx_pct")
+    if not any(_num(value) >= 2 for value in (ua_429, ua_5xx, drill_429, drill_5xx)):
+        return
+    _add_family(
+        families,
+        "rate_limit_or_error_pressure",
+        label="The UA carried elevated 429 or 5xx pressure in supplied rows.",
+        rows=[{
+            "actor_rate_429_pct": ua_429,
+            "actor_rate_5xx_pct": ua_5xx,
+            "drilldown_rate_429_pct": drill_429,
+            "drilldown_rate_5xx_pct": drill_5xx,
+        }],
+    )
+
+
+def _add_infrastructure_family(
+    families: dict[str, dict[str, Any]], fp: dict[str, Any]
+) -> None:
+    if _int(fp.get("unique_asns")) < 3 and _int(fp.get("unique_countries")) < 3:
+        return
+    _add_family(
+        families,
+        "infrastructure_topology",
+        label="The UA spans multiple ASNs or countries in the exact cooccurrence evidence.",
+        rows=[{
+            "unique_asns": fp.get("unique_asns"),
+            "unique_countries": fp.get("unique_countries"),
+            "sample_asns": fp.get("sample_asns") or [],
+            "sample_countries": fp.get("sample_countries") or [],
+        }],
+    )
+
+
+def _add_classification_family(
+    families: dict[str, dict[str, Any]], classification: dict[str, Any]
+) -> None:
+    if not _classification_gap_is_signal(classification):
+        return
+    _add_family(
+        families,
+        "classification_gap",
+        label="Optional classification artifacts show incomplete bot/edge coverage.",
+        rows=[{
+            "coverage_pct": classification.get("coverage_pct"),
+            "verdict": classification.get("verdict"),
+        }],
+    )
+
+
+def _add_ua_plausibility_families(
+    families: dict[str, dict[str, Any]],
+    ua_plausibility: dict[str, Any],
+    fanout_signal: Any,
+) -> None:
+    if isinstance(fanout_signal, dict) and fanout_signal.get("threshold_class") in {"strong", "elevated"}:
+        _add_family(
+            families,
+            "ua_ip_fanout",
+            label=str(fanout_signal.get("caveat") or "Source-aware UA fan-out enrichment crossed the suspicious threshold."),
+            rows=[{
+                "unique_ips": fanout_signal.get("unique_ips"),
+                "effective_ips": fanout_signal.get("effective_ips"),
+                "source": fanout_signal.get("source"),
+                "threshold_class": fanout_signal.get("threshold_class"),
+                "probe_window_hours": fanout_signal.get("probe_window_hours"),
+                "caveat": fanout_signal.get("caveat"),
+            }],
+        )
+    if ua_plausibility.get("counts_for_verdict"):
+        _add_family(
+            families,
+            "ua_anomaly",
+            label=str(ua_plausibility.get("trigger_reason") or "UA plausibility anomaly confirmed."),
+            rows=[ua_plausibility],
+        )
+
+
+def _validate_threat_hunt_windows(
+    current_start: datetime,
+    current_end: datetime,
+    base_start: datetime,
+    base_end: datetime,
+) -> None:
+    if current_end - current_start != base_end - base_start:
+        raise SystemExit("--baseline window must match the current window duration")
+
+
+def _resolve_fanout_strategy(
+    *,
+    ua_fanout_query: str,
+    fanout_strategy: str,
+    fanout: list[dict[str, Any]],
+) -> str:
+    if ua_fanout_query not in {"auto", "off", "required", "summary_hour", "logs_probe", "skip"}:
+        raise SystemExit("--ua-fanout-query must be one of auto, off, required")
+    if fanout_strategy not in {"auto", "summary_hour", "logs_probe", "skip"}:
+        raise SystemExit("--fanout-strategy must be one of auto, summary_hour, logs_probe, skip")
+    if ua_fanout_query in {"summary_hour", "logs_probe", "skip"} and fanout_strategy == "auto":
+        fanout_strategy = ua_fanout_query
+    if ua_fanout_query == "off":
+        fanout_strategy = "skip"
+    if ua_fanout_query == "required" and not fanout:
+        raise SystemExit("--ua-fanout-query required needs --ua-fanout-in or a producer-side export step.")
+    return fanout_strategy
+
+
+def _validate_required_rows(
+    *,
+    mode: str,
+    rows: list[dict[str, Any]],
+    option_name: str,
+    input_name: str,
+) -> None:
+    if mode not in {"auto", "off", "required"}:
+        raise SystemExit(f"--{option_name} must be one of auto, off, required")
+    if mode == "required" and not rows:
+        raise SystemExit(f"--{option_name} required needs --{input_name} or a producer-side export step.")
+
+
 def build_threat_hunt_artifact(
     *,
     cluster: str,
@@ -4739,8 +5490,7 @@ def build_threat_hunt_artifact(
     current_end = parse_time(end, "end")
     base_start = parse_time(baseline_start, "baseline-start")
     base_end = parse_time(baseline_end, "baseline-end")
-    if current_end - current_start != base_end - base_start:
-        raise SystemExit("--baseline window must match the current window duration")
+    _validate_threat_hunt_windows(current_start, current_end, base_start, base_end)
     rows = [_normalize_summary_row(row) for row in read_rows_from_glob(summary_parquet_glob)]
     actor_rows = load_raw_actor_rows(raw_actor_dir)
     geo = _geoip_map((geoip_asn_v4, geoip_asn_v6))
@@ -4765,24 +5515,23 @@ def build_threat_hunt_artifact(
     )
     _apply_hydrolix_ingest_estimate(rows, actor_rows, hydrolix_ingest_metadata)
     siem_rows: list[dict[str, Any]] = []
-    if ua_fanout_query not in {"auto", "off", "required", "summary_hour", "logs_probe", "skip"}:
-        raise SystemExit("--ua-fanout-query must be one of auto, off, required")
-    if fanout_strategy not in {"auto", "summary_hour", "logs_probe", "skip"}:
-        raise SystemExit("--fanout-strategy must be one of auto, summary_hour, logs_probe, skip")
-    if ua_fanout_query in {"summary_hour", "logs_probe", "skip"} and fanout_strategy == "auto":
-        fanout_strategy = ua_fanout_query
-    if ua_fanout_query == "off":
-        fanout_strategy = "skip"
-    if ua_fanout_query == "required" and not fanout:
-        raise SystemExit("--ua-fanout-query required needs --ua-fanout-in or a producer-side export step.")
-    if background_query not in {"auto", "off", "required"}:
-        raise SystemExit("--background-query must be one of auto, off, required")
-    if background_query == "required" and not background_rows:
-        raise SystemExit("--background-query required needs --background-ua-sample-in or a producer-side export step.")
-    if baseline_significance_query not in {"auto", "off", "required"}:
-        raise SystemExit("--baseline-significance-query must be one of auto, off, required")
-    if baseline_significance_query == "required" and not baseline_timeseries_rows:
-        raise SystemExit("--baseline-significance-query required needs --baseline-ua-timeseries-in or a producer-side export step.")
+    fanout_strategy = _resolve_fanout_strategy(
+        ua_fanout_query=ua_fanout_query,
+        fanout_strategy=fanout_strategy,
+        fanout=fanout,
+    )
+    _validate_required_rows(
+        mode=background_query,
+        rows=background_rows,
+        option_name="background-query",
+        input_name="background-ua-sample-in",
+    )
+    _validate_required_rows(
+        mode=baseline_significance_query,
+        rows=baseline_timeseries_rows,
+        option_name="baseline-significance-query",
+        input_name="baseline-ua-timeseries-in",
+    )
 
     current = _sum_period(rows, "current")
     baseline = _sum_period(rows, "baseline")

@@ -284,6 +284,46 @@ def parse_args() -> argparse.Namespace:
         help="Directory containing threat_hunt raw actor JSON exports.",
     )
     parser.add_argument(
+        "--raw-actor-chunk-seconds",
+        type=int,
+        default=3600,
+        help=(
+            "Maximum seconds per raw-log actor export query when --raw-actor-dir "
+            "is omitted. Smaller chunks reduce Hydrolix memory pressure."
+        ),
+    )
+    parser.add_argument(
+        "--raw-actor-extraction-mode",
+        choices=("topk", "hash"),
+        default="topk",
+        help=(
+            "Raw actor extraction strategy when --raw-actor-dir is omitted. "
+            "topk is the fast bounded default; hash is exact hash-bucket "
+            "chunking for diagnostics and reproduction."
+        ),
+    )
+    parser.add_argument(
+        "--raw-actor-hash-buckets",
+        type=int,
+        default=16,
+        help=(
+            "Number of deterministic hash buckets per client_ip raw actor time "
+            "chunk when --raw-actor-dir is omitted. user_agent exports remain "
+            "time-only by default. Higher values reduce GROUP BY memory pressure "
+            "at the cost of more queries."
+        ),
+    )
+    parser.add_argument(
+        "--raw-actor-topk-candidate-multiplier",
+        type=int,
+        default=5,
+        help=(
+            "Candidate multiplier for --raw-actor-extraction-mode topk. "
+            "The producer computes exact metrics for topK(top_n * multiplier) "
+            "candidate actors per time chunk."
+        ),
+    )
+    parser.add_argument(
         "--hydrolix-log-ingest-bytes-column",
         help=(
             "Optional akamai.logs column to sum as Hydrolix log ingest bytes "
@@ -655,6 +695,10 @@ def main() -> int:
                 database=args.database,
                 top_n=args.top_n,
                 hydrolix_log_ingest_bytes_column=args.hydrolix_log_ingest_bytes_column,
+                chunk_seconds=args.raw_actor_chunk_seconds,
+                extraction_mode=args.raw_actor_extraction_mode,
+                hash_buckets=args.raw_actor_hash_buckets,
+                topk_candidate_multiplier=args.raw_actor_topk_candidate_multiplier,
             )
         hydrolix_log_ingest_usagemeter_in = args.hydrolix_log_ingest_usagemeter_in
         if (

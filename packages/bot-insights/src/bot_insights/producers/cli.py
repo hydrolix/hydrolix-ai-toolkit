@@ -61,7 +61,11 @@ from producers.threat_hunt import (
     export_baseline_ua_timeseries,
     export_fanout_enrichment,
     export_hydrolix_usagemeter_ingest_estimate,
+    export_impact_lane_scoped_hunt,
+    export_impact_lane_totals,
     export_raw_actor_fixtures,
+    merge_impact_lanes_into_artifact,
+    read_impact_lane_rows,
 )
 from producers.sql.control_review import (
     control_review_sql,
@@ -284,6 +288,46 @@ def parse_args() -> argparse.Namespace:
         help="Directory containing threat_hunt raw actor JSON exports.",
     )
     parser.add_argument(
+        "--raw-actor-chunk-seconds",
+        type=int,
+        default=3600,
+        help=(
+            "Maximum seconds per raw-log actor export query when --raw-actor-dir "
+            "is omitted. Smaller chunks reduce Hydrolix memory pressure."
+        ),
+    )
+    parser.add_argument(
+        "--raw-actor-extraction-mode",
+        choices=("topk", "hash"),
+        default="topk",
+        help=(
+            "Raw actor extraction strategy when --raw-actor-dir is omitted. "
+            "topk is the fast bounded default; hash is exact hash-bucket "
+            "chunking for diagnostics and reproduction."
+        ),
+    )
+    parser.add_argument(
+        "--raw-actor-hash-buckets",
+        type=int,
+        default=16,
+        help=(
+            "Number of deterministic hash buckets per client_ip raw actor time "
+            "chunk when --raw-actor-dir is omitted. user_agent exports remain "
+            "time-only by default. Higher values reduce GROUP BY memory pressure "
+            "at the cost of more queries."
+        ),
+    )
+    parser.add_argument(
+        "--raw-actor-topk-candidate-multiplier",
+        type=int,
+        default=5,
+        help=(
+            "Candidate multiplier for --raw-actor-extraction-mode topk. "
+            "The producer computes exact metrics for topK(top_n * multiplier) "
+            "candidate actors per time chunk."
+        ),
+    )
+    parser.add_argument(
         "--hydrolix-log-ingest-bytes-column",
         help=(
             "Optional akamai.logs column to sum as Hydrolix log ingest bytes "
@@ -310,6 +354,31 @@ def parse_args() -> argparse.Namespace:
         "--hydrolix-log-ingest-usagemeter-table-name",
         default="logs",
         help="hydro.logs table_name value for the raw customer log table. Default: logs.",
+    )
+    parser.add_argument(
+        "--impact-lane-query",
+        choices=("auto", "off", "required"),
+        default="auto",
+        help=(
+            "Threat-hunt raw-log impact lane behavior. auto exports raw-log "
+            "response-body and Akamai-billed totals when possible, off skips "
+            "lane merging, required fails if supplied or exported lane rows "
+            "are unavailable."
+        ),
+    )
+    parser.add_argument(
+        "--impact-lane-totals-in",
+        help=(
+            "Optional saved total-window impact lane rows for threat_hunt "
+            "(current_total, baseline_total)."
+        ),
+    )
+    parser.add_argument(
+        "--impact-lane-scoped-hunt-in",
+        help=(
+            "Optional saved high/partial-confidence Hunt Impact lane rows for "
+            "threat_hunt (current_high_partial, baseline_high_partial)."
+        ),
     )
     parser.add_argument(
         "--geoip-asn-v4",
@@ -587,6 +656,8 @@ def main() -> int:
             "--hydrolix-log-ingest-bytes-column": args.hydrolix_log_ingest_bytes_column,
             "--hydrolix-log-ingest-usagemeter-in": args.hydrolix_log_ingest_usagemeter_in,
             "--hydrolix-log-ingest-usagemeter-project-deployment-id": args.hydrolix_log_ingest_usagemeter_project_deployment_id,
+            "--impact-lane-totals-in": args.impact_lane_totals_in,
+            "--impact-lane-scoped-hunt-in": args.impact_lane_scoped_hunt_in,
             "--geoip-asn-v4": args.geoip_asn_v4,
             "--geoip-asn-v6": args.geoip_asn_v6,
             "--cooccurrence-in": args.cooccurrence_in,
@@ -655,6 +726,10 @@ def main() -> int:
                 database=args.database,
                 top_n=args.top_n,
                 hydrolix_log_ingest_bytes_column=args.hydrolix_log_ingest_bytes_column,
+                chunk_seconds=args.raw_actor_chunk_seconds,
+                extraction_mode=args.raw_actor_extraction_mode,
+                hash_buckets=args.raw_actor_hash_buckets,
+                topk_candidate_multiplier=args.raw_actor_topk_candidate_multiplier,
             )
         hydrolix_log_ingest_usagemeter_in = args.hydrolix_log_ingest_usagemeter_in
         if (
@@ -805,6 +880,57 @@ def main() -> int:
             hydrolix_log_ingest_project_deployment_id=args.hydrolix_log_ingest_usagemeter_project_deployment_id,
             hydrolix_log_ingest_table_name=args.hydrolix_log_ingest_usagemeter_table_name,
         )
+        if args.impact_lane_query != "off":
+            impact_lane_required = args.impact_lane_query == "required"
+            lane_totals_in = args.impact_lane_totals_in
+            lane_scoped_in = args.impact_lane_scoped_hunt_in
+            try:
+                if lane_totals_in is None:
+                    lane_totals_path = sample_dir / "threat_hunt-impact-lane-totals.json"
+                    export_impact_lane_totals(
+                        output=str(lane_totals_path),
+                        start=args.start,
+                        end=args.end,
+                        baseline_start=baseline_start.isoformat().replace("+00:00", "Z"),
+                        baseline_end=baseline_end.isoformat().replace("+00:00", "Z"),
+                        cluster=args.cluster,
+                        database=args.database,
+                    )
+                    lane_totals_in = str(lane_totals_path)
+                if lane_scoped_in is None:
+                    lane_scoped_path = sample_dir / "threat_hunt-impact-lane-scoped-hunt.json"
+                    hunt_user_agents = [
+                        str(ua)
+                        for ua in (
+                            ((artifact.get("impact_assessment") or {}).get("hunt") or {}).get("user_agents")
+                            or []
+                        )
+                        if str(ua)
+                    ]
+                    export_impact_lane_scoped_hunt(
+                        output=str(lane_scoped_path),
+                        start=args.start,
+                        end=args.end,
+                        baseline_start=baseline_start.isoformat().replace("+00:00", "Z"),
+                        baseline_end=baseline_end.isoformat().replace("+00:00", "Z"),
+                        cluster=args.cluster,
+                        database=args.database,
+                        user_agents=hunt_user_agents,
+                    )
+                    lane_scoped_in = str(lane_scoped_path)
+                merge_impact_lanes_into_artifact(
+                    artifact,
+                    total_rows=read_impact_lane_rows(lane_totals_in),
+                    scoped_hunt_rows=read_impact_lane_rows(lane_scoped_in),
+                    required=impact_lane_required,
+                )
+            except SystemExit:
+                if impact_lane_required:
+                    raise
+                print(
+                    "WARNING: raw-log impact lane export/merge unavailable; keeping summary-derived impact lanes.",
+                    file=sys.stderr,
+                )
         artifact_path.write_text(
             json.dumps(artifact, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
