@@ -10,6 +10,11 @@ _MODULE_NAMES = (
     "_shared",
     "part_01",
     "part_02",
+    "validation",
+    "standard_capture",
+    "standard_flow",
+    "threat_hunt_flow",
+    "dispatcher",
     "part_03",
     "part_04",
  )
