@@ -56,6 +56,11 @@ def _collect_actor_iocs(
         _add_unique(asns, actor.get("asn"))
 
 def _exports_for_ui(data: dict[str, Any]) -> dict[str, str]:
+    artifact_metadata = (
+        data.get("artifact_metadata")
+        if isinstance(data.get("artifact_metadata"), dict)
+        else {}
+    )
     payload = {
         "report": "threat_hunt",
         "schema_version": data["meta"]["schema"],
@@ -71,6 +76,15 @@ def _exports_for_ui(data: dict[str, Any]) -> dict[str, str]:
         },
         "iocs": data["iocs"],
     }
+    source: dict[str, Any] = {}
+    if isinstance(artifact_metadata.get("input_manifest"), dict):
+        source["input_manifest"] = artifact_metadata["input_manifest"]
+    if source:
+        payload["source"] = source
+    if isinstance(artifact_metadata.get("harvest_plan"), dict):
+        payload["harvest_plan"] = artifact_metadata["harvest_plan"]
+    if isinstance(artifact_metadata.get("replay_policy"), dict):
+        payload["replay_policy"] = artifact_metadata["replay_policy"]
     ua_expr = [f'(http.user_agent eq "{ua}")' for ua in data["iocs"]["user_agents"][:8]]
     endpoint_lines = [f'    "{path}",' for path in data["iocs"]["endpoints"]]
     waf_snippet = (

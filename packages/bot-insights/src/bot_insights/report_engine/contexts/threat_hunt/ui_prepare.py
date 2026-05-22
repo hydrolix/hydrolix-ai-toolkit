@@ -54,6 +54,7 @@ def _threat_hunt_ui(ctx: dict[str, Any]) -> dict[str, Any]:
             "not_established": (ctx.get("evidence_boundaries") or {}).get("not_established") or [],
         },
         "iocs": iocs,
+        "artifact_metadata": ctx.get("artifact_metadata") or {},
     }
     for action in ctx.get("recommended_actions") or []:
         target_kind, target_value = _action_primary_target(action)
@@ -267,6 +268,11 @@ def prepare(artifact: dict[str, Any]) -> dict[str, Any]:
     }
     ctx = {
         "artifact": artifact,
+        "artifact_metadata": (
+            artifact.get("artifact_metadata")
+            if isinstance(artifact.get("artifact_metadata"), dict)
+            else {}
+        ),
         "title": "Threat Hunt",
         "report_type": REPORT_TYPE,
         "kicker": "Bot Insights — Threat Hunt",

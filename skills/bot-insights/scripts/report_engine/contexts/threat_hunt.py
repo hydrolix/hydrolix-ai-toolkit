@@ -3358,6 +3358,11 @@ def _iocs_from_context(ctx: dict[str, Any]) -> dict[str, list[str]]:
 
 
 def _exports_for_ui(data: dict[str, Any]) -> dict[str, str]:
+    artifact_metadata = (
+        data.get("artifact_metadata")
+        if isinstance(data.get("artifact_metadata"), dict)
+        else {}
+    )
     payload = {
         "report": "threat_hunt",
         "schema_version": data["meta"]["schema"],
@@ -3373,6 +3378,15 @@ def _exports_for_ui(data: dict[str, Any]) -> dict[str, str]:
         },
         "iocs": data["iocs"],
     }
+    source: dict[str, Any] = {}
+    if isinstance(artifact_metadata.get("input_manifest"), dict):
+        source["input_manifest"] = artifact_metadata["input_manifest"]
+    if source:
+        payload["source"] = source
+    if isinstance(artifact_metadata.get("harvest_plan"), dict):
+        payload["harvest_plan"] = artifact_metadata["harvest_plan"]
+    if isinstance(artifact_metadata.get("replay_policy"), dict):
+        payload["replay_policy"] = artifact_metadata["replay_policy"]
     ua_expr = [f'(http.user_agent eq "{ua}")' for ua in data["iocs"]["user_agents"][:8]]
     endpoint_lines = [f'    "{path}",' for path in data["iocs"]["endpoints"]]
     waf_snippet = (
@@ -3609,6 +3623,7 @@ def _threat_hunt_ui(ctx: dict[str, Any]) -> dict[str, Any]:
             "not_established": (ctx.get("evidence_boundaries") or {}).get("not_established") or [],
         },
         "iocs": iocs,
+        "artifact_metadata": ctx.get("artifact_metadata") or {},
     }
     for action in ctx.get("recommended_actions") or []:
         target_kind, target_value = _action_primary_target(action)
@@ -3824,6 +3839,11 @@ def prepare(artifact: dict[str, Any]) -> dict[str, Any]:
     }
     ctx = {
         "artifact": artifact,
+        "artifact_metadata": (
+            artifact.get("artifact_metadata")
+            if isinstance(artifact.get("artifact_metadata"), dict)
+            else {}
+        ),
         "title": "Threat Hunt",
         "report_type": REPORT_TYPE,
         "kicker": "Bot Insights — Threat Hunt",
