@@ -71,6 +71,7 @@ __all__ = [
     'SUSPICIOUS_TARGETS_DISPLAY_CAP',
     '_IOC_SCOPE_VIEW_TOP_N',
     '_compute_edge_action_for_indicator',
+    '_compute_provenance_for_indicator',
     '_scope_views_for_indicator',
     '_attack_aggregation',
     '_suspicious_targets_view',
