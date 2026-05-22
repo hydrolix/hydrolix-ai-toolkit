@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import sys
@@ -31,6 +32,71 @@ def test_bot_insights_imports_are_package_first() -> None:
     assert CaptureQueryConfigModel(database="akamai").granularity == "auto"
     assert Path(DEFAULT_THRESHOLDS.browser_version_history.snapshot_path).exists()
     assert bullet_chart_svg(0.5, 1.0)
+
+
+def test_chart_helpers_reexport_reportkit_outputs() -> None:
+    import bot_insights.report_engine.charts as package_charts
+    import reportkit.charts as reportkit_charts
+
+    legacy_spec = importlib.util.spec_from_file_location(
+        "legacy_report_engine_charts",
+        LEGACY_SCRIPTS / "report_engine" / "charts.py",
+    )
+    assert legacy_spec is not None
+    assert legacy_spec.loader is not None
+    legacy_charts = importlib.util.module_from_spec(legacy_spec)
+    legacy_spec.loader.exec_module(legacy_charts)
+
+    cases = [
+        ("score_gauge_svg", (85, 1.25), {}),
+        ("score_bar_svg", (37,), {}),
+        (
+            "band_distribution_bar_svg",
+            ({"escalate": 1, "monitor": 2, "observe": 3},),
+            {},
+        ),
+        ("score_histogram_svg", ([10, 20, 45, 75, 99], 10, 45), {}),
+        (
+            "triage_histogram_svg",
+            (
+                {
+                    "assign": 2,
+                    "watch": 3,
+                    "insufficient_data": 1,
+                    "close_as_expected": 4,
+                },
+            ),
+            {},
+        ),
+        ("coverage_bar_svg", (1, 2, 3), {}),
+        ("bullet_chart_svg", (85, 70), {"label": "Score"}),
+        (
+            "slopegraph_svg",
+            ([{"entity": "api.example", "score": 80, "delta": -5}],),
+            {},
+        ),
+        (
+            "incident_volume_chart_svg",
+            ([10, 25, 90, 20],),
+            {
+                "baseline": [8, 9, 10, 9],
+                "peak_label": "Peak 90",
+                "highlight_start_fraction": 0.25,
+                "highlight_end_fraction": 0.75,
+            },
+        ),
+        ("sparkline_svg", ([1, 3, 2],), {}),
+    ]
+
+    for helper_name, args, kwargs in cases:
+        expected = getattr(reportkit_charts, helper_name)(*args, **kwargs)
+        assert getattr(package_charts, helper_name)(*args, **kwargs) == expected
+        assert getattr(legacy_charts, helper_name)(*args, **kwargs) == expected
+
+    assert package_charts.CURRENT_SERIES_COLOR == reportkit_charts.CURRENT_SERIES_COLOR
+    assert legacy_charts.CURRENT_SERIES_COLOR == reportkit_charts.CURRENT_SERIES_COLOR
+    assert package_charts._fmt_compact(1234) == reportkit_charts._fmt_compact(1234)
+    assert legacy_charts._fmt_compact(1234) == reportkit_charts._fmt_compact(1234)
 
 
 def test_threat_hunt_hunt_impact_scopes_to_high_and_partial_confidence(tmp_path, monkeypatch) -> None:

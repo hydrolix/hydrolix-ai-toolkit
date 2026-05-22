@@ -1,6 +1,7 @@
-"""Shared chart constants."""
+"""Compatibility re-export for chart constants."""
 
 from __future__ import annotations
 
+from reportkit.charts import CURRENT_SERIES_COLOR
 
-CURRENT_SERIES_COLOR = "#4E79A7"  # Tableau Blue; categorical, not severity.
+__all__ = ["CURRENT_SERIES_COLOR"]
