@@ -29,7 +29,9 @@ on:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: lke
+    container:
+      image: ubuntu:latest
     steps:
       - uses: actions/checkout@v4
 
@@ -52,7 +54,9 @@ jobs:
         run: scripts/generate-site.sh
 
   package:
-    runs-on: ubuntu-latest
+    runs-on: lke
+    container:
+      image: ubuntu:latest
     needs: validate
     permissions:
       contents: write
@@ -124,7 +128,9 @@ jobs:
 
   deploy:
     if: github.event_name == 'release' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: lke
+    container:
+      image: ubuntu:latest
     needs: package
     permissions:
       pages: write
