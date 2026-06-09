@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from producers.formatting import sql_literal
+
 # Physical columns that can back the canonical path-pattern dimension, in
 # preference order. ``requestPathPattern`` is the currently-deployed name and
 # stays first so introspection-less defaults keep targeting live clusters;
@@ -42,3 +44,18 @@ def resolve_path_pattern_column(
         if candidate in columns:
             return candidate
     return default
+
+
+def summary_columns_query(database: str, table: str) -> str:
+    """Guarded ``system.columns`` SELECT used to introspect a table's columns.
+
+    Capture's SQL guard rejects ``DESCRIBE TABLE`` (not a SELECT), so column
+    introspection routes through ``system.columns``. Bounded by ``database`` +
+    ``table`` literals so it stays cheap regardless of cluster size.
+    """
+    return (
+        f"SELECT name FROM system.columns "
+        f"WHERE database = {sql_literal(database)} "
+        f"AND table = {sql_literal(table)} "
+        f"ORDER BY name LIMIT 1000"
+    )

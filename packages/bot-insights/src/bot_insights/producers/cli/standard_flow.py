@@ -4,10 +4,10 @@ import json
 from pathlib import Path
 
 from producers.runtime import result_rows
-from producers.sql.incident import _incident_columns_query
 from producers.sql.summary_columns import (
     DEFAULT_PATH_PATTERN_COLUMN,
     resolve_path_pattern_column,
+    summary_columns_query,
 )
 
 from .part_01 import *
@@ -30,7 +30,7 @@ def _resolve_standard_path_pattern_column(args, *, granularity, sample_dir, run_
     ):
         return DEFAULT_PATH_PATTERN_COLUMN
     columns_path = sample_dir / f"{args.report}-columns-summary.json"
-    sql = _incident_columns_query(args.database, f"bi_summary_{granularity}")
+    sql = summary_columns_query(args.database, f"bi_summary_{granularity}")
     try:
         capture_text = run_func(
             [
