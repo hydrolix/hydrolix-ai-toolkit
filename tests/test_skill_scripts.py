@@ -1580,6 +1580,142 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertIn("request_host = 'www.example.com'' OR 1=1 --'", sql)
         reject_invalid_sql(f"{sql} FORMAT JSON", require_time_range=True)
 
+    def test_resolve_path_pattern_column_prefers_present_physical_name(self) -> None:
+        from producers.sql.summary_columns import resolve_path_pattern_column
+
+        # Currently-deployed cluster shape.
+        self.assertEqual(
+            resolve_path_pattern_column({"reqHost", "requestPathPattern", "country"}),
+            "requestPathPattern",
+        )
+        # bot_insights_cdn/1.1 renamed shape.
+        self.assertEqual(
+            resolve_path_pattern_column({"reqHost", "reqPathPattern", "country"}),
+            "reqPathPattern",
+        )
+        # No path column present -> default keeps current deployed name.
+        self.assertEqual(
+            resolve_path_pattern_column({"reqHost", "country"}),
+            "requestPathPattern",
+        )
+
+    def test_scorecard_sql_request_path_norm_uses_resolved_path_column(self) -> None:
+        from producers.sql.scorecard import scorecard_sql
+
+        start = datetime(2026, 5, 2, tzinfo=timezone.utc)
+        end = datetime(2026, 5, 2, 2, tzinfo=timezone.utc)
+        baseline_start = datetime(2026, 5, 1, tzinfo=timezone.utc)
+
+        # 1.1 physical column threaded through.
+        sql_11 = scorecard_sql(
+            "akamai", start, end, baseline_start, "request_path_norm", 25,
+            path_pattern_column="reqPathPattern",
+        )
+        self.assertIn("toString(reqPathPattern) AS request_path_norm", sql_11)
+        self.assertNotIn("requestPathPattern", sql_11)
+
+        # Default preserves the currently-deployed column.
+        sql_default = scorecard_sql(
+            "akamai", start, end, baseline_start, "request_path_norm", 25,
+        )
+        self.assertIn("toString(requestPathPattern) AS request_path_norm", sql_default)
+
+        # Non-path entities are unaffected by the path column.
+        sql_asn = scorecard_sql(
+            "akamai", start, end, baseline_start, "client_asn", 25,
+            path_pattern_column="reqPathPattern",
+        )
+        self.assertIn("toString(asn) AS client_asn", sql_asn)
+        self.assertNotIn("PathPattern", sql_asn)
+
+    def test_resolve_standard_path_pattern_column_from_introspected_columns(self) -> None:
+        from producers.cli.standard_flow import _resolve_standard_path_pattern_column
+
+        def make_run(column_name):
+            def fake_run(cmd, *, allowed_returncodes=()):
+                output = Path(cmd[cmd.index("--output") + 1])
+                output.write_text(
+                    json.dumps({"data": [{"name": "reqHost"}, {"name": column_name}]}),
+                    encoding="utf-8",
+                )
+                self.assertIn("--no-require-time-range", cmd)
+                return ""
+            return fake_run
+
+        args = SimpleNamespace(
+            report="scorecard_brief",
+            entity_type="request_path_norm",
+            cluster="demo",
+            database="akamai",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            # 1.1 cluster shape resolves to reqPathPattern.
+            self.assertEqual(
+                _resolve_standard_path_pattern_column(
+                    args, granularity="day", sample_dir=Path(tmp),
+                    run_func=make_run("reqPathPattern"),
+                ),
+                "reqPathPattern",
+            )
+            # Currently-deployed shape resolves to requestPathPattern.
+            self.assertEqual(
+                _resolve_standard_path_pattern_column(
+                    args, granularity="day", sample_dir=Path(tmp),
+                    run_func=make_run("requestPathPattern"),
+                ),
+                "requestPathPattern",
+            )
+
+    def test_resolve_standard_path_pattern_column_safe_fallbacks(self) -> None:
+        from producers.cli.standard_flow import _resolve_standard_path_pattern_column
+        from producers.runtime import HANDOFF_SCHEMA
+
+        path_args = SimpleNamespace(
+            report="scorecard_brief", entity_type="request_path_norm",
+            cluster="demo", database="akamai",
+        )
+
+        # Non-path entity never probes; returns deployed default.
+        called = {"n": 0}
+        def counting_run(cmd, *, allowed_returncodes=()):
+            called["n"] += 1
+            return ""
+        non_path_args = SimpleNamespace(
+            report="scorecard_brief", entity_type="client_asn",
+            cluster="demo", database="akamai",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(
+                _resolve_standard_path_pattern_column(
+                    non_path_args, granularity="day", sample_dir=Path(tmp),
+                    run_func=counting_run,
+                ),
+                "requestPathPattern",
+            )
+            self.assertEqual(called["n"], 0)
+
+            # MCP handoff -> fall back to default without starting a chain.
+            def handoff_run(cmd, *, allowed_returncodes=()):
+                return json.dumps({"schema_version": HANDOFF_SCHEMA})
+            self.assertEqual(
+                _resolve_standard_path_pattern_column(
+                    path_args, granularity="day", sample_dir=Path(tmp),
+                    run_func=handoff_run,
+                ),
+                "requestPathPattern",
+            )
+
+            # Capture error -> fall back to default.
+            def failing_run(cmd, *, allowed_returncodes=()):
+                raise SystemExit("capture failed")
+            self.assertEqual(
+                _resolve_standard_path_pattern_column(
+                    path_args, granularity="day", sample_dir=Path(tmp),
+                    run_func=failing_run,
+                ),
+                "requestPathPattern",
+            )
+
     def test_incident_raw_window_sql_computes_fallback_429_and_5xx(self) -> None:
         from producers.sql.incident import _incident_window_confirmation_sql
 
@@ -1806,6 +1942,32 @@ class BotInsightsScriptTests(unittest.TestCase):
             incident_orch._summary_dimension_column(ctx, "requestPathPattern"),
             "reqPathPatternCoarse",
         )
+
+    def test_summary_dimension_column_resolves_bundle_reqPathPattern(self) -> None:
+        # bot_insights_cdn/1.1 emits the physical column ``reqPathPattern``
+        # (see hydrolix/tables/bi_summary_*.sql), not ``requestPathPattern``
+        # or ``reqPathPatternCoarse``. The resolver must map the canonical
+        # path-pattern request to that physical column.
+        import producers.orchestrators.incident_report as incident_orch
+
+        ctx = incident_orch._IncidentCtx(
+            granularity="day",
+            summary_table="akamai.bi_summary_day",
+        )
+        ctx.summary_columns = {
+            "reqTimeSec", "reqHost", "asn", "userAgentCategory",
+            "isBotTraffic", "aiCategory", "resourceCategory", "reqMethod",
+            "cacheStatus", "statusCode", "reqPathPattern", "country",
+            "aiSource", "trafficCohort",
+        }
+
+        self.assertEqual(
+            incident_orch._summary_dimension_column(ctx, "requestPathPattern"),
+            "reqPathPattern",
+        )
+
+        incident_orch._resolve_summary_layout(ctx)
+        self.assertEqual(ctx.summary_path_pattern_column, "reqPathPattern")
 
     def test_incident_actor_top_n_50_is_used_for_current_and_baseline_rankings(self) -> None:
         from producers.sql.incident import (
@@ -9354,6 +9516,16 @@ class BotInsightsScriptTests(unittest.TestCase):
             "llm_may_summarize_structured_evidence_only",
             result["interpretation_constraints"],
         )
+
+    def test_attribution_path_pattern_alias_includes_bundle_reqPathPattern(self) -> None:
+        # bot_insights_cdn/1.1 renames the path-pattern summary dimension to
+        # ``reqPathPattern`` (hydrolix/tables/bi_summary_*.sql). The renderer
+        # resolves the canonical ``request_path_pattern`` against table
+        # metadata, so the physical candidate list must include it alongside
+        # the currently-deployed ``requestPathPattern``.
+        aliases = self.attribution.metadata_column_aliases("request_path_pattern")
+        self.assertIn("requestPathPattern", aliases)
+        self.assertIn("reqPathPattern", aliases)
 
     def test_attribution_scaffold_normalizes_combined_rows(self) -> None:
         result = self.attribution.normalize_attribution(

@@ -113,7 +113,7 @@ FIELD_NAME_ALIASES = {
     "resource_category": ("resource_category", "resourceCategory"),
     "request_method": ("request_method", "reqMethod", "method"),
     "user_agent_category": ("user_agent_category", "userAgentCategory"),
-    "request_path_pattern": ("request_path_pattern", "requestPathPattern"),
+    "request_path_pattern": ("request_path_pattern", "requestPathPattern", "reqPathPattern"),
     "policy_id": ("policy_id", "policyId"),
     "action_class": ("action_class", "actionClass"),
     "bot_type": ("bot_type", "botType"),

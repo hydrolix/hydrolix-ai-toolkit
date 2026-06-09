@@ -13,11 +13,16 @@ from __future__ import annotations
 from datetime import datetime
 
 from producers.formatting import choose_granularity, sql_literal, sql_ts
+from producers.sql.summary_columns import DEFAULT_PATH_PATTERN_COLUMN
 
 
+# Entity types whose physical column is resolved per bundle version. The
+# path-pattern dimension was renamed ``requestPathPattern`` -> ``reqPathPattern``
+# in bot_insights_cdn/1.1, so ``request_path_norm`` is rendered from the
+# resolved column rather than a fixed name (see ``summary_columns``).
 SCORECARD_ENTITY_SQL = {
     "client_asn": "toString(asn)",
-    "request_path_norm": "toString(requestPathPattern)",
+    "request_path_norm": f"toString({DEFAULT_PATH_PATTERN_COLUMN})",
     "request_host": "toString(reqHost)",
     "bot_class": "toString(userAgentCategory)",
     "ai_category": "toString(aiCategory)",
@@ -56,10 +61,14 @@ def scorecard_sql(
     baseline_start: datetime,
     entity_type: str,
     producer_limit: int,
+    path_pattern_column: str = DEFAULT_PATH_PATTERN_COLUMN,
 ) -> str:
     granularity = choose_granularity(start, end)
     table = f"{database}.bi_summary_{granularity}"
-    entity_expr = SCORECARD_ENTITY_SQL[entity_type]
+    if entity_type == "request_path_norm":
+        entity_expr = f"toString({path_pattern_column})"
+    else:
+        entity_expr = SCORECARD_ENTITY_SQL[entity_type]
     limit_clause = f"\nLIMIT {producer_limit}" if producer_limit > 0 else ""
     return f"""
 WITH

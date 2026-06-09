@@ -7,6 +7,8 @@ import os
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from pathlib import Path
 
+from producers.sql.summary_columns import PATH_PATTERN_PHYSICAL_COLUMNS
+
 from .contracts import _IncidentCtx
 
 _EXPEDIA_RAW_COLUMN_MAP = {
@@ -36,8 +38,10 @@ def _timeseries_has_current_requests(volume_timeseries: dict | None) -> bool:
 def _summary_dimension_column(ctx: _IncidentCtx, requested: str) -> str | None:
     if requested in ctx.summary_columns:
         return requested
-    if requested == "requestPathPattern" and "reqPathPatternCoarse" in ctx.summary_columns:
-        return "reqPathPatternCoarse"
+    if requested == "requestPathPattern":
+        for candidate in PATH_PATTERN_PHYSICAL_COLUMNS:
+            if candidate in ctx.summary_columns:
+                return candidate
     return None
 def _resolve_summary_layout(ctx: _IncidentCtx) -> None:
     """Resolve physical posture-summary columns from introspected metadata."""

@@ -21,7 +21,11 @@ Spec table names for the TrafficPeak Akamai project:
   `akamai.bi_summary_day`. These tables retain source-style fields including
   `reqTimeSec`, `reqHost`, `asn`, `userAgentCategory`, `isBotTraffic`,
   `aiCategory`, `aiSource`, `trafficCohort`, `resourceCategory`, `reqMethod`,
-  `cacheStatus`, `statusCode`, `requestPathPattern`, and `country`.
+  `cacheStatus`, `statusCode`, `requestPathPattern`, and `country`. Deployed
+  clusters expose the path-pattern dimension as `requestPathPattern`; the
+  `bot_insights_cdn/1.1` bundle renames it to `reqPathPattern`. Resolve the
+  physical name from table metadata (the attribution renderer and producer
+  scripts accept either spelling).
 - `bi_siem_policy_summary_*` is the with-SIEM dashboard surface. Use fully
   qualified `akamai.bi_siem_policy_summary_minute`,
   `akamai.bi_siem_policy_summary_hour`, or

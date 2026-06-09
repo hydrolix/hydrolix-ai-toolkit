@@ -3,8 +3,65 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from producers.runtime import result_rows
+from producers.sql.incident import _incident_columns_query
+from producers.sql.summary_columns import (
+    DEFAULT_PATH_PATTERN_COLUMN,
+    resolve_path_pattern_column,
+)
+
 from .part_01 import *
 from .standard_capture import capture_standard_inputs
+
+
+def _resolve_standard_path_pattern_column(args, *, granularity, sample_dir, run_func) -> str:
+    """Resolve the physical path-pattern column for the path scorecard entity.
+
+    The posture summary renamed ``requestPathPattern`` -> ``reqPathPattern`` in
+    bot_insights_cdn/1.1, so the ``request_path_norm`` scorecard entity must
+    target whichever name the cluster exposes. Best-effort: when summary
+    columns are reachable (direct execution) we resolve from them; on an MCP
+    handoff, capture error, or any non-row result we fall back to the
+    currently-deployed default rather than starting a second handoff chain.
+    """
+    if not (
+        args.report == "scorecard_brief"
+        and getattr(args, "entity_type", None) == "request_path_norm"
+    ):
+        return DEFAULT_PATH_PATTERN_COLUMN
+    columns_path = sample_dir / f"{args.report}-columns-summary.json"
+    sql = _incident_columns_query(args.database, f"bi_summary_{granularity}")
+    try:
+        capture_text = run_func(
+            [
+                sys.executable,
+                str(CAPTURE),
+                "--cluster",
+                args.cluster,
+                "--database",
+                args.database,
+                "--sql",
+                sql,
+                "--output",
+                str(columns_path),
+                "--no-require-time-range",
+            ],
+            allowed_returncodes=(NEEDS_MCP_EXIT,),
+        )
+    except SystemExit:
+        return DEFAULT_PATH_PATTERN_COLUMN
+    try:
+        summary = json.loads(capture_text) if capture_text else {}
+    except json.JSONDecodeError:
+        return DEFAULT_PATH_PATTERN_COLUMN
+    if isinstance(summary, dict) and summary.get("schema_version") == HANDOFF_SCHEMA:
+        return DEFAULT_PATH_PATTERN_COLUMN
+    try:
+        rows = result_rows(load_raw_query_result(columns_path))
+    except (OSError, ValueError):
+        return DEFAULT_PATH_PATTERN_COLUMN
+    columns = {row.get("name") for row in rows if isinstance(row, dict) and row.get("name")}
+    return resolve_path_pattern_column(columns)
 
 
 def run_standard_flow(
@@ -18,7 +75,15 @@ def run_standard_flow(
     load_raw_query_result_func,
 ) -> int:
     paths = _standard_paths(args, sample_dir)
-    plan = _report_plan(args, start, end, baseline_start)
+    path_pattern_column = _resolve_standard_path_pattern_column(
+        args,
+        granularity=choose_granularity(start, end),
+        sample_dir=sample_dir,
+        run_func=run_func,
+    )
+    plan = _report_plan(
+        args, start, end, baseline_start, path_pattern_column=path_pattern_column
+    )
     capture_summary, raw_value, raw_timeseries_value, raw_path_value = capture_standard_inputs(
         args,
         paths,
@@ -82,7 +147,9 @@ def _standard_paths(args, sample_dir: Path) -> dict[str, Path]:
     }
 
 
-def _report_plan(args, start, end, baseline_start) -> dict[str, object]:
+def _report_plan(
+    args, start, end, baseline_start, path_pattern_column=DEFAULT_PATH_PATTERN_COLUMN
+) -> dict[str, object]:
     granularity = choose_granularity(start, end)
     if args.report == "executive_posture":
         return {
@@ -110,7 +177,13 @@ def _report_plan(args, start, end, baseline_start) -> dict[str, object]:
         }
     if args.report == "scorecard_brief":
         sql = scorecard_sql(
-            args.database, start, end, baseline_start, args.entity_type, args.scorecard_limit
+            args.database,
+            start,
+            end,
+            baseline_start,
+            args.entity_type,
+            args.scorecard_limit,
+            path_pattern_column=path_pattern_column,
         )
     elif args.report == "soc_triage":
         sql = scorecard_soc_sql(
