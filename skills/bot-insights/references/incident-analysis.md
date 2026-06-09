@@ -27,9 +27,13 @@ Use this report when:
 - A customer demo needs presentable evidence of a window-scoped
   incident without inventing a root-cause story.
 
+Use the window-scoped report directly for:
+
+- Analyst-supplied windows.
+- Discovery candidates after the summary-first hunt below has narrowed them.
+
 Do **not** use this report for:
 
-- Auto-detecting incidents without an analyst-supplied window.
 - Cross-incident comparison.
 - Claims about malicious intent or causality — the report is contractually
   prose-only on those surfaces, and the LLM contract forbids them.
@@ -41,6 +45,43 @@ Do **not** use this report for:
 - Collapsing infrastructure topology. If the evidence names actors across
   multiple ASNs, preserve that plurality; "single-ASN" is only valid when
   all actors named in the claim share the same ASN.
+
+## Discovery Hunt
+
+For Expedia incident discovery, use the Expedia deployment surfaces:
+
+- Cluster: `expedia`
+- Database: `akamai`
+- Hourly discovery summary: `akamai.bi_summary_hour_exp`
+- Minute tightening summary: `akamai.bi_summary_minute_exp`
+- Raw confirmation: `akamai.logs`
+
+The discovery path is summary-first:
+
+1. Run `_incident_discovery_hourly_candidates_sql` against
+   `bi_summary_hour_exp` across the broad current window plus baseline.
+   The query scores host-hours using same-host same-hour-of-week baseline
+   when available, falling back to same-host baseline when the hour-of-week
+   bucket is missing. It requires at least two evidence families before a
+   host-hour is promoted.
+2. Merge adjacent anomalous host-hours locally into candidate windows.
+3. Run `_incident_discovery_minute_tightening_sql` against
+   `bi_summary_minute_exp` for each strong host-window to find the tight
+   incident boundary.
+4. Only after narrowing, run `_incident_discovery_raw_drilldown_sql` against
+   `akamai.logs` for top `cliIP`, `asn`, `UA`, `reqPath`, and `queryStr`
+   evidence, with status/cache/bot/latency and sample bot-token fields.
+5. Feed confirmed candidate windows into `incident_report` with the resolved
+   `--host`, `--start`, `--end`, and optional `--path-pattern` / `--asn`.
+
+Use the April 19 Expedia event as a positive-control calibration case:
+`2026-04-19T13:00:00Z` to `2026-04-19T14:00:00Z`,
+`api.expedia.com`, with known top path patterns `/:slug` and `/graphql` and
+top IPs `5.180.30.239`, `5.180.30.203`, and `5.180.30.200`.
+
+Discovery candidates are not final incident claims. Phrase packets as
+"consistent with coordinated bot activity" unless the raw drilldown
+corroborates multiple independent dimensions.
 
 ## CLI
 

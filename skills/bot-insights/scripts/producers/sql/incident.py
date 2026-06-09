@@ -1120,3 +1120,13 @@ def _incident_in_list(values: list[str]) -> str:
     if not values:
         return "NULL"
     return ", ".join(sql_literal(v) for v in values)
+
+
+# Keep the legacy script import surface aligned with the package-first
+# implementation. The compatibility wrappers put the package source on
+# sys.path before normal execution, and tests import both surfaces.
+from bot_insights.producers.sql.incident.discovery import (  # noqa: E402
+    _incident_discovery_hourly_candidates_sql,
+    _incident_discovery_minute_tightening_sql,
+    _incident_discovery_raw_drilldown_sql,
+)

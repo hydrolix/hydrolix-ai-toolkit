@@ -1603,6 +1603,65 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertIn("countIf(statusCode = 429) AS req_429", sql)
         self.assertIn("countIf(statusCode BETWEEN 500 AND 599) AS req_5xx", sql)
 
+    def test_incident_expedia_discovery_sql_is_summary_bounded_and_calibrated(self) -> None:
+        from reportkit.extract.hydrolix import reject_invalid_sql
+        from producers.sql.incident import _incident_discovery_hourly_candidates_sql
+
+        sql = _incident_discovery_hourly_candidates_sql(
+            "akamai.bi_summary_hour_exp",
+            datetime(2026, 4, 19, tzinfo=timezone.utc),
+            datetime(2026, 4, 20, tzinfo=timezone.utc),
+            datetime(2026, 4, 12, tzinfo=timezone.utc),
+            datetime(2026, 4, 19, tzinfo=timezone.utc),
+            top_n=25,
+            min_requests=100_000,
+        )
+
+        self.assertIn("FROM akamai.bi_summary_hour_exp", sql)
+        self.assertNotIn("FROM akamai.logs", sql)
+        self.assertIn("countMerge(`count()`)", sql)
+        self.assertIn("reqTimeSec >= toDateTime('2026-04-12 00:00:00', 'UTC')", sql)
+        self.assertIn("reqTimeSec < toDateTime('2026-04-20 00:00:00', 'UTC')", sql)
+        self.assertIn("hour_of_week", sql)
+        self.assertIn("evidence_families >= 2", sql)
+        self.assertIn("LIMIT 25", sql)
+        reject_invalid_sql(f"{sql} FORMAT JSON", require_time_range=True)
+
+    def test_incident_expedia_discovery_tightening_and_raw_drilldown_are_bounded(self) -> None:
+        from reportkit.extract.hydrolix import reject_invalid_sql
+        from producers.sql.incident import (
+            _incident_discovery_minute_tightening_sql,
+            _incident_discovery_raw_drilldown_sql,
+        )
+
+        start = datetime(2026, 4, 19, 13, tzinfo=timezone.utc)
+        end = datetime(2026, 4, 19, 14, tzinfo=timezone.utc)
+        minute_sql = _incident_discovery_minute_tightening_sql(
+            "akamai.bi_summary_minute_exp",
+            start,
+            end,
+            "api.expedia.com",
+        )
+        raw_sql = _incident_discovery_raw_drilldown_sql(
+            start,
+            end,
+            "api.expedia.com",
+            top_n=10,
+        )
+
+        self.assertIn("FROM akamai.bi_summary_minute_exp", minute_sql)
+        self.assertIn("reqHost = 'api.expedia.com'", minute_sql)
+        self.assertIn("countMerge(`count()`)", minute_sql)
+        self.assertIn("FROM akamai.logs", raw_sql)
+        self.assertIn("toString(cliIP) AS value", raw_sql)
+        self.assertIn("toString(UA) AS value", raw_sql)
+        self.assertIn("toString(reqPath) AS value", raw_sql)
+        self.assertIn("queryStr", raw_sql)
+        self.assertIn("reqTimeSec >= toDateTime('2026-04-19 13:00:00', 'UTC')", raw_sql)
+        self.assertIn("reqTimeSec < toDateTime('2026-04-19 14:00:00', 'UTC')", raw_sql)
+        reject_invalid_sql(f"{minute_sql} FORMAT JSON", require_time_range=True)
+        reject_invalid_sql(f"{raw_sql} FORMAT JSON", require_time_range=True)
+
     def test_incident_provenance_sql_uses_only_available_optional_columns(self) -> None:
         from producers.sql.incident import (
             _incident_bot_source_mix_sql,
