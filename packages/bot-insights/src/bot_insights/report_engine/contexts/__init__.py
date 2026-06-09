@@ -33,15 +33,9 @@ from . import (
     crawler_governance,
     edge_ops_impact,
     executive_posture,
-    incident_detection_engineering,
-    incident_edge_platform_brief,
-    incident_executive_view,
-    incident_report,
-    incident_soc_action_packet,
     scorecard_brief,
     scorecard_entity_review,
     soc_triage,
-    threat_hunt,
 )
 
 
@@ -53,12 +47,6 @@ _MODULES: list[ModuleType] = [
     soc_triage,
     crawler_governance,
     edge_ops_impact,
-    incident_report,
-    incident_executive_view,
-    incident_soc_action_packet,
-    incident_edge_platform_brief,
-    incident_detection_engineering,
-    threat_hunt,
 ]
 
 # Registry keyed on raw artifact schema_version. ``soc_triage``,
@@ -72,12 +60,6 @@ _SCHEMA_REGISTRY_EXCLUSIONS = {
     "soc_triage",
     "crawler_governance",
     "edge_ops_impact",
-    # ``incident_executive_view`` shares ``bot_incident_scope.v1`` with
-    # ``incident_report``; route via the wrapper's ``report_type`` field.
-    "incident_executive_view",
-    "incident_soc_action_packet",
-    "incident_edge_platform_brief",
-    "incident_detection_engineering",
 }
 
 SCHEMA_REGISTRY: dict[str, ModuleType] = {}

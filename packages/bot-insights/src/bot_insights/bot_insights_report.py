@@ -98,25 +98,6 @@ from producers.sql.scorecard import (  # noqa: E402
     scorecard_soc_sql,
     scorecard_sql,
 )
-from producers.sql.incident import (  # noqa: E402
-    _incident_actor_cooccurrence_sql,
-    _incident_actor_scoped_metrics_baseline_sql,
-    _incident_actor_scoped_metrics_sql,
-    _incident_actor_topk_baseline_sql,
-    _incident_actor_topk_sql,
-    _incident_columns_query,
-    _incident_deny_rule_mix_sql,
-    _incident_dimension_sql,
-    _incident_edge_action_mix_sql,
-    _incident_in_list,
-    _incident_raw_scope_predicate,
-    _incident_scope_predicate,
-    _incident_siem_dimension_sql,
-    _incident_status_mix_sql,
-    _incident_time_predicate,
-    _incident_volume_timeseries_sql,
-    _incident_window_confirmation_sql,
-)
 
 # Per-report evidence-packet builders + the shared metric helpers
 # live under ``producers.evidence.*``. Re-imported under their
@@ -142,24 +123,6 @@ from producers.evidence.scorecard import (  # noqa: E402
     selected_rank,
 )
 
-# Incident-report evidence-shaping helpers (pure projections that lift
-# captured rows into artifact shapes) live under
-# ``producers.evidence.incident``. The heuristic-ladder evaluators
-# (Phase 1 outputs) and the contract-level lookup tables (ATT&CK
-# mapping, action class) live under ``producers.suspicious_targets``.
-# Both are re-imported here under their original module-level names so
-# main()/_run_incident_report keep working unchanged.
-from producers.evidence.incident import (  # noqa: E402
-    _INCIDENT_DEFAULT_FIELDS,
-    _INCIDENT_FIELD_LABELS,
-    _build_action_targets_artifact,
-    _incident_actor_rows,
-    _incident_compute_timeseries,
-    _incident_compute_window_confirmation,
-    _incident_dimension_rows,
-    _incident_split_period_rows,
-    _incident_status_rows,
-)
 from producers.suspicious_targets import (  # noqa: E402
     _INDIVIDUAL_ENTITY_FIELDS,
     _PRIMITIVE_ATTACK_TECHNIQUES,
@@ -178,26 +141,6 @@ from producers.suspicious_targets import (  # noqa: E402
     _evaluate_ranking_row,
     _evaluate_share_flags,
     _suspicious_action_class,
-)
-
-# The incident_report orchestrator + its tightly-coupled helpers
-# (subprocess + JSON capture wrapper, MCP handoff packet builder,
-# cluster-env / dashboard-URL resolution, the ``_IncidentHandoff``
-# exception) live in ``producers.orchestrators.incident_report``.
-# Re-imported here under the original names. Note: that module uses a
-# late import of ``analyst_note_from_args``, ``build_report_wrapper``,
-# and ``humanize_evidence_packet`` from this module to avoid the
-# circular import that would otherwise form at module-load time.
-from producers.orchestrators.incident_report import (  # noqa: E402
-    INCIDENT_INTERPRETATION_CONTRACT,
-    _IncidentHandoff,
-    _capture_sql_to_rows,
-    _emit_handoff_packet,
-    _grafana_host_base,
-    _incident_cluster_env,
-    _resolve_dashboard_url,
-    _resolve_incident_env_value,
-    _run_incident_report,
 )
 
 # Evidence-packet label enrichment lives in
