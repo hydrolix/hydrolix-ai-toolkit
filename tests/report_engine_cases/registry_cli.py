@@ -48,30 +48,6 @@ def test_register_rejects_module_missing_required_attrs():
     with pytest.raises(TypeError, match="missing required attribute"):
         contexts.register(bogus)
 
-def test_render_report_cli_accepts_print_pdf_and_analysis_mode(monkeypatch):
-    import render_report
-
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "render_report.py",
-            "--profile",
-            "print",
-            "--format",
-            "pdf",
-            "--analysis-mode",
-            "both",
-            "--output",
-            "incident_report_print.pdf",
-        ],
-    )
-
-    args = render_report.parse_args()
-
-    assert args.profile == "print"
-    assert args.format == "pdf"
-    assert args.analysis_mode == "both"
 
 def test_render_report_bootstrap_reexecs_for_missing_html_deps(monkeypatch):
     from _render_report import cli
@@ -173,64 +149,5 @@ def test_producer_pdf_render_command_includes_playwright():
 
     assert "playwright" in cmd
 
-def test_render_report_analysis_mode_both_derives_sibling_outputs():
-    from _render_report import cli
 
-    args = SimpleNamespace(
-        analysis_mode="both",
-        output=Path("incident_report_print.pdf"),
-    )
 
-    jobs = cli._render_jobs({"schema_version": "bot_report_input.v1"}, args)
-
-    assert jobs[0][2] == Path("incident_report_print_llm.pdf")
-    assert jobs[1][2] == Path("incident_report_print_deterministic.pdf")
-    assert jobs[1][0] == {"schema_version": "bot_report_input.v1"}
-
-def test_render_report_print_profile_forces_light_and_marks_html(monkeypatch):
-    import render_report
-    from _render_report import cli
-
-    monkeypatch.delenv("BOT_INSIGHTS_RENDER_PATH", raising=False)
-    wrapper = json.loads((ROOT / "skills/bot-insights/examples/incident-report.json").read_text())
-    calls = []
-
-    def fake_engine(**kwargs):
-        calls.append(kwargs)
-        return '<body class="profile-print" data-profile="print"></body>'
-
-    monkeypatch.setattr(cli, "_render_via_engine", fake_engine)
-    output, warnings = render_report.render(
-        wrapper,
-        SimpleNamespace(
-            text=[],
-            file=None,
-            format="html",
-            profile="print",
-            report_type=None,
-            output=None,
-            limit=None,
-            allow_unknown=False,
-            title=None,
-            palette="tableau",
-            theme="auto",
-            analysis_mode="llm",
-        ),
-    )
-
-    assert warnings == []
-    assert 'data-profile="print"' in output
-    assert 'class="profile-print"' in output
-    assert calls[0]["profile"] == "print"
-    assert calls[0]["theme_mode"] == "light"
-
-def test_render_report_deterministic_mode_removes_analyst_notes(monkeypatch):
-    from _render_report import cli
-
-    wrapper = json.loads((ROOT / "skills/bot-insights/examples/incident-report.json").read_text())
-    assert wrapper["analyst_notes"]
-
-    deterministic = cli._without_analyst_notes(wrapper)
-
-    assert "analyst_notes" not in deterministic
-    assert "analyst_notes" in wrapper

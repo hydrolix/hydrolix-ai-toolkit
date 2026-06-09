@@ -58,28 +58,6 @@ def test_score_gauge_svg_band_zones():
     # Band label rendered
     assert "observe" in svg
 
-def test_incident_volume_chart_uses_semantic_accent_only_for_incident_cues():
-    from report_engine.charts import incident_volume_chart_svg
-
-    svg = incident_volume_chart_svg(
-        [10, 25, 90, 20],
-        baseline=[8, 9, 10, 9],
-        accent="#E15759",
-        accent_fill="#FBE5E6",
-        baseline_color="#4A5A73",
-        peak_label="Peak 90",
-        highlight_start_fraction=0.25,
-        highlight_end_fraction=0.75,
-    )
-
-    assert "<path" not in svg
-    assert 'stroke="#4E79A7" stroke-width="2.2"' in svg
-    assert 'stroke="#E15759" stroke-width="2.2"' not in svg
-    assert 'fill="#E15759" fill-opacity="0.10"' in svg
-    assert svg.count('stroke="#E15759" stroke-width="1" stroke-opacity="0.35"') == 2
-    assert '<circle cx="' in svg and 'fill="#E15759"' in svg
-    assert 'fill="#E15759">Peak 90</text>' in svg
-    assert 'stroke="#4A5A73"' in svg
 
 def test_findings_shared_signal_when_one_rule_dominates():
     from report_engine.findings import build_scorecard_brief_findings

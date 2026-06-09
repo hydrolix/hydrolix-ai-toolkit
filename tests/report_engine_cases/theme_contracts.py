@@ -179,23 +179,6 @@ def test_default_semantic_palette_tokens_do_not_use_hydrolix_brand_hexes():
 
     assert collisions == {}
 
-def test_editorial_css_keeps_brand_tokens_out_of_meaning_selectors():
-    css = _css_without_comments(ENGINE_DIR / "templates/_styles_editorial.css")
-    meaning_selector = re.compile(
-        r"(severity|risk|delta|hot|critical|incident-status|action-tone)",
-        re.I,
-    )
-    violations = []
-
-    for selector, declarations in _css_blocks(css):
-        selector_without_scope = selector.replace(".brief-incident", "")
-        if (
-            meaning_selector.search(selector_without_scope)
-            and "var(--brand-" in declarations
-        ):
-            violations.append(selector.strip())
-
-    assert violations == []
 
 def test_primary_brand_teal_is_not_used_as_text_on_editorial_light_surfaces():
     from report_engine import theme

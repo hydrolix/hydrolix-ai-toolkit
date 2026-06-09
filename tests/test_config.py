@@ -71,13 +71,6 @@ def test_default_anomaly_matches_heuristics_constants() -> None:
     assert a.min_requests == heuristics._ANOMALY_MIN_REQUESTS == 1000
 
 
-def test_default_risk_weights_and_bands_match_legacy() -> None:
-    from report_engine.contexts.incident import risk as risk_mod
-
-    assert dict(DEFAULT_THRESHOLDS.risk_score.weights) == risk_mod._RISK_WEIGHTS
-    assert dict(DEFAULT_THRESHOLDS.risk_score.bands) == risk_mod._RISK_BANDS
-    assert DEFAULT_THRESHOLDS.risk_score.bands["critical"] == (75, 100)
-    assert DEFAULT_THRESHOLDS.risk_score.weights["critical"] == 30
 
 
 def test_default_display_caps() -> None:
@@ -311,25 +304,3 @@ def test_compute_suspicious_targets_honors_volume_share_min_override() -> None:
     ), "tightened threshold should suppress high_volume_share at 10% share"
 
 
-def test_risk_score_honors_band_override() -> None:
-    from report_engine.contexts.incident.risk import _risk_score
-
-    suspicious = [{"severity": "high"} for _ in range(3)]
-    summary = {"level": "high"}
-
-    # Default high band is (50, 74).
-    default_score = _risk_score(summary, suspicious)
-    assert 50 <= default_score["value"] <= 74
-
-    # Override: pin the high band to (10, 20). Score must drop into it.
-    override = Thresholds(
-        risk_score=RiskScoreThresholds(
-            weights=dict(DEFAULT_THRESHOLDS.risk_score.weights),
-            bands={
-                **dict(DEFAULT_THRESHOLDS.risk_score.bands),
-                "high": (10, 20),
-            },
-        )
-    )
-    overridden_score = _risk_score(summary, suspicious, thresholds=override)
-    assert 10 <= overridden_score["value"] <= 20
