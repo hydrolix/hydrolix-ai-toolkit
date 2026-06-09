@@ -1,7 +1,7 @@
 # Population Distribution Modeling
 
 Population distribution modeling adds an optional `population_anomaly` evidence
-family to Bot Insights threat-hunt workflows. It scores whether a lead UA's
+family to Bot Insights analysis workflows. It scores whether a lead UA's
 observed population shape matches the organic population for the browser family
 it claims to be.
 
@@ -22,7 +22,7 @@ The v1 architecture separates four concerns:
 | Harvest | Python or Go worker | Hydrolix summary/raw logs | Local mart rows |
 | Training | Python | Local mart rows | Portable model artifacts |
 | Inference | Go | Local mart rows and model artifacts | Population enrichment rows |
-| Rendering | Python report producer | Population enrichment rows | Threat-hunt evidence family |
+| Rendering | Python report producer | Population enrichment rows | Population anomaly evidence family |
 
 Training and inference stay strictly separated. Python training may use batch
 ML dependencies. Go inference consumes only serialized model math and mart

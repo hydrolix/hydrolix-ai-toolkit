@@ -63,18 +63,6 @@ over tool friction.
   custom MCP SQL, `compare_posture.py --schema movers` on
   hand-assembled JSON, and explicit confidence framing on a question
   the CLI does not natively support.
-- [Anomaly investigation](examples/conversations/anomaly-investigation.md) —
-  triage a mid-morning bot-share spike that turns out to be two
-  unrelated movers (verified search crawler + unverified credential
-  tester) with different remediation paths. Demonstrates hourly-grain
-  time-localization, behavior-signature reasoning under
-  classifier-spoof risk, domain-scoped `scorecard.py` invocation, and
-  split recommendations per entity.
-- [SIEM unavailable triage](examples/conversations/siem-unavailable-triage.md) —
-  handle a less-clean investigation where posture data is available but
-  SIEM/security evidence is missing. Demonstrates fallback to operational
-  risk framing, missing-evidence boundaries, and follow-up routing without
-  overclaiming malicious intent.
 
 ## Common Manual Workflows
 

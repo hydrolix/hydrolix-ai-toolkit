@@ -16,7 +16,7 @@ change analytical meaning.
 
 ## Hydrolix Identity Tokens
 
-The editorial incident report family follows the 2026 Hydrolix Brand
+Bot Insights reports follow the 2026 Hydrolix Brand
 Guidelines for identity chrome:
 
 - Typography: Public Sans for editorial text and Inconsolata for labels,
@@ -61,7 +61,7 @@ No new wrapper schema is required for brand-only presentation changes.
 After changing report theme or editorial CSS, run:
 
 ```bash
-uv run pytest tests/test_report_engine.py -k 'incident_report or incident_detection or incident_edge or incident_executive or incident_soc or palette'
+uv run pytest tests/test_report_engine.py -k 'palette'
 ```
 
 The targeted tests assert that:

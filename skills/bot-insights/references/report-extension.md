@@ -40,12 +40,6 @@ Current predefined report types are:
 - `scorecard_brief`
 - `crawler_governance`
 - `edge_ops_impact`
-- `incident_report` — produces three artifacts:
-  `bot_incident_scope.v1` (window confirmation + scope mixes),
-  `bot_incident_actors.v1` (per-field actor rankings against
-  `akamai.logs`), and `bot_incident_action_targets.v1` (suspicious
-  targets graduated by the v2 heuristic ladder; required but may
-  carry `"targets": []`).
 
 ## New Predefined Report Wiring
 
@@ -134,11 +128,6 @@ Add both template siblings under `scripts/report_engine/templates/reports/`:
 Keep layout decisions in templates and shared macros. Keep data selection,
 compatibility checks, and evidence truncation in Python context/renderer code
 where they can be tested deterministically.
-
-For the existing threat-hunt report, use
-[threat-hunt-template-context.md](threat-hunt-template-context.md) as the
-field reference for data available to the HTML, Markdown, and print/PDF Jinja
-templates.
 
 ### Legacy Renderer Compatibility
 
@@ -231,7 +220,7 @@ Use these surfaces for skinning:
 - wrapper metadata such as title, scope label, and analyst note titles when
   the underlying evidence semantics stay unchanged.
 
-For first-party Hydrolix identity in the incident/editorial report family, use
+For first-party Hydrolix identity, use
 the brand rendering note: [report-rendering-brand.md](report-rendering-brand.md).
 The key rule is brand for identity and structure, Tableau-style colors for
 meaning. Hydrolix primary teal is non-text chrome on light surfaces; use deep
