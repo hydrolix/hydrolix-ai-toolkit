@@ -1,37 +1,53 @@
-"""Compatibility package for the former monolithic module."""
+"""Capture vetted Bot Insights Hydrolix query JSON or emit an MCP handoff.
+
+Query execution, credential resolution, and SQL vetting delegate to
+``reportkit.extract.hydrolix``; this package adds the Bot Insights preset SQL,
+time-window handling, and CLI. It re-execs under ``op run`` when a cluster .env
+references 1Password secrets.
+"""
 
 from __future__ import annotations
 
-import sys
-from importlib import import_module
-from types import ModuleType
+import os
+import shutil
 
-_MODULE_NAMES = (
-    "_shared",
-    "part_01",
-    "part_02",
- )
-_MODULES = [import_module(f"{__name__}.{name}") for name in _MODULE_NAMES]
+from reportkit.extract import hydrolix as hdx
 
-for _module in _MODULES:
-    for _name, _value in vars(_module).items():
-        if not _name.startswith("__"):
-            globals()[_name] = _value
+from .cli import main
+from .constants import NEEDS_MCP_EXIT, SENTINEL_ENV
+from .hydrolix_bridge import (
+    QueryConfig,
+    build_query_config,
+    credential_state,
+    ensure_format_json,
+    merged_environment,
+    normalize_query_url,
+    parse_env_file,
+    query_hydrolix,
+    reject_invalid_sql,
+    shape_output,
+    should_reexec_with_op,
+)
+from .query import build_handoff_packet, render_preset_sql
 
-_EXPORTS = {name: value for name, value in globals().items() if not name.startswith("__")}
-for _module in _MODULES:
-    _module.__dict__.update(_EXPORTS)
-
-__all__ = sorted(_EXPORTS)
-
-
-class _CompatModule(ModuleType):
-    def __setattr__(self, name: str, value: object) -> None:
-        super().__setattr__(name, value)
-        for module in _MODULES:
-            module.__dict__[name] = value
-
-
-sys.modules[__name__].__class__ = _CompatModule
-
-del ModuleType, import_module, sys, _module, _name, _value
+__all__ = [
+    "NEEDS_MCP_EXIT",
+    "QueryConfig",
+    "SENTINEL_ENV",
+    "build_handoff_packet",
+    "build_query_config",
+    "credential_state",
+    "ensure_format_json",
+    "hdx",
+    "main",
+    "merged_environment",
+    "normalize_query_url",
+    "os",
+    "parse_env_file",
+    "query_hydrolix",
+    "reject_invalid_sql",
+    "render_preset_sql",
+    "shape_output",
+    "should_reexec_with_op",
+    "shutil",
+]

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .part_01 import *
+from producers.formatting import parse_time
+from producers.runtime import DEFAULT_SAMPLE_ROOT
+from producers.sql.scorecard import CRAWLER_ENTITY_SQL, EDGE_OPS_ENTITY_SQL, SOC_ENTITY_SQL
 
 
 SCORECARD_REPORTS = {
