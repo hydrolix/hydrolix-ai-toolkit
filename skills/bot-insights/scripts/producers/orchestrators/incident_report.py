@@ -225,7 +225,7 @@ class _IncidentCtx:
     summary_count_column: str = "count()"
     summary_status_column: str = "statusCode"
     summary_cohort_column: str = "trafficCohort"
-    summary_path_pattern_column: str = "requestPathPattern"
+    summary_path_pattern_column: str = "reqPathPattern"
     fields_resolved: list[str] = field(default_factory=list)
     fields_unresolved: list[str] = field(default_factory=list)
     raw_column_by_field: dict[str, str] = field(default_factory=dict)
@@ -285,7 +285,7 @@ def _timeseries_has_current_requests(volume_timeseries: dict | None) -> bool:
 def _summary_dimension_column(ctx: _IncidentCtx, requested: str) -> str | None:
     if requested in ctx.summary_columns:
         return requested
-    if requested == "requestPathPattern" and "reqPathPatternCoarse" in ctx.summary_columns:
+    if requested == "reqPathPattern" and "reqPathPatternCoarse" in ctx.summary_columns:
         return "reqPathPatternCoarse"
     return None
 
@@ -305,7 +305,7 @@ def _resolve_summary_layout(ctx: _IncidentCtx) -> None:
         ctx.summary_status_column = "statusCode"
     if "trafficCohort" in ctx.summary_columns:
         ctx.summary_cohort_column = "trafficCohort"
-    resolved_path = _summary_dimension_column(ctx, "requestPathPattern")
+    resolved_path = _summary_dimension_column(ctx, "reqPathPattern")
     if resolved_path:
         ctx.summary_path_pattern_column = resolved_path
 
@@ -441,7 +441,7 @@ def _resolve_dashboard_url(args: argparse.Namespace) -> str:
             params.append(("var-filter", f"asn|=|{args.asn}"))
         if args.path_pattern:
             params.append(
-                ("var-filter", f"requestPathPattern|=|{args.path_pattern}")
+                ("var-filter", f"reqPathPattern|=|{args.path_pattern}")
             )
         return urlunsplit(
             (
@@ -789,7 +789,7 @@ def _incident_phase1_dimensions(
             "top-host fallback."
         )
     path_rows = _run_dimension(
-        ctx.summary_table, "requestPathPattern", "top_path_patterns"
+        ctx.summary_table, "reqPathPattern", "top_path_patterns"
     )
     if not path_rows:
         ctx.limitations_scope.append(
@@ -941,7 +941,7 @@ def _incident_phase1_dimensions(
         )
 
     path_timeseries_rows: list[dict] = []
-    path_dimension = _summary_dimension_column(ctx, "requestPathPattern")
+    path_dimension = _summary_dimension_column(ctx, "reqPathPattern")
     if path_dimension is not None:
         path_timeseries_rows = _capture_or_raise(
             args,

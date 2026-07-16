@@ -67,7 +67,7 @@ def _incident_scope_predicate(
     *,
     host_column: str = "reqHost",
     asn_column: str = "asn",
-    path_pattern_column: str = "requestPathPattern",
+    path_pattern_column: str = "reqPathPattern",
 ) -> str:
     parts: list[str] = []
     if host:
@@ -133,7 +133,7 @@ def _incident_window_confirmation_sql(
     summary_count_column: str = "count()",
     summary_status_column: str = "statusCode",
     summary_cohort_column: str = "trafficCohort",
-    summary_path_pattern_column: str = "requestPathPattern",
+    summary_path_pattern_column: str = "reqPathPattern",
 ) -> str:
     summary_time = _incident_summary_time_expr(summary_time_column)
     summary_count = _incident_summary_count_expr(summary_count_column)
@@ -241,7 +241,7 @@ def _incident_volume_timeseries_sql(
     summary_count_column: str = "count()",
     summary_status_column: str = "statusCode",
     summary_cohort_column: str = "trafficCohort",
-    summary_path_pattern_column: str = "requestPathPattern",
+    summary_path_pattern_column: str = "reqPathPattern",
 ) -> str:
     """Per-bucket volume + 429 + bot-classified counts for current + baseline.
 
@@ -303,7 +303,7 @@ def _incident_dimension_sql(
     top_n: int,
     summary_time_column: str = "reqTimeSec",
     summary_count_column: str = "count()",
-    summary_path_pattern_column: str = "requestPathPattern",
+    summary_path_pattern_column: str = "reqPathPattern",
 ) -> str:
     """Per-dimension top-N + delta against the equal-length baseline."""
     summary_time = _incident_summary_time_expr(summary_time_column)
@@ -488,7 +488,7 @@ def _incident_bucketed_dimension_timeseries_sql(
     top_n: int,
     summary_time_column: str = "reqTimeSec",
     summary_count_column: str = "count()",
-    summary_path_pattern_column: str = "requestPathPattern",
+    summary_path_pattern_column: str = "reqPathPattern",
 ) -> str:
     """Bucketed current-window series for a top dimension.
 
@@ -766,7 +766,7 @@ def _incident_status_mix_sql(
     summary_time_column: str = "reqTimeSec",
     summary_count_column: str = "count()",
     summary_status_column: str = "statusCode",
-    summary_path_pattern_column: str = "requestPathPattern",
+    summary_path_pattern_column: str = "reqPathPattern",
 ) -> str:
     summary_time = _incident_summary_time_expr(summary_time_column)
     summary_count = _incident_summary_count_expr(summary_count_column)

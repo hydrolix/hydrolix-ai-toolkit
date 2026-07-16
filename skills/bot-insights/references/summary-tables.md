@@ -21,11 +21,11 @@ Spec table names for the TrafficPeak Akamai project:
   `akamai.bi_summary_day`. These tables retain source-style fields including
   `reqTimeSec`, `reqHost`, `asn`, `userAgentCategory`, `isBotTraffic`,
   `aiCategory`, `aiSource`, `trafficCohort`, `resourceCategory`, `reqMethod`,
-  `cacheStatus`, `statusCode`, `requestPathPattern`, and `country`. Deployed
-  clusters expose the path-pattern dimension as `requestPathPattern`; the
-  `bot_insights_cdn/1.1` bundle renames it to `reqPathPattern`. Resolve the
-  physical name from table metadata (the attribution renderer and producer
-  scripts accept either spelling).
+  `cacheStatus`, `statusCode`, `reqPathPattern`, and `country` (SIEM-enabled
+  clusters may also expose `hdx_cdn`). The path-pattern dimension is
+  `reqPathPattern` in `bot_insights_cdn/1.1`; older iterations documented it
+  as `requestPathPattern`. Resolve the physical name from table metadata (the
+  attribution renderer and producer scripts accept either spelling).
 - `bi_siem_policy_summary_*` is the with-SIEM dashboard surface. Use fully
   qualified `akamai.bi_siem_policy_summary_minute`,
   `akamai.bi_siem_policy_summary_hour`, or
@@ -110,7 +110,7 @@ denominators are computed in the `scored` CTE before the final output `LIMIT`.
 
 | Table | Granularity | Parent | Retained dimensions | Metric support |
 |-------|-------------|--------|---------------------|----------------|
-| `bi_summary_day` | day | `akamai.logs` | `reqTimeSec`, `reqHost`, `asn`, `userAgentCategory`, `isBotTraffic`, `aiCategory`, `aiSource`, `trafficCohort`, `resourceCategory`, `reqMethod`, `cacheStatus`, `statusCode`, `requestPathPattern`, `country` | requests, bytes, status mix, cache hit/miss, average origin TaT, average TTFB, query-string presence/diversity |
+| `bi_summary_day` | day | `akamai.logs` | `reqTimeSec`, `reqHost`, `asn`, `userAgentCategory`, `isBotTraffic`, `aiCategory`, `aiSource`, `trafficCohort`, `resourceCategory`, `reqMethod`, `cacheStatus`, `statusCode`, `reqPathPattern`, `country` | `cnt_all`, `sum_totalBytes`, origin-TaT sum+count, TTFB sum+count, `cnt_queryStringPresent`, `cnt_distinctQueryStrings` (status mix and cache hit/miss are derived from the `statusCode`/`cacheStatus` dimensions, not stored counts) |
 | `bi_summary_hour` | hour | same as `bi_summary_day` | same as `bi_summary_day` | same as `bi_summary_day` |
 | `bi_summary_minute` | minute | same as `bi_summary_day` | same as `bi_summary_day` | same as `bi_summary_day` |
 | `bi_summary_month` (NOT CURRENTLY DEPLOYED) | month | `bot_detection` | same as `bi_summary_day` when deployed | same as `bi_summary_day` when deployed |
@@ -124,51 +124,76 @@ denominators are computed in the `scored` CTE before the final output `LIMIT`.
 | `bot_agg_resource_day` (NOT CURRENTLY DEPLOYED) | day | `bot_detection` | `timestamp`, `request_host`, `resource_category` | same as `bot_agg_path_day` |
 | `bot_agg_resource_hour` (NOT CURRENTLY DEPLOYED) | hour | `bot_detection` | same as `bot_agg_resource_day` | same as `bot_agg_path_day` |
 | `bot_agg_resource_minute` (NOT CURRENTLY DEPLOYED) | minute | `bot_detection` | same as `bot_agg_resource_day` | same as `bot_agg_path_day` |
-| `bi_siem_policy_summary_day` | day | `akamai.siem` | `timestamp`, `host`/`reqHost`, `asn`, `userAgentCategory`, `isBotTraffic`, `aiCategory`, `aiSource`, `resourceCategory`, `method`/`reqMethod`, `status`/`statusCode`, `country`, `policyId`, `actionClass`, `botType` | requests, blocked requests, auth failures, avg bot score, 2xx/3xx/4xx/5xx, unique client IPs |
+| `bi_siem_policy_summary_day` | day | `akamai.siem` | `timestamp`, `host`/`reqHost`, `asn`, `userAgentCategory`, `isBotTraffic`, `aiCategory`, `aiSource`, `resourceCategory`, `method`/`reqMethod`, `status`/`statusCode`, `country`, `policyId`, `actionClass`, `botType` | `cnt_all`, `cnt_blocked`, `cnt_authFail`, `avg_botScore`, `uniq_clientIp` (status families derived from the `status`/`statusCode` dimension) |
 | `bi_siem_policy_summary_hour` | hour | same as `bi_siem_policy_summary_day` | same as `bi_siem_policy_summary_day` | same as `bi_siem_policy_summary_day` |
 | `bi_siem_policy_summary_minute` | minute | same as `bi_siem_policy_summary_day` | same as `bi_siem_policy_summary_day` | same as `bi_siem_policy_summary_day` |
 
 ## Metric Aliases
 
-Common summary metric columns:
+Summary tables store each metric twice: an expression-named
+`AggregateColumn` holding the aggregate state (must be wrapped in the
+`merge_function` reported by metadata) and a friendly-named `SummaryColumn`
+alias that resolves to a per-row merged value (use directly, never wrap in
+`sum()`/`count()`/`avg()`). Always confirm the exact names from table
+metadata; the deployed 1.1 columns are:
+
+**`bi_summary_*` (CDN posture).** SummaryColumn aliases:
+
+- `cnt_all`: request count (aggregate `count()`, merge `countMerge`).
+- `sum_totalBytes`: total response bytes (aggregate `sum(bytes)`, merge
+  `sumMerge`).
+- `sum_originTurnAroundTime_ms` + `cnt_originTurnAroundTime`: origin
+  turn-around sum and sample count. Compute average as
+  `sum_originTurnAroundTime_ms / cnt_originTurnAroundTime`.
+- `sum_timeToFirstByte_ms` + `cnt_timeToFirstByte`: TTFB sum and sample
+  count. Compute average as `sum_timeToFirstByte_ms / cnt_timeToFirstByte`.
+- `cnt_queryStringPresent`: requests with a non-empty query string.
+- `cnt_distinctQueryStrings`: distinct query strings (aggregate `uniqIf(...)`,
+  merge `uniqIfMerge`).
+
+There are **no** stored `cnt_2xx/4xx/429/5xx`, `cnt_cached/cnt_cache_miss`,
+`avg_ttfb`, `p95_origin_ttfb`, or `uniq_client_ip` columns on `bi_summary_*`.
+Status-code families and cache hit/miss are derived from the `statusCode` and
+`cacheStatus` **dimensions**; latency is only mean-computable from the sum +
+count pairs above (no percentiles); and per-request client IP is not retained
+on CDN posture at all (it exists only on the SIEM summary as `uniq_clientIp`).
+
+**`bi_siem_policy_summary_*` (SIEM).** SummaryColumn aliases:
 
 - `cnt_all`: request count.
-- `cnt_2xx`, `cnt_4xx`, `cnt_429`, `cnt_5xx`: status-code families.
-- `cnt_cached`, `cnt_cache_miss`: cache outcome counts.
-- `avg_ttfb`, `avg_origin_ttfb`: average edge/origin latency.
-- `p95_origin_ttfb`, `p99_origin_ttfb`: tail origin latency.
-- `uniq_client_ip`: unique client IP count.
-- `uniq_paths`: unique normalized path count on `bot_agg_asn_hour` (not
-  currently deployed).
-- `uniq_qs`: unique query-string count on path and resource summaries (not
-  currently deployed).
-- `cnt_blocked`, `cnt_auth_fail`, `cnt_biz_fail`: SIEM control outcomes.
-- `avg_bot_score`: average Akamai bot score on SIEM summaries.
-- TrafficPeak/Akamai SIEM aliases are camelCase: `cnt_authFail`,
-  `avg_botScore`, and `uniq_clientIp`. Use those names or the exact
-  aggregate-state merge functions from metadata.
+- `cnt_blocked`: `actionClass = 'deny'` count.
+- `cnt_authFail`: `authOutcome = 'fail'` count.
+- `avg_botScore`: average Akamai bot score over `botScore > 0`.
+- `uniq_clientIp`: unique client IP count.
 
-Derived posture metrics should be computed from aggregate rows, for example:
+**Not currently deployed** — the focused aggregate families (`bot_agg_*`) had
+`uniq_paths` (unique normalized paths on `bot_agg_asn_hour`) and `uniq_qs`
+(unique query strings on path/resource summaries). Do not reference these
+against deployed tables.
 
-- `bot_share_pct = sumIf(cnt_all, is_bot_traffic = true) / sum(cnt_all) * 100`
-- `ai_crawler_share_pct = sumIf(cnt_all, ai_category != '') / sum(cnt_all) * 100`
-- `cache_miss_pct = sum(cnt_cache_miss) / sum(cnt_all) * 100`
-- `rate_429_pct = sum(cnt_429) / sum(cnt_all) * 100`
-- `rate_5xx_pct = sum(cnt_5xx) / sum(cnt_all) * 100`
+Derived posture metrics are computed from the aggregate-state column, not by
+wrapping SummaryColumns. The deployed producers filter with the `-MergeIf`
+combinator on `count()`, for example:
 
-`bad_bot_share_pct` is intentionally omitted from this list. Deployed
-posture summaries do not retain a `bot_class` column; producer scripts that
-emit `bot_class`-keyed scorecards alias `toString(userAgentCategory) AS
-bot_class` at SQL-emission time (see
-[scorecard-analysis.md](scorecard-analysis.md) and
-`scripts/bot_insights_report.py`). Filter on `userAgentCategory` directly
-when composing posture-summary SQL, not on `bot_class`.
+- `bot_share_pct = countMergeIf(`count()`, trafficCohort IN ('Bot','AI')) / countMerge(`count()`) * 100`
+- `ai_crawler_share_pct = countMergeIf(`count()`, trafficCohort = 'AI') / countMerge(`count()`) * 100`
+- `cache_miss_pct = countMergeIf(`count()`, cacheStatus = false) / countMerge(`count()`) * 100`
+- `rate_429_pct = countMergeIf(`count()`, statusCode = 429) / countMerge(`count()`) * 100`
+- `rate_5xx_pct = countMergeIf(`count()`, statusCode >= 500) / countMerge(`count()`) * 100`
 
-If metadata reports aggregate-state columns, replace `sum(...)` and
-`sumIf(...)` over SummaryColumns with the aggregate column's exact merge
-function. For example, use the reported `countMerge` function around the
-`count()` aggregate column for total requests, and `countMergeIf` around that
-same aggregate column for bot-request subsets when supported.
+(`statusCode` and `cacheStatus` are numeric — `statusCode` is a `UInt32`,
+`cacheStatus` a `UInt8` where `false` = not-cached.)
+
+`bad_bot_share_pct` is intentionally omitted. Deployed posture summaries do
+not retain a `bot_class` column; producer scripts that emit `bot_class`-keyed
+scorecards alias `toString(userAgentCategory) AS bot_class` at SQL-emission
+time (see [scorecard-analysis.md](scorecard-analysis.md) and
+`scripts/bot_insights_report.py`). Filter on `userAgentCategory` directly when
+composing posture-summary SQL, not on `bot_class`.
+
+Never infer the merge function from a column name — use the exact
+`merge_function` from metadata (e.g. `avgIf(botScore, greater(botScore, 0))`
+reports `avgIfMerge`, not `avgMerge`).
 
 ## Request-Level Dimensions
 
@@ -180,5 +205,5 @@ question depends on a field not retained in `bi_summary_*` or
 `edge_pop`, `attack_data`, or exact `user_agent`), apply the
 deployment-availability rule (SKILL.md). Summary-retained fields include
 `trafficCohort`, `userAgentCategory`, `aiCategory`, `aiSource`,
-`requestPathPattern`, numeric `statusCode`, `cacheStatus`, `policyId`,
+`reqPathPattern`, numeric `statusCode`, `cacheStatus`, `policyId`,
 `actionClass`, and `botType`.

@@ -992,20 +992,21 @@ class BotInsightsScriptTests(unittest.TestCase):
     def test_resolve_path_pattern_column_prefers_present_physical_name(self) -> None:
         from producers.sql.summary_columns import resolve_path_pattern_column
 
-        # Currently-deployed cluster shape.
+        # Legacy (pre-1.1) cluster shape: honor the physical name that is present.
         self.assertEqual(
             resolve_path_pattern_column({"reqHost", "requestPathPattern", "country"}),
             "requestPathPattern",
         )
-        # bot_insights_cdn/1.1 renamed shape.
+        # Currently-deployed bot_insights_cdn/1.1 shape.
         self.assertEqual(
             resolve_path_pattern_column({"reqHost", "reqPathPattern", "country"}),
             "reqPathPattern",
         )
-        # No path column present -> default keeps current deployed name.
+        # No path column present -> default is the currently-deployed name
+        # (verified live: bi_summary_* exposes reqPathPattern, not requestPathPattern).
         self.assertEqual(
             resolve_path_pattern_column({"reqHost", "country"}),
-            "requestPathPattern",
+            "reqPathPattern",
         )
 
     def test_scorecard_sql_request_path_norm_uses_resolved_path_column(self) -> None:
@@ -1023,11 +1024,11 @@ class BotInsightsScriptTests(unittest.TestCase):
         self.assertIn("toString(reqPathPattern) AS request_path_norm", sql_11)
         self.assertNotIn("requestPathPattern", sql_11)
 
-        # Default preserves the currently-deployed column.
+        # Default is the currently-deployed column (reqPathPattern, verified live).
         sql_default = scorecard_sql(
             "akamai", start, end, baseline_start, "request_path_norm", 25,
         )
-        self.assertIn("toString(requestPathPattern) AS request_path_norm", sql_default)
+        self.assertIn("toString(reqPathPattern) AS request_path_norm", sql_default)
 
         # Non-path entities are unaffected by the path column.
         sql_asn = scorecard_sql(
@@ -1099,7 +1100,7 @@ class BotInsightsScriptTests(unittest.TestCase):
                     non_path_args, granularity="day", sample_dir=Path(tmp),
                     run_func=counting_run,
                 ),
-                "requestPathPattern",
+                "reqPathPattern",
             )
             self.assertEqual(called["n"], 0)
 
@@ -1111,7 +1112,7 @@ class BotInsightsScriptTests(unittest.TestCase):
                     path_args, granularity="day", sample_dir=Path(tmp),
                     run_func=handoff_run,
                 ),
-                "requestPathPattern",
+                "reqPathPattern",
             )
 
             # Capture error -> fall back to default.
@@ -1122,7 +1123,7 @@ class BotInsightsScriptTests(unittest.TestCase):
                     path_args, granularity="day", sample_dir=Path(tmp),
                     run_func=failing_run,
                 ),
-                "requestPathPattern",
+                "reqPathPattern",
             )
 
 

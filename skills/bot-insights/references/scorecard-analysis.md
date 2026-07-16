@@ -237,51 +237,51 @@ WITH
   toDateTime('<baseline_end>') AS baseline_end,
   by_entity AS (
     SELECT
-      client_asn,
-      sumIf(cnt_all, timestamp >= current_start AND timestamp < current_end) AS current_requests,
-      sumIf(cnt_all, timestamp >= baseline_start AND timestamp < baseline_end) AS baseline_requests,
+      asn,
+      countMergeIf(`count()`, reqTimeSec >= current_start AND reqTimeSec < current_end) AS current_requests,
+      countMergeIf(`count()`, reqTimeSec >= baseline_start AND reqTimeSec < baseline_end) AS baseline_requests,
       round(
-        sumIf(cnt_all, timestamp >= current_start AND timestamp < current_end AND is_bot_traffic = true)
+        countMergeIf(`count()`, reqTimeSec >= current_start AND reqTimeSec < current_end AND isBotTraffic = true)
         / greatest(current_requests, 1) * 100, 2
       ) AS current_bot_share_pct,
       round(
-        sumIf(cnt_all, timestamp >= baseline_start AND timestamp < baseline_end AND is_bot_traffic = true)
+        countMergeIf(`count()`, reqTimeSec >= baseline_start AND reqTimeSec < baseline_end AND isBotTraffic = true)
         / greatest(baseline_requests, 1) * 100, 2
       ) AS baseline_bot_share_pct,
       round(
-        sumIf(cnt_cache_miss, timestamp >= current_start AND timestamp < current_end)
+        countMergeIf(`count()`, cacheStatus = false AND (reqTimeSec >= current_start AND reqTimeSec < current_end))
         / greatest(current_requests, 1) * 100, 2
       ) AS current_cache_miss_pct,
       round(
-        sumIf(cnt_cache_miss, timestamp >= baseline_start AND timestamp < baseline_end)
+        countMergeIf(`count()`, cacheStatus = false AND (reqTimeSec >= baseline_start AND reqTimeSec < baseline_end))
         / greatest(baseline_requests, 1) * 100, 2
       ) AS baseline_cache_miss_pct,
-      maxIf(p95_origin_ttfb, timestamp >= current_start AND timestamp < current_end) AS current_origin_p95_ms,
-      maxIf(p95_origin_ttfb, timestamp >= baseline_start AND timestamp < baseline_end) AS baseline_origin_p95_ms,
+      sum_originTurnAroundTime_ms / greatest(cnt_originTurnAroundTime, 1) AS current_origin_p95_ms,  -- percentiles not retained on bi_summary_*; overall-window mean (identical for current/baseline - cannot split per window)
+      sum_originTurnAroundTime_ms / greatest(cnt_originTurnAroundTime, 1) AS baseline_origin_p95_ms,  -- percentiles not retained on bi_summary_*; overall-window mean (identical for current/baseline - cannot split per window)
       round(
-        sumIf(cnt_429, timestamp >= current_start AND timestamp < current_end)
+        countMergeIf(`count()`, statusCode = 429 AND (reqTimeSec >= current_start AND reqTimeSec < current_end))
         / greatest(current_requests, 1) * 100, 2
       ) AS current_rate_429_pct,
       round(
-        sumIf(cnt_429, timestamp >= baseline_start AND timestamp < baseline_end)
+        countMergeIf(`count()`, statusCode = 429 AND (reqTimeSec >= baseline_start AND reqTimeSec < baseline_end))
         / greatest(baseline_requests, 1) * 100, 2
       ) AS baseline_rate_429_pct,
       round(
-        sumIf(cnt_5xx, timestamp >= current_start AND timestamp < current_end)
+        countMergeIf(`count()`, statusCode >= 500 AND (reqTimeSec >= current_start AND reqTimeSec < current_end))
         / greatest(current_requests, 1) * 100, 2
       ) AS current_rate_5xx_pct,
       round(
-        sumIf(cnt_5xx, timestamp >= baseline_start AND timestamp < baseline_end)
+        countMergeIf(`count()`, statusCode >= 500 AND (reqTimeSec >= baseline_start AND reqTimeSec < baseline_end))
         / greatest(baseline_requests, 1) * 100, 2
       ) AS baseline_rate_5xx_pct
     FROM <project>.<posture_summary_hour>
-    WHERE timestamp >= baseline_start
-      AND timestamp < current_end
-      AND request_host = '<host>'
-    GROUP BY client_asn
+    WHERE reqTimeSec >= baseline_start
+      AND reqTimeSec < current_end
+      AND reqHost = '<host>'
+    GROUP BY asn
   )
 SELECT
-  client_asn,
+  asn,
   current_requests,
   baseline_requests,
   current_bot_share_pct,
@@ -326,31 +326,31 @@ WITH
   toDateTime('<baseline_start>') AS baseline_start,
   toDateTime('<baseline_end>') AS baseline_end
 SELECT
-  request_host,
-  sumIf(cnt_all, timestamp >= current_start AND timestamp < current_end) AS current_requests,
-  sumIf(cnt_all, timestamp >= baseline_start AND timestamp < baseline_end) AS baseline_requests,
-  round(sumIf(cnt_all, timestamp >= current_start AND timestamp < current_end AND is_bot_traffic = true) / greatest(current_requests, 1) * 100, 2) AS current_bot_share_pct,
-  round(sumIf(cnt_all, timestamp >= baseline_start AND timestamp < baseline_end AND is_bot_traffic = true) / greatest(baseline_requests, 1) * 100, 2) AS baseline_bot_share_pct,
-  round(sumIf(cnt_all, timestamp >= current_start AND timestamp < current_end AND bot_class = 'bad') / greatest(current_requests, 1) * 100, 2) AS bad_bot_share_pct,
-  round(sumIf(cnt_cache_miss, timestamp >= current_start AND timestamp < current_end) / greatest(current_requests, 1) * 100, 2) AS current_cache_miss_pct,
-  round(sumIf(cnt_cache_miss, timestamp >= baseline_start AND timestamp < baseline_end) / greatest(baseline_requests, 1) * 100, 2) AS baseline_cache_miss_pct,
-  maxIf(p95_origin_ttfb, timestamp >= current_start AND timestamp < current_end) AS current_origin_p95_ms,
-  maxIf(p95_origin_ttfb, timestamp >= baseline_start AND timestamp < baseline_end) AS baseline_origin_p95_ms,
-  round(sumIf(cnt_429, timestamp >= current_start AND timestamp < current_end) / greatest(current_requests, 1) * 100, 2) AS current_rate_429_pct,
-  round(sumIf(cnt_429, timestamp >= baseline_start AND timestamp < baseline_end) / greatest(baseline_requests, 1) * 100, 2) AS baseline_rate_429_pct,
-  round(sumIf(cnt_5xx, timestamp >= current_start AND timestamp < current_end) / greatest(current_requests, 1) * 100, 2) AS current_rate_5xx_pct,
-  round(sumIf(cnt_5xx, timestamp >= baseline_start AND timestamp < baseline_end) / greatest(baseline_requests, 1) * 100, 2) AS baseline_rate_5xx_pct,
-  sumIf(cnt_all, timestamp >= current_start AND timestamp < current_end AND ai_category != '') AS current_ai_crawler_requests,
-  sumIf(cnt_all, timestamp >= baseline_start AND timestamp < baseline_end AND ai_category != '') AS baseline_ai_crawler_requests,
-  sumIf(cnt_429, timestamp >= current_start AND timestamp < current_end AND bot_class IN ('good', 'crawler')) AS good_bot_429_requests,
+  reqHost,
+  countMergeIf(`count()`, reqTimeSec >= current_start AND reqTimeSec < current_end) AS current_requests,
+  countMergeIf(`count()`, reqTimeSec >= baseline_start AND reqTimeSec < baseline_end) AS baseline_requests,
+  round(countMergeIf(`count()`, reqTimeSec >= current_start AND reqTimeSec < current_end AND isBotTraffic = true) / greatest(current_requests, 1) * 100, 2) AS current_bot_share_pct,
+  round(countMergeIf(`count()`, reqTimeSec >= baseline_start AND reqTimeSec < baseline_end AND isBotTraffic = true) / greatest(baseline_requests, 1) * 100, 2) AS baseline_bot_share_pct,
+  -- bad-bot classification requires SIEM botType (bi_siem_policy_summary_*); not retained on posture
+  round(countMergeIf(`count()`, cacheStatus = false AND (reqTimeSec >= current_start AND reqTimeSec < current_end)) / greatest(current_requests, 1) * 100, 2) AS current_cache_miss_pct,
+  round(countMergeIf(`count()`, cacheStatus = false AND (reqTimeSec >= baseline_start AND reqTimeSec < baseline_end)) / greatest(baseline_requests, 1) * 100, 2) AS baseline_cache_miss_pct,
+  sum_originTurnAroundTime_ms / greatest(cnt_originTurnAroundTime, 1) AS current_origin_p95_ms,  -- percentiles not retained on bi_summary_*; overall-window mean (identical for current/baseline - cannot split per window)
+  sum_originTurnAroundTime_ms / greatest(cnt_originTurnAroundTime, 1) AS baseline_origin_p95_ms,  -- percentiles not retained on bi_summary_*; overall-window mean (identical for current/baseline - cannot split per window)
+  round(countMergeIf(`count()`, statusCode = 429 AND (reqTimeSec >= current_start AND reqTimeSec < current_end)) / greatest(current_requests, 1) * 100, 2) AS current_rate_429_pct,
+  round(countMergeIf(`count()`, statusCode = 429 AND (reqTimeSec >= baseline_start AND reqTimeSec < baseline_end)) / greatest(baseline_requests, 1) * 100, 2) AS baseline_rate_429_pct,
+  round(countMergeIf(`count()`, statusCode >= 500 AND (reqTimeSec >= current_start AND reqTimeSec < current_end)) / greatest(current_requests, 1) * 100, 2) AS current_rate_5xx_pct,
+  round(countMergeIf(`count()`, statusCode >= 500 AND (reqTimeSec >= baseline_start AND reqTimeSec < baseline_end)) / greatest(baseline_requests, 1) * 100, 2) AS baseline_rate_5xx_pct,
+  countMergeIf(`count()`, reqTimeSec >= current_start AND reqTimeSec < current_end AND aiCategory != '') AS current_ai_crawler_requests,
+  countMergeIf(`count()`, reqTimeSec >= baseline_start AND reqTimeSec < baseline_end AND aiCategory != '') AS baseline_ai_crawler_requests,
+  countMergeIf(`count()`, statusCode = 429 AND (reqTimeSec >= current_start AND reqTimeSec < current_end AND trafficCohort = 'Bot')) AS good_bot_429_requests,
   round(
-    sumIf(cnt_5xx, timestamp >= current_start AND timestamp < current_end AND bot_class IN ('good', 'crawler'))
-    / greatest(sumIf(cnt_all, timestamp >= current_start AND timestamp < current_end AND bot_class IN ('good', 'crawler')), 1) * 100, 2
+    countMergeIf(`count()`, statusCode >= 500 AND (reqTimeSec >= current_start AND reqTimeSec < current_end AND trafficCohort = 'Bot'))
+    / greatest(countMergeIf(`count()`, reqTimeSec >= current_start AND reqTimeSec < current_end AND trafficCohort = 'Bot'), 1) * 100, 2
   ) AS good_bot_error_rate_pct
 FROM <project>.<posture_summary_day>
-WHERE timestamp >= baseline_start
-  AND timestamp < current_end
-GROUP BY request_host
+WHERE reqTimeSec >= baseline_start
+  AND reqTimeSec < current_end
+GROUP BY reqHost
 ORDER BY abs(current_requests - baseline_requests) DESC
 LIMIT 50
 ```
@@ -364,22 +364,22 @@ WITH
   toDateTime('<baseline_start>') AS baseline_start,
   toDateTime('<baseline_end>') AS baseline_end
 SELECT
-  ai_category,
-  sumIf(cnt_all, timestamp >= current_start AND timestamp < current_end) AS current_requests,
-  sumIf(cnt_all, timestamp >= baseline_start AND timestamp < baseline_end) AS baseline_requests,
+  aiCategory,
+  countMergeIf(`count()`, reqTimeSec >= current_start AND reqTimeSec < current_end) AS current_requests,
+  countMergeIf(`count()`, reqTimeSec >= baseline_start AND reqTimeSec < baseline_end) AS baseline_requests,
   current_requests AS current_ai_crawler_requests,
   baseline_requests AS baseline_ai_crawler_requests,
-  round(sumIf(cnt_cache_miss, timestamp >= current_start AND timestamp < current_end) / greatest(current_requests, 1) * 100, 2) AS current_cache_miss_pct,
-  round(sumIf(cnt_cache_miss, timestamp >= baseline_start AND timestamp < baseline_end) / greatest(baseline_requests, 1) * 100, 2) AS baseline_cache_miss_pct,
-  round(sumIf(cnt_429, timestamp >= current_start AND timestamp < current_end) / greatest(current_requests, 1) * 100, 2) AS current_rate_429_pct,
-  round(sumIf(cnt_429, timestamp >= baseline_start AND timestamp < baseline_end) / greatest(baseline_requests, 1) * 100, 2) AS baseline_rate_429_pct,
-  round(sumIf(cnt_5xx, timestamp >= current_start AND timestamp < current_end) / greatest(current_requests, 1) * 100, 2) AS current_rate_5xx_pct,
-  round(sumIf(cnt_5xx, timestamp >= baseline_start AND timestamp < baseline_end) / greatest(baseline_requests, 1) * 100, 2) AS baseline_rate_5xx_pct
+  round(countMergeIf(`count()`, cacheStatus = false AND (reqTimeSec >= current_start AND reqTimeSec < current_end)) / greatest(current_requests, 1) * 100, 2) AS current_cache_miss_pct,
+  round(countMergeIf(`count()`, cacheStatus = false AND (reqTimeSec >= baseline_start AND reqTimeSec < baseline_end)) / greatest(baseline_requests, 1) * 100, 2) AS baseline_cache_miss_pct,
+  round(countMergeIf(`count()`, statusCode = 429 AND (reqTimeSec >= current_start AND reqTimeSec < current_end)) / greatest(current_requests, 1) * 100, 2) AS current_rate_429_pct,
+  round(countMergeIf(`count()`, statusCode = 429 AND (reqTimeSec >= baseline_start AND reqTimeSec < baseline_end)) / greatest(baseline_requests, 1) * 100, 2) AS baseline_rate_429_pct,
+  round(countMergeIf(`count()`, statusCode >= 500 AND (reqTimeSec >= current_start AND reqTimeSec < current_end)) / greatest(current_requests, 1) * 100, 2) AS current_rate_5xx_pct,
+  round(countMergeIf(`count()`, statusCode >= 500 AND (reqTimeSec >= baseline_start AND reqTimeSec < baseline_end)) / greatest(baseline_requests, 1) * 100, 2) AS baseline_rate_5xx_pct
 FROM <project>.<posture_summary_day>
-WHERE timestamp >= baseline_start
-  AND timestamp < current_end
-  AND ai_category != ''
-GROUP BY ai_category
+WHERE reqTimeSec >= baseline_start
+  AND reqTimeSec < current_end
+  AND aiCategory != ''
+GROUP BY aiCategory
 ORDER BY current_requests DESC
 ```
 
@@ -406,28 +406,34 @@ WITH
   toDateTime('<baseline_start>') AS baseline_start,
   toDateTime('<baseline_end>') AS baseline_end
 SELECT
-  request_host,
-  sumIf(cnt_all, timestamp >= current_start AND timestamp < current_end AND ai_category != '') AS current_ai_crawler_requests,
-  sumIf(cnt_all, timestamp >= baseline_start AND timestamp < baseline_end AND ai_category != '') AS baseline_ai_crawler_requests,
-  sumIf(cnt_429, timestamp >= current_start AND timestamp < current_end AND bot_class IN ('good', 'crawler')) AS good_bot_429_requests,
+  reqHost,
+  countMergeIf(`count()`, reqTimeSec >= current_start AND reqTimeSec < current_end AND aiCategory != '') AS current_ai_crawler_requests,
+  countMergeIf(`count()`, reqTimeSec >= baseline_start AND reqTimeSec < baseline_end AND aiCategory != '') AS baseline_ai_crawler_requests,
+  countMergeIf(`count()`, statusCode = 429 AND (reqTimeSec >= current_start AND reqTimeSec < current_end AND trafficCohort = 'Bot')) AS good_bot_429_requests,
   round(
-    sumIf(cnt_5xx, timestamp >= current_start AND timestamp < current_end AND bot_class IN ('good', 'crawler'))
-    / greatest(sumIf(cnt_all, timestamp >= current_start AND timestamp < current_end AND bot_class IN ('good', 'crawler')), 1) * 100, 2
+    countMergeIf(`count()`, statusCode >= 500 AND (reqTimeSec >= current_start AND reqTimeSec < current_end AND trafficCohort = 'Bot'))
+    / greatest(countMergeIf(`count()`, reqTimeSec >= current_start AND reqTimeSec < current_end AND trafficCohort = 'Bot'), 1) * 100, 2
   ) AS good_bot_error_rate_pct,
   0 AS policy_surface_failures
 FROM <project>.<posture_summary_hour>
-WHERE timestamp >= baseline_start
-  AND timestamp < current_end
-GROUP BY request_host
+WHERE reqTimeSec >= baseline_start
+  AND reqTimeSec < current_end
+GROUP BY reqHost
 ```
 
-For aggregate-state summary tables such as `akamai.bi_summary_hour`, use the
-metadata-reported merge functions directly, for example
-`countMergeIf(\`count()\`, ...)`, `countIfMergeIf(\`countIf(...429...)\`, ...)`,
-and `countIfMergeIf(\`countIf(...500...)\`, ...)`. The fields emitted to
-`scorecard.py` stay canonical: `current_ai_crawler_requests`,
-`baseline_ai_crawler_requests`, `good_bot_429_requests`,
-`good_bot_error_rate_pct`, and `policy_surface_failures`.
+For aggregate-state posture summary tables such as `akamai.bi_summary_hour`, use
+the metadata-reported merge functions directly. The posture summary only stores
+`count()` and `sum(bytes)` aggregate states, so status-code (and method/cache)
+subsets are derived from the `count()` state with a predicate, not from
+per-status `countIf(...)` aggregate-state columns: use
+`countMergeIf(\`count()\`, statusCode = 429)` and
+`countMergeIf(\`count()\`, statusCode >= 500)`. (The
+`countIfMergeIf(\`countIf(...)\`, ...)` idiom applies to the SIEM summaries,
+which do retain those `countIf` states - see the SOC and SIEM enrichment
+blocks below.) The fields emitted to `scorecard.py` stay canonical:
+`current_ai_crawler_requests`, `baseline_ai_crawler_requests`,
+`good_bot_429_requests`, `good_bot_error_rate_pct`, and
+`policy_surface_failures`.
 
 ### Policy Collateral Protected-Population Enrichment
 
@@ -442,32 +448,34 @@ WITH
   toDateTime('<current_start>') AS current_start,
   toDateTime('<current_end>') AS current_end
 SELECT
-  request_host,
+  reqHost,
   countMergeIf(
     `count()`,
-    timestamp >= current_start
-      AND timestamp < current_end
-      AND bot_class IN ('good', 'crawler')
+    reqTimeSec >= current_start
+      AND reqTimeSec < current_end
+      AND trafficCohort = 'Bot'
   ) AS protected_population_requests,
-  countIfMergeIf(
-    `countIf(equals(toUInt16(response_status_code), 429))`,
-    timestamp >= current_start
-      AND timestamp < current_end
-      AND bot_class IN ('good', 'crawler')
+  countMergeIf(
+    `count()`,
+    statusCode = 429
+      AND reqTimeSec >= current_start
+      AND reqTimeSec < current_end
+      AND trafficCohort = 'Bot'
   ) AS good_bot_collateral_429_requests,
   round(
-    countIfMergeIf(
-      `countIf(greaterOrEquals(toUInt16(response_status_code), 500))`,
-      timestamp >= current_start
-        AND timestamp < current_end
-        AND bot_class IN ('good', 'crawler')
+    countMergeIf(
+      `count()`,
+      statusCode >= 500
+        AND reqTimeSec >= current_start
+        AND reqTimeSec < current_end
+        AND trafficCohort = 'Bot'
     )
     / greatest(protected_population_requests, 1) * 100, 2
   ) AS policy_collateral_error_rate_pct
 FROM <project>.<posture_summary_hour>
-WHERE timestamp >= current_start
-  AND timestamp < current_end
-GROUP BY request_host
+WHERE reqTimeSec >= current_start
+  AND reqTimeSec < current_end
+GROUP BY reqHost
 HAVING protected_population_requests > 0
 ORDER BY good_bot_collateral_429_requests DESC,
   policy_collateral_error_rate_pct DESC,

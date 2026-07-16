@@ -17,7 +17,7 @@ from producers.formatting import choose_granularity, sql_literal, sql_ts
 
 SCORECARD_ENTITY_SQL = {
     "client_asn": "toString(asn)",
-    "request_path_norm": "toString(requestPathPattern)",
+    "request_path_norm": "toString(reqPathPattern)",
     "request_host": "toString(reqHost)",
     "bot_class": "toString(userAgentCategory)",
     "ai_category": "toString(aiCategory)",
