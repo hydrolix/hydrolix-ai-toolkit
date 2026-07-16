@@ -8,7 +8,7 @@ those claims so drift is caught before it ships.
 
 ## What it checks
 
-`validate_live.py` runs five families of checks (246 checks against the
+`validate_live.py` runs seven families of checks (246+ checks against the
 `demo.trafficpeak.live` `akamai` project at last run, all passing):
 
 | Family | What it proves |
@@ -33,7 +33,7 @@ opt-in.
 
 ## Running
 
-Standalone (prints a PASS/FAIL/SKIP table, non-zero exit on any FAIL):
+Standalone (prints a PASS/FAIL/SKIP table, non-zero exit on any FAIL or UNRESOLVED):
 
 ```bash
 python3 tests/live/validate_live.py                 # default: demo.trafficpeak.live / akamai

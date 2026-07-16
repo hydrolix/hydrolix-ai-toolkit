@@ -49,6 +49,7 @@ def live_results():
     quick = os.environ.get("BOT_INSIGHTS_LIVE_QUICK", "").lower() in ("1", "true", "yes")
     ctx = validate_live.discover(conn, db)
     results: list = []
+    validate_live.check_discovery(ctx, results)
     validate_live.check_schema(ctx, results, quick=quick)
     validate_live.check_doc_sql(ctx, results)
     validate_live.check_negative(ctx, results)
@@ -64,7 +65,11 @@ def _by_kind(results, kind):
 
 @pytest.mark.parametrize("kind", ["discovery", "schema", "doc-sql", "negative", "prose", "producer", "preset"])
 def test_no_failures_by_kind(live_results, kind):
-    failed = [r for r in _by_kind(live_results, kind) if r.status == "FAIL"]
+    kind_results = _by_kind(live_results, kind)
+    # A missing check_* call in the fixture would leave this kind empty and let
+    # the no-FAIL assertion pass vacuously; require the kind to have run.
+    assert kind_results, f"no {kind!r} checks ran - a check_* call is missing from the fixture"
+    failed = [r for r in kind_results if r.status == "FAIL"]
     assert not failed, "\n".join(f"{r.name}: {r.detail}" for r in failed)
 
 

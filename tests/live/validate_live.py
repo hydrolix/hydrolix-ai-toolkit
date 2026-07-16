@@ -32,7 +32,8 @@ Usage:
     BOT_INSIGHTS_LIVE_DB=akamai python3 tests/live/validate_live.py
     python3 tests/live/validate_live.py --json report.json
 
-Exit code is non-zero if any check FAILS (UNRESOLVED/SKIP do not fail the run).
+Exit code is non-zero if any check FAILS or a documented example is UNRESOLVED
+(never executed); SKIP (e.g. no cluster configured) does not fail the run.
 """
 from __future__ import annotations
 
