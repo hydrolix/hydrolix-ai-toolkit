@@ -23,10 +23,6 @@ bot-insights-compare-posture = "bot_insights.compare_posture:main"
 bot-insights-attribution = "bot_insights.attribution:main"
 bot-insights-cache-origin-impact = "bot_insights.cache_origin_impact:main"
 bot-insights-as-reputation-snapshot = "bot_insights.as_reputation_snapshot:main"
-bot-insights-threat-hunt-cooccurrence-export = "bot_insights.threat_hunt_cooccurrence_export:main"
-bot-insights-threat-hunt-iat-sample-export = "bot_insights.threat_hunt_iat_sample_export:main"
-bot-insights-threat-hunt-scraper-drilldown-export = "bot_insights.threat_hunt_scraper_drilldown_export:main"
-bot-insights-threat-hunt-scraper-hourly-export = "bot_insights.threat_hunt_scraper_hourly_export:main"
 bot-insights-build-editorial-fonts = "bot_insights.build_editorial_fonts:main"
 
 [dependency-groups]

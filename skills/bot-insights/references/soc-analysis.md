@@ -49,26 +49,29 @@ only SOC-relevant evidence and missing inputs are evaluated.
 
 For live `demo.trafficpeak.live` Akamai queries, prefer the dashboard field
 names in `references/trafficpeak-demo.md`: `reqTimeSec`, `trafficCohort`,
-`aiCategory`, `userAgentCategory`, `requestPathPattern`, `statusCode`, and
+`aiCategory`, `userAgentCategory`, `reqPathPattern`, `statusCode`, and
 `cacheStatus` on posture summaries; `policyId`, `actionClass`, and `botType`
 on SIEM policy summaries.
 
 ### What Moved — Summary Delta [SOC, Director+]
 
 ```sql
+-- Project the aggregate-state `count()` column and the needed dimensions in the
+-- subquery (a summary table's SummaryColumn aliases like cnt_all do NOT survive
+-- SELECT *), then merge per period in the outer query.
 SELECT
   period,
-  sum(cnt_all) AS requests,
-  round(sumIf(cnt_all, isBotTraffic = true) / greatest(sum(cnt_all), 1) * 100, 2) AS bot_share_pct,
-  round(sum(cnt_429) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_429_pct,
-  round(sum(cnt_5xx) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_5xx_pct,
-  round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct
+  countMerge(`count()`) AS requests,
+  round(countMergeIf(`count()`, isBotTraffic = true) / greatest(countMerge(`count()`), 1) * 100, 2) AS bot_share_pct,
+  round(countMergeIf(`count()`, statusCode = 429) / greatest(countMerge(`count()`), 1) * 100, 2) AS rate_429_pct,
+  round(countMergeIf(`count()`, statusCode >= 500) / greatest(countMerge(`count()`), 1) * 100, 2) AS rate_5xx_pct,
+  round(countMergeIf(`count()`, cacheStatus = false) / greatest(countMerge(`count()`), 1) * 100, 2) AS cache_miss_pct
 FROM (
-  SELECT 'current' AS period, *
+  SELECT 'current' AS period, `count()`, isBotTraffic, statusCode, cacheStatus
   FROM <project>.bi_summary_hour
   WHERE reqTimeSec >= now() - INTERVAL 6 HOUR
   UNION ALL
-  SELECT 'baseline' AS period, *
+  SELECT 'baseline' AS period, `count()`, isBotTraffic, statusCode, cacheStatus
   FROM <project>.bi_summary_hour
   WHERE reqTimeSec >= now() - INTERVAL 12 HOUR
     AND reqTimeSec < now() - INTERVAL 6 HOUR
@@ -95,8 +98,8 @@ cluster lacks them rather than substituting a non-deployed table.
 ```sql
 SELECT
     asn AS value,
-    sumIf(cnt_all, reqTimeSec >= now() - INTERVAL 6 HOUR) AS current,
-    sumIf(cnt_all, reqTimeSec >= now() - INTERVAL 12 HOUR AND reqTimeSec < now() - INTERVAL 6 HOUR) AS baseline,
+    countMergeIf(`count()`, reqTimeSec >= now() - INTERVAL 6 HOUR) AS current,
+    countMergeIf(`count()`, reqTimeSec >= now() - INTERVAL 12 HOUR AND reqTimeSec < now() - INTERVAL 6 HOUR) AS baseline,
     current - baseline AS absolute_delta,
     round(absolute_delta / greatest(baseline, 1) * 100, 2) AS pct_change
 FROM <project>.bi_summary_hour
@@ -107,19 +110,19 @@ LIMIT 20
 
 -- Top request-path patterns by absolute volume delta from the deployed posture summary.
 SELECT
-    requestPathPattern AS value,
-    sumIf(cnt_all, reqTimeSec >= now() - INTERVAL 6 HOUR) AS current,
-    sumIf(cnt_all, reqTimeSec >= now() - INTERVAL 12 HOUR AND reqTimeSec < now() - INTERVAL 6 HOUR) AS baseline,
+    reqPathPattern AS value,
+    countMergeIf(`count()`, reqTimeSec >= now() - INTERVAL 6 HOUR) AS current,
+    countMergeIf(`count()`, reqTimeSec >= now() - INTERVAL 12 HOUR AND reqTimeSec < now() - INTERVAL 6 HOUR) AS baseline,
     current - baseline AS absolute_delta
 FROM <project>.bi_summary_hour
 WHERE reqTimeSec >= now() - INTERVAL 12 HOUR
-GROUP BY requestPathPattern
+GROUP BY reqPathPattern
 ORDER BY abs(absolute_delta) DESC
 LIMIT 20
 ```
 
 Exact-path mover attribution (`request_path` rather than the
-`requestPathPattern` bucket) is a request-level dimension; surface that
+`reqPathPattern` bucket) is a request-level dimension; surface that
 limitation in the artifact when needed.
 
 Use `scripts/compare_posture.py` to add contribution percentages and
@@ -137,7 +140,7 @@ table is not currently deployed; surface that as a limitation.
 -- (absent from 7-day lookback, present in the last 6 hours).
 SELECT
     asn,
-    sum(cnt_all) AS requests,
+    cnt_all AS requests,
     min(reqTimeSec) AS first_seen
 FROM <project>.bi_summary_hour
 WHERE reqTimeSec >= now() - INTERVAL 6 HOUR
@@ -156,14 +159,14 @@ LIMIT 20
 
 Once a mover is identified (e.g., a specific ASN), profile its behavior on
 retained summary dimensions: status-code mix (`statusCode`), cache outcome
-(`cacheStatus`), method (`reqMethod`), and bucketed path (`requestPathPattern`).
+(`cacheStatus`), method (`reqMethod`), and bucketed path (`reqPathPattern`).
 
 ```sql
 -- Status-code mix for a specific ASN from the deployed posture summary.
 SELECT
     statusCode,
-    sum(cnt_all) AS requests,
-    round(sum(cnt_all) / sum(sum(cnt_all)) OVER () * 100, 2) AS pct
+    cnt_all AS requests,
+    round(cnt_all / sum(cnt_all) OVER () * 100, 2) AS pct
 FROM <project>.bi_summary_hour
 WHERE reqTimeSec >= now() - INTERVAL 6 HOUR
   AND asn = '<suspect_asn>'
@@ -173,8 +176,8 @@ ORDER BY requests DESC
 -- Method mix for the same ASN.
 SELECT
     reqMethod,
-    sum(cnt_all) AS requests,
-    round(sum(cnt_all) / sum(sum(cnt_all)) OVER () * 100, 2) AS pct
+    cnt_all AS requests,
+    round(cnt_all / sum(cnt_all) OVER () * 100, 2) AS pct
 FROM <project>.bi_summary_hour
 WHERE reqTimeSec >= now() - INTERVAL 6 HOUR
   AND asn = '<suspect_asn>'
@@ -183,7 +186,7 @@ ORDER BY requests DESC
 ```
 
 Exact-path endpoint concentration (`request_path` rather than the
-`requestPathPattern` bucket), exact `user_agent`, header mix, and attack
+`reqPathPattern` bucket), exact `user_agent`, header mix, and attack
 payload detail are request-level dimensions; surface those as limitations.
 
 ### Bot Classification Deep Dive [SOC]
@@ -198,8 +201,8 @@ SQL by `userAgentCategory` directly:
 -- User-agent category movement from the deployed posture summary.
 SELECT
     userAgentCategory,
-    sum(cnt_all) AS requests,
-    round(sum(cnt_all) / sum(sum(cnt_all)) OVER () * 100, 2) AS pct
+    cnt_all AS requests,
+    round(cnt_all / sum(cnt_all) OVER () * 100, 2) AS pct
 FROM <project>.bi_summary_hour
 WHERE reqTimeSec >= now() - INTERVAL 24 HOUR
 GROUP BY userAgentCategory
@@ -254,10 +257,10 @@ is not supported at the deployed grain.
 -- SIEM-grade bad-bot host concentration. SIEM-enabled clusters only.
 SELECT
     host AS reqHost,
-    sumIf(cnt_all, botType = 'bad') AS bad_requests,
-    sum(cnt_all) AS requests,
-    round(sumIf(cnt_all, botType = 'bad') / greatest(sum(cnt_all), 1) * 100, 2) AS bad_bot_share_pct,
-    avgIf(avg_bot_score, botType = 'bad') AS avg_bot_score_bad
+    countMergeIf(`count()`, botType = 'bad') AS bad_requests,
+    cnt_all AS requests,
+    round(countMergeIf(`count()`, botType = 'bad') / greatest(cnt_all, 1) * 100, 2) AS bad_bot_share_pct,
+    avgIfMergeIf(`avgIf(botScore, greater(botScore, 0))`, botType = 'bad') AS avg_bot_score_bad
 FROM <project>.bi_siem_policy_summary_hour
 WHERE timestamp >= now() - INTERVAL 1 HOUR
 GROUP BY host

@@ -75,9 +75,9 @@ available (gated on `--include-paths`; see
 SELECT
     reqHost,
     isBotTraffic,
-    sum(cnt_all) AS requests,
-    sum(cnt_cache_miss) AS cache_misses,
-    round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS miss_rate_pct
+    cnt_all AS requests,
+    countMergeIf(`count()`, cacheStatus = false) AS cache_misses,
+    round(countMergeIf(`count()`, cacheStatus = false) / greatest(cnt_all, 1) * 100, 2) AS miss_rate_pct
 FROM <project>.bi_summary_hour
 WHERE reqTimeSec >= now() - INTERVAL 24 HOUR
 GROUP BY reqHost, isBotTraffic
@@ -105,10 +105,9 @@ output below as the supported surface; apply the deployment-availability rule
 SELECT
     reqHost,
     isBotTraffic,
-    sum(cnt_all) AS requests,
-    avg(avg_origin_ttfb) AS avg_origin_ttfb,
-    max(p95_origin_ttfb) AS p95_origin_ttfb,
-    round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct
+    cnt_all AS requests,
+    sum_originTurnAroundTime_ms / greatest(cnt_originTurnAroundTime, 1) AS avg_origin_ttfb_ms,  -- mean only; percentiles (p95/p99) are not retained on bi_summary_*
+    round(countMergeIf(`count()`, cacheStatus = false) / greatest(cnt_all, 1) * 100, 2) AS cache_miss_pct
 FROM <project>.bi_summary_hour
 WHERE reqTimeSec >= now() - INTERVAL 24 HOUR
 GROUP BY reqHost, isBotTraffic
@@ -117,10 +116,10 @@ ORDER BY requests DESC
 -- Cache impact of bot traffic from posture summaries.
 SELECT
     isBotTraffic,
-    sum(cnt_all) AS requests,
-    sum(cnt_cached) AS cache_hits,
-    round(sum(cnt_cached) / greatest(sum(cnt_all), 1) * 100, 2) AS hit_rate_pct,
-    sum(cnt_cache_miss) AS cache_misses
+    cnt_all AS requests,
+    countMergeIf(`count()`, cacheStatus = true) AS cache_hits,
+    round(countMergeIf(`count()`, cacheStatus = true) / greatest(cnt_all, 1) * 100, 2) AS hit_rate_pct,
+    countMergeIf(`count()`, cacheStatus = false) AS cache_misses
 FROM <project>.bi_summary_hour
 WHERE reqTimeSec >= now() - INTERVAL 24 HOUR
 GROUP BY isBotTraffic

@@ -19,7 +19,7 @@ confidence, intent analysis, verified bot ownership, and attack data fields.
 - `bi_summary_minute`, `bi_summary_hour`, `bi_summary_day` — posture summaries
   retaining `reqHost`, `asn`, `userAgentCategory`, `isBotTraffic`,
   `aiCategory`, `aiSource`, `trafficCohort`, `resourceCategory`, `reqMethod`,
-  `cacheStatus`, `statusCode`, `requestPathPattern`, and `country`. Available
+  `cacheStatus`, `statusCode`, `reqPathPattern`, and `country`. Available
   on every Bot Insights cluster.
 - `bi_siem_policy_summary_minute`, `bi_siem_policy_summary_hour`,
   `bi_siem_policy_summary_day` — with-SIEM policy/action summaries at
@@ -88,7 +88,7 @@ Important source-style aliases in that project:
 | AI category/source | `aiCategory`, `aiSource` |
 | user-agent category | `userAgentCategory` |
 | traffic cohort | `trafficCohort` (`Human`, `Bot`, `AI`) |
-| path grouping | `requestPathPattern` (renamed `reqPathPattern` in bundle 1.1; resolve from metadata) |
+| path grouping | `reqPathPattern` (older iterations used `requestPathPattern`; resolve from metadata) |
 | cache outcome | `cacheStatus` |
 | status | `statusCode` on posture, `status`/`statusCode` on SIEM policy |
 | SIEM policy/action/type | `policyId`, `actionClass`, `botType` |
@@ -108,7 +108,7 @@ or `bot_type`, `edge_pop`, exact payload `attack_data`, and exact
 those tables are not currently deployed. Apply the deployment-availability
 rule (SKILL.md). TrafficPeak summary fields available today include
 `userAgentCategory`, `trafficCohort`, `aiCategory`, `aiSource`,
-`requestPathPattern`, numeric `statusCode`, and `cacheStatus`.
+`reqPathPattern`, numeric `statusCode`, and `cacheStatus`.
 
 ## Personas
 

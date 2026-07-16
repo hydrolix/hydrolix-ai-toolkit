@@ -33,25 +33,25 @@ caveats rather than executive conclusions.
 -- Example: month-over-month posture by host from the daily summary.
 SELECT
   period,
-  request_host,
-  sum(cnt_all) AS requests,
-  round(sumIf(cnt_all, is_bot_traffic = true) / greatest(sum(cnt_all), 1) * 100, 2) AS bot_share_pct,
-  round(sumIf(cnt_all, ai_category != '') / greatest(sum(cnt_all), 1) * 100, 2) AS ai_crawler_share_pct,
-  round(sum(cnt_429) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_429_pct,
-  round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct
+  reqHost,
+  countMerge(`count()`) AS requests,
+  round(countMergeIf(`count()`, isBotTraffic = true) / greatest(countMerge(`count()`), 1) * 100, 2) AS bot_share_pct,
+  round(countMergeIf(`count()`, aiCategory != '') / greatest(countMerge(`count()`), 1) * 100, 2) AS ai_crawler_share_pct,
+  round(countMergeIf(`count()`, statusCode = 429) / greatest(countMerge(`count()`), 1) * 100, 2) AS rate_429_pct,
+  round(countMergeIf(`count()`, cacheStatus = false) / greatest(countMerge(`count()`), 1) * 100, 2) AS cache_miss_pct
 FROM (
-  SELECT 'current' AS period, *
+  SELECT 'current' AS period, `count()`, reqHost, isBotTraffic, aiCategory, statusCode, cacheStatus
   FROM <project>.<posture_summary_day>
-  WHERE timestamp >= toDateTime('<current_start>')
-    AND timestamp < toDateTime('<current_end>')
+  WHERE reqTimeSec >= toDateTime('<current_start>')
+    AND reqTimeSec < toDateTime('<current_end>')
   UNION ALL
-  SELECT 'baseline' AS period, *
+  SELECT 'baseline' AS period, `count()`, reqHost, isBotTraffic, aiCategory, statusCode, cacheStatus
   FROM <project>.<posture_summary_day>
-  WHERE timestamp >= toDateTime('<baseline_start>')
-    AND timestamp < toDateTime('<baseline_end>')
+  WHERE reqTimeSec >= toDateTime('<baseline_start>')
+    AND reqTimeSec < toDateTime('<baseline_end>')
 )
-GROUP BY period, request_host
-ORDER BY request_host, period
+GROUP BY period, reqHost
+ORDER BY reqHost, period
 ```
 
 `bad_bot_share_pct` is intentionally omitted: deployed posture summaries do
@@ -71,16 +71,16 @@ investigation to the right team.
 
 ```sql
 SELECT
-  request_host,
-  sum(cnt_all) AS requests,
-  round(sumIf(cnt_all, is_bot_traffic = true) / greatest(sum(cnt_all), 1) * 100, 2) AS bot_share_pct,
-  round(sum(cnt_429) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_429_pct,
-  round(sum(cnt_5xx) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_5xx_pct,
-  round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct
+  reqHost,
+  cnt_all AS requests,
+  round(countMergeIf(`count()`, isBotTraffic = true) / greatest(cnt_all, 1) * 100, 2) AS bot_share_pct,
+  round(countMergeIf(`count()`, statusCode = 429) / greatest(cnt_all, 1) * 100, 2) AS rate_429_pct,
+  round(countMergeIf(`count()`, statusCode >= 500) / greatest(cnt_all, 1) * 100, 2) AS rate_5xx_pct,
+  round(countMergeIf(`count()`, cacheStatus = false) / greatest(cnt_all, 1) * 100, 2) AS cache_miss_pct
 FROM <project>.<posture_summary_day>
-WHERE timestamp >= toDateTime('<start>')
-  AND timestamp < toDateTime('<end>')
-GROUP BY request_host
+WHERE reqTimeSec >= toDateTime('<start>')
+  AND reqTimeSec < toDateTime('<end>')
+GROUP BY reqHost
 ORDER BY requests DESC
 ```
 

@@ -394,11 +394,19 @@ dependencies = [
     { name = "reportkit" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "bot-insights", editable = "packages/bot-insights" },
     { name = "reportkit", editable = "reportkit" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8.0" }]
 
 [[package]]
 name = "pydantic"

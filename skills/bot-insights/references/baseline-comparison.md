@@ -259,35 +259,34 @@ WITH
   toDateTime('<baseline_end>') AS baseline_end
 SELECT
   period,
-  sum(cnt_all) AS requests,
-  round(sumIf(cnt_all, is_bot_traffic = true) / greatest(sum(cnt_all), 1) * 100, 2) AS bot_share_pct,
-  round(sumIf(cnt_all, userAgentCategory = 'Search Engine Crawler') / greatest(sum(cnt_all), 1) * 100, 2) AS good_bot_share_pct,
-  round(sum(cnt_429) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_429_pct,
-  round(sum(cnt_5xx) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_5xx_pct,
-  round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct,
-  max(p95_origin_ttfb) AS origin_p95_ms
+  countMerge(`count()`) AS requests,
+  round(countMergeIf(`count()`, isBotTraffic = true) / greatest(countMerge(`count()`), 1) * 100, 2) AS bot_share_pct,
+  round(countMergeIf(`count()`, trafficCohort = 'Bot') / greatest(countMerge(`count()`), 1) * 100, 2) AS good_bot_share_pct,
+  round(countMergeIf(`count()`, statusCode = 429) / greatest(countMerge(`count()`), 1) * 100, 2) AS rate_429_pct,
+  round(countMergeIf(`count()`, statusCode >= 500) / greatest(countMerge(`count()`), 1) * 100, 2) AS rate_5xx_pct,
+  round(countMergeIf(`count()`, cacheStatus = false) / greatest(countMerge(`count()`), 1) * 100, 2) AS cache_miss_pct
+  -- origin-latency movement: see edge-ops-analysis.md (sum/count latency columns)
 FROM (
-  SELECT 'current' AS period, *
+  SELECT 'current' AS period, `count()`, isBotTraffic, trafficCohort, statusCode, cacheStatus
   FROM <project>.<posture_summary_day>
-  WHERE timestamp >= current_start
-    AND timestamp < current_end
-    AND request_host = '<host>'
+  WHERE reqTimeSec >= current_start
+    AND reqTimeSec < current_end
+    AND reqHost = '<host>'
   UNION ALL
-  SELECT 'baseline' AS period, *
+  SELECT 'baseline' AS period, `count()`, isBotTraffic, trafficCohort, statusCode, cacheStatus
   FROM <project>.<posture_summary_day>
-  WHERE timestamp >= baseline_start
-    AND timestamp < baseline_end
-    AND request_host = '<host>'
+  WHERE reqTimeSec >= baseline_start
+    AND reqTimeSec < baseline_end
+    AND reqHost = '<host>'
 )
 GROUP BY period
 ORDER BY period
 ```
 
-`good_bot_share_pct` filters on `userAgentCategory = 'Search Engine Crawler'`
-because deployed posture summaries do not retain a queryable `bot_class`
-column; confirm the metadata-matched user-agent category value for the
-target cluster. `bad_bot_share_pct` is intentionally omitted: there is no
-clean `userAgentCategory` value for "bad". For SIEM-grade bad-bot share on
+`good_bot_share_pct` filters on `trafficCohort = 'Bot'` (declared non-AI bot
+traffic) - the same "good bot" proxy the deployed scorecard producer uses -
+because posture summaries do not retain a `bot_class` column. `bad_bot_share_pct`
+is intentionally omitted: posture has no good/bad split. For SIEM-grade bad-bot share on
 SIEM-enabled clusters, layer `bi_siem_policy_summary_*` (filter on
 `botType`) on top of this template; otherwise apply the
 deployment-availability rule (SKILL.md). See the metadata-alias note in
@@ -302,16 +301,16 @@ WITH
   toDateTime('<baseline_start>') AS baseline_start,
   toDateTime('<baseline_end>') AS baseline_end
 SELECT
-  client_asn AS value,
-  sumIf(cnt_all, timestamp >= current_start AND timestamp < current_end) AS current,
-  sumIf(cnt_all, timestamp >= baseline_start AND timestamp < baseline_end) AS baseline,
+  asn AS value,
+  countMergeIf(`count()`, reqTimeSec >= current_start AND reqTimeSec < current_end) AS current,
+  countMergeIf(`count()`, reqTimeSec >= baseline_start AND reqTimeSec < baseline_end) AS baseline,
   current - baseline AS absolute_delta,
   round(absolute_delta / greatest(baseline, 1) * 100, 2) AS pct_change
 FROM <project>.<posture_summary_day>
-WHERE timestamp >= baseline_start
-  AND timestamp < current_end
-  AND request_host = '<host>'
-GROUP BY client_asn
+WHERE reqTimeSec >= baseline_start
+  AND reqTimeSec < current_end
+  AND reqHost = '<host>'
+GROUP BY asn
 ORDER BY abs(absolute_delta) DESC
 LIMIT 20
 ```

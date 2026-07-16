@@ -143,20 +143,6 @@ def parse_args() -> argparse.Namespace:
         help="Optional comma-separated scorecard domains to evaluate.",
     )
     parser.add_argument(
-        "--asn",
-        default=None,
-        help="Optional client ASN scope filter for incident_report.",
-    )
-    parser.add_argument(
-        "--path-pattern",
-        default=None,
-        help=(
-            "Optional path-pattern scope filter for incident_report "
-            "(requestPathPattern bucket for summary queries; SQL LIKE for "
-            "raw drilldown)."
-        ),
-    )
-    parser.add_argument(
         "--analyst-notes",
         help="LLM interpretation prose to include in the final report wrapper.",
     )
