@@ -9,21 +9,17 @@ This module is the script's CLI surface. The original
 everything here under its historical name.
 
 Layout:
-  - ``parse_args``: argparse setup, ~175 lines. Every report-type-
-    specific flag (``--policy-id`` for control_review,
-    ``--entity-type`` for the scorecard family, ``--top-n`` /
-    ``--fields`` / ``--host`` / ``--asn`` / ``--path-pattern`` /
-    ``--grafana-hostname`` / ``--grafana-dashboard-path`` for
-    incident_report, etc.) lives here.
+  - ``parse_args``: argparse setup. Every report-type-specific flag
+    (``--policy-id`` for control_review, ``--entity-type`` for the
+    scorecard family, ``--host`` for host-scoped posture, etc.) lives
+    here.
   - ``main``: validates the parsed args, picks the right SQL +
     table + evidence builder per ``--report``, runs capture, and
     branches to either evidence-packet emission (``--mode evidence``)
-    or the renderer (``--mode html`` / ``--mode markdown``). The
-    incident_report flow is dispatched whole to
-    ``producers.orchestrators.incident_report._run_incident_report``;
-    the other report types stay inline (Phase 2.6 deferred per-
-    report orchestrator extraction to a follow-up so the dispatch
-    rewiring doesn't entangle with the rest of Phase 2).
+    or the renderer (``--mode html`` / ``--mode markdown``). All
+    supported report types (executive_posture, control_review,
+    scorecard_brief, soc_triage, crawler_governance, edge_ops_impact)
+    are dispatched inline.
 
 Document the full CC + ≤500-line guideline deviations for this
 module in the verification commit; both apply because ``main`` is

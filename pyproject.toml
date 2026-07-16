@@ -7,6 +7,14 @@ dependencies = [
   "reportkit",
 ]
 
+# Dev/test tooling installed into the workspace venv so `uv run pytest` uses the
+# project interpreter (with jinja2/reportkit/bot_insights available) instead of
+# falling back to an ephemeral tool environment that lacks the workspace deps.
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+]
+
 [tool.uv.workspace]
 members = [
   "reportkit",

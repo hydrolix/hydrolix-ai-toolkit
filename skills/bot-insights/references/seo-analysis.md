@@ -61,10 +61,10 @@ disruption — especially during security incidents or policy changes.
 SELECT
     reqTimeSec,
     reqHost,
-    sum(cnt_all) AS requests,
-    round(sum(cnt_4xx + cnt_5xx) / greatest(sum(cnt_all), 1) * 100, 2) AS error_rate_pct,
-    round(sum(cnt_429) / greatest(sum(cnt_all), 1) * 100, 2) AS rate_limited_pct,
-    max(p95_origin_ttfb) AS origin_p95_ms
+    cnt_all AS requests,
+    round(countMergeIf(`count()`, statusCode >= 400) / greatest(cnt_all, 1) * 100, 2) AS error_rate_pct,
+    round(countMergeIf(`count()`, statusCode = 429) / greatest(cnt_all, 1) * 100, 2) AS rate_limited_pct,
+    sum_originTurnAroundTime_ms / greatest(cnt_originTurnAroundTime, 1) AS origin_p95_ms  -- percentiles not retained on bi_summary_*; mean shown
 FROM <project>.bi_summary_day
 WHERE reqTimeSec >= now() - INTERVAL 30 DAY
   AND userAgentCategory = 'Search Engine Crawler'
@@ -75,7 +75,7 @@ ORDER BY reqTimeSec, reqHost
 SELECT
     reqTimeSec AS hour,
     reqHost,
-    sum(cnt_all) AS requests
+    cnt_all AS requests
 FROM <project>.bi_summary_hour
 WHERE reqTimeSec >= now() - INTERVAL 7 DAY
   AND userAgentCategory = 'Search Engine Crawler'
@@ -103,10 +103,10 @@ queries), and search (AI-powered search engines).
 -- AI crawler movement by category from deployed posture summaries.
 SELECT
     aiCategory,
-    sum(cnt_all) AS requests,
-    sum(cnt_2xx) AS ok_2xx,
-    sum(cnt_429) AS rate_limited_429,
-    round(sum(cnt_cache_miss) / greatest(sum(cnt_all), 1) * 100, 2) AS cache_miss_pct
+    cnt_all AS requests,
+    countMergeIf(`count()`, statusCode BETWEEN 200 AND 299) AS ok_2xx,
+    countMergeIf(`count()`, statusCode = 429) AS rate_limited_429,
+    round(countMergeIf(`count()`, cacheStatus = false) / greatest(cnt_all, 1) * 100, 2) AS cache_miss_pct
 FROM <project>.bi_summary_day
 WHERE reqTimeSec >= now() - INTERVAL 24 HOUR
   AND aiCategory != ''
@@ -117,7 +117,7 @@ ORDER BY requests DESC
 SELECT
     reqTimeSec AS hour,
     aiCategory,
-    sum(cnt_all) AS requests
+    cnt_all AS requests
 FROM <project>.bi_summary_hour
 WHERE reqTimeSec >= now() - INTERVAL 7 DAY
   AND aiCategory != ''
@@ -127,6 +127,6 @@ ORDER BY hour
 
 Governance-surface inspection (which AI crawlers actually hit `robots.txt`,
 `llms.txt`, or `ai.txt`) is a request-path-grain question. The deployed
-posture summary retains `requestPathPattern`, which buckets traffic into
+posture summary retains `reqPathPattern`, which buckets traffic into
 broad categories rather than exact paths; exact-path governance audits depend
 on request-level `bot_detection` and are not supported at the deployed grain.
