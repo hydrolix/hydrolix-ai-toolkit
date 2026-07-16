@@ -1856,7 +1856,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Optional path-pattern scope filter for incident_report "
-            "(requestPathPattern bucket for summary queries; SQL LIKE for "
+            "(reqPathPattern bucket for summary queries; SQL LIKE for "
             "raw drilldown)."
         ),
     )

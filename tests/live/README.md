@@ -18,6 +18,7 @@ those claims so drift is caught before it ships.
 | **negative** | Things the docs say are impossible actually fail: `sum(cnt_all)` -> `ILLEGAL_AGGREGATION`; selecting `cnt_cache_miss` / `p95_origin_ttfb` / `bot_class` / `requestPathPattern` / `is_bot_traffic`. |
 | **prose**    | Factual claims in the prose are executable: `statusCode` numeric, `cacheStatus` boolean, `trafficCohort in {Human,Bot,AI}`, `aiSource` empty when `aiCategory` empty, `resourceCategory` bucket set, good-bot = `trafficCohort='Bot'`, SIEM control columns resolve. |
 | **producer** | Every deployed-table SQL generator in `bot_insights.producers.sql` (executive posture, control review, all scorecard entity types, summary-columns introspection) is called with real parameters and its emitted SQL is executed. |
+| **preset**   | Every `bot_insights_capture` preset (`posture-overview`, `posture-by-asn`, `posture-by-path`, `siem-policy`) - the Data Firewall's guarded capture path - is rendered and executed. |
 
 ## Connection (credential-safe)
 

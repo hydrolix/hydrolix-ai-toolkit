@@ -638,7 +638,7 @@ def _normalize_summary_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "period": _period(row),
         "request_path": str(
-            _first(row, ("request_path", "requestPath", "path", "requestPathPattern"), "")
+            _first(row, ("request_path", "requestPath", "path", "reqPathPattern", "requestPathPattern"), "")
         ),
         "country": str(_first(row, ("country", "country_code", "client_country"), "")),
         "traffic_cohort": str(

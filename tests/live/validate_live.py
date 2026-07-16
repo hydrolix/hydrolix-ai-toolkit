@@ -547,6 +547,40 @@ def check_producers(ctx: Ctx, results: list[Result]) -> None:
             run(f"{fn_name}({entity})", sql)
 
 
+def check_presets(ctx: Ctx, results: list[Result]) -> None:
+    """Execute every bot_insights_capture preset query (the Data Firewall's
+    guarded capture path). These are built separately from the producers/sql
+    generators, so they need their own coverage."""
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "packages" / "bot-insights" / "src"))
+        from bot_insights.bot_insights_capture.part_02 import render_preset_sql  # type: ignore
+        from bot_insights.bot_insights_capture.part_01 import PRESET_CHOICES  # type: ignore
+    except Exception as exc:  # noqa: BLE001
+        results.append(Result("preset", "import render_preset_sql", "SKIP",
+                              f"package not importable ({exc}); run under `uv run`"))
+        return
+
+    from types import SimpleNamespace
+    now = _dt.datetime.now(_dt.timezone.utc).replace(tzinfo=None)
+    start = (now - _dt.timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    for preset in PRESET_CHOICES:
+        args = SimpleNamespace(
+            preset=preset, database=ctx.db, granularity="hour", limit=50,
+            start=start, end=end, sql=None, sql_file=None,
+        )
+        try:
+            sql = render_preset_sql(args)
+        except SystemExit as exc:
+            results.append(Result("preset", f"render_preset_sql({preset})", "FAIL", f"render error: {exc}"))
+            continue
+        try:
+            ctx.conn.query(sql)
+            results.append(Result("preset", f"preset:{preset}", "PASS"))
+        except QueryError as exc:
+            results.append(Result("preset", f"preset:{preset}", "FAIL", f"[{exc.code}] {exc}"))
+
+
 # --------------------------------------------------------------------------- #
 # Main
 # --------------------------------------------------------------------------- #
@@ -577,6 +611,7 @@ def main() -> int:
     check_negative(ctx, results)
     check_prose(ctx, results)
     check_producers(ctx, results)
+    check_presets(ctx, results)
 
     order = {"FAIL": 0, "UNRESOLVED": 1, "SKIP": 2, "PASS": 3}
     for r in sorted(results, key=lambda x: (order[x.status], x.kind, x.name)):

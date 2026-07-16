@@ -54,6 +54,7 @@ def live_results():
     validate_live.check_negative(ctx, results)
     validate_live.check_prose(ctx, results)
     validate_live.check_producers(ctx, results)
+    validate_live.check_presets(ctx, results)
     return results
 
 
@@ -61,7 +62,7 @@ def _by_kind(results, kind):
     return [r for r in results if r.kind == kind]
 
 
-@pytest.mark.parametrize("kind", ["schema", "doc-sql", "negative", "prose", "producer"])
+@pytest.mark.parametrize("kind", ["schema", "doc-sql", "negative", "prose", "producer", "preset"])
 def test_no_failures_by_kind(live_results, kind):
     failed = [r for r in _by_kind(live_results, kind) if r.status == "FAIL"]
     assert not failed, "\n".join(f"{r.name}: {r.detail}" for r in failed)
