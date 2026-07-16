@@ -8,6 +8,11 @@ upstream step. The renderer does not query Hydrolix, open database clients,
 read credentials, recompute scores, or infer values beyond the fields already
 present in the input.
 
+This file documents report usage and rendering behavior. For maintainer steps
+to add a new predefined report type, wire a custom report, or skin existing
+reports without changing evidence semantics, read
+[report-extension.md](report-extension.md).
+
 ## Contents
 
 - [Accepted Input](#accepted-input)
@@ -67,7 +72,6 @@ array tokens must be non-negative indexes without leading zeroes.
   `crawler_governance` scorecard features.
 - `edge_ops_impact` - cache-busting and origin-impact evidence using only
   evaluated `cache_busting` and `origin_impact` scorecard features.
-
 ## Report Workflow Matrix
 
 Every final-report workflow follows the same contract:
@@ -271,6 +275,11 @@ cat control_review.json \
 ```
 
 Raw artifact arrays always require `--report-type`.
+
+When optional render dependencies are absent, `render_report.py`
+automatically re-runs itself through `uv --with` before reading input. The
+base renderer provisions `jinja2`, `markdown-it-py`, and `bleach`; PDF output
+also provisions `playwright`.
 
 ## Warnings and Evidence Limits
 

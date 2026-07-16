@@ -66,53 +66,86 @@ _UNIVERSAL_CLASSES = frozenset(
 # load-bearing — adding too many makes the matrix a snapshot in
 # disguise and breaks on every cosmetic template tweak.
 _PER_TYPE_CLASSES: dict[str, frozenset[str]] = {
-    "executive_posture": frozenset({
-        "movement-table",
-        "movers-table",
-        "narrative-slot",
-        "exec-summary",
-    }),
-    "scorecard_brief": frozenset({
-        "landscape-grid",
-        "queue-table",
-        "verdict-strip",
-        "findings",
-        "exec-summary",
-    }),
-    "scorecard_entity_review": frozenset({
-        "narrative-slot",
-        "exec-summary",
-    }),
-    "control_review": frozenset({
-        "control-bars",
-        "control-target",
-        "control-effects",
-        "effects-table",
-        "narrative-slot",
-        "exec-summary",
-    }),
-    "soc_triage": frozenset({
-        "verdict-strip",
-        "queue-table",
-        "domain-matrix",
-        "sec-evidence-section",
-        "exec-summary",
-    }),
-    "crawler_governance": frozenset({
-        "verdict-strip",
-        "queue-table",
-        "domain-matrix",
-        "sec-evidence-section",
-        "exec-summary",
-    }),
-    "edge_ops_impact": frozenset({
-        "verdict-strip",
-        "queue-table",
-        "domain-matrix",
-        "sec-evidence-section",
-        "path-candidates-table",
-        "exec-summary",
-    }),
+    "executive_posture": frozenset(
+        {
+            "movement-table",
+            "movers-table",
+            "narrative-slot",
+            "exec-summary",
+        }
+    ),
+    "scorecard_brief": frozenset(
+        {
+            "landscape-grid",
+            "queue-table",
+            "verdict-strip",
+            "findings",
+            "exec-summary",
+        }
+    ),
+    "scorecard_entity_review": frozenset(
+        {
+            "narrative-slot",
+            "exec-summary",
+        }
+    ),
+    "control_review": frozenset(
+        {
+            "control-bars",
+            "control-target",
+            "control-effects",
+            "effects-table",
+            "narrative-slot",
+            "exec-summary",
+        }
+    ),
+    "soc_triage": frozenset(
+        {
+            "verdict-strip",
+            "queue-table",
+            "domain-matrix",
+            "sec-evidence-section",
+            "exec-summary",
+        }
+    ),
+    "crawler_governance": frozenset(
+        {
+            "verdict-strip",
+            "queue-table",
+            "domain-matrix",
+            "sec-evidence-section",
+            "exec-summary",
+        }
+    ),
+    "edge_ops_impact": frozenset(
+        {
+            "verdict-strip",
+            "queue-table",
+            "domain-matrix",
+            "sec-evidence-section",
+            "path-candidates-table",
+            "exec-summary",
+        }
+    ),
+    # Editorial incident brief. Section-anchor classes that must always
+    # render regardless of whether the artifact carries flagged
+    # targets — when targets are empty, the actors table degrades to
+    # an empty-state paragraph but the surrounding section wrapper and
+    # the `actors-table` selector are still emitted via the CSS, so
+    # the class string is present in the rendered HTML. The plan-named
+    # `actors-table` class is asserted via the embedded CSS rule
+    # (always present) rather than the table element itself.
+    "incident_report": frozenset(
+        {
+            "brief-incident",
+            "brief-mast",
+            "verdict-findings",
+            "severity-ladder",
+            "actors-table",
+            "attack-list",
+            "actions-list",
+        }
+    ),
 }
 
 
@@ -232,14 +265,10 @@ _FIXTURE_EXEMPT_CLASSES: dict[str, frozenset[str]] = {
     "executive_posture_thin_coverage.json": frozenset({"movers-table"}),
     # Index-only inputs route into the report's degraded-mode branch,
     # which suppresses per-entity evidence and the domain matrix.
-    "soc_triage_index_only.json": frozenset(
-        {"domain-matrix", "sec-evidence-section"}
-    ),
+    "soc_triage_index_only.json": frozenset({"domain-matrix", "sec-evidence-section"}),
     # No top-path candidates available, so the path-candidates table
     # isn't rendered.
-    "edge_ops_impact_single_entity_no_paths.json": frozenset(
-        {"path-candidates-table"}
-    ),
+    "edge_ops_impact_single_entity_no_paths.json": frozenset({"path-candidates-table"}),
 }
 
 
@@ -248,11 +277,13 @@ _FIXTURE_EXEMPT_CLASSES: dict[str, frozenset[str]] = {
 # reaching the engine renderer. Documented here as expected-failure
 # so the class audit asserts on rc explicitly rather than skipping
 # silently and letting an unrelated render regression hide.
-_EXPECTED_RENDER_FAILURES: frozenset[str] = frozenset({
-    "crawler_governance_index_only.json",
-    "edge_ops_impact_index_only.json",
-    "scorecard_brief_acme_malicious_notes.json",
-})
+_EXPECTED_RENDER_FAILURES: frozenset[str] = frozenset(
+    {
+        "crawler_governance_index_only.json",
+        "edge_ops_impact_index_only.json",
+        "scorecard_brief_acme_malicious_notes.json",
+    }
+)
 
 
 @pytest.mark.skipif(not _WRAPPERS, reason="no wrapper fixtures found")

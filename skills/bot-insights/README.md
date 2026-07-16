@@ -63,36 +63,28 @@ over tool friction.
   custom MCP SQL, `compare_posture.py --schema movers` on
   hand-assembled JSON, and explicit confidence framing on a question
   the CLI does not natively support.
-- [Anomaly investigation](examples/conversations/anomaly-investigation.md) —
-  triage a mid-morning bot-share spike that turns out to be two
-  unrelated movers (verified search crawler + unverified credential
-  tester) with different remediation paths. Demonstrates hourly-grain
-  time-localization, behavior-signature reasoning under
-  classifier-spoof risk, domain-scoped `scorecard.py` invocation, and
-  split recommendations per entity.
-- [SIEM unavailable triage](examples/conversations/siem-unavailable-triage.md) —
-  handle a less-clean investigation where posture data is available but
-  SIEM/security evidence is missing. Demonstrates fallback to operational
-  risk framing, missing-evidence boundaries, and follow-up routing without
-  overclaiming malicious intent.
 
 ## Common Manual Workflows
 
 Render a saved demo payload:
 
 ```bash
-uv run --with jinja2 --with markdown-it-py --with bleach \
-  python skills/bot-insights/scripts/render_report.py \
+uv run python skills/bot-insights/scripts/render_report.py \
   --file skills/bot-insights/examples/scorecard-brief.json \
   --format html \
   --output /tmp/scorecard-brief.html
 ```
+
+The renderer automatically re-runs through `uv --with` when optional render
+dependencies are absent. PDF output also provisions Playwright this way.
 
 Read the authoritative references before changing report behavior:
 
 - [SKILL.md](SKILL.md) for agent routing, data firewall, and safety rules.
 - [references/reporting.md](references/reporting.md) for report workflow,
   supported report types, artifact shapes, and renderer commands.
+- [references/report-extension.md](references/report-extension.md) for adding
+  predefined reports, custom report wiring, and report skinning boundaries.
 
 ## Keeping This README Consistent
 
@@ -106,9 +98,9 @@ Use this checklist whenever changing the README:
   [references/reporting.md](references/reporting.md).
 - Keep directory descriptions aligned with the files actually present in this
   skill directory.
-- Keep examples runnable through `uv run`; include explicit `--with`
-  dependencies when a script needs packages that are not installed in the
-  default environment.
+- Keep examples runnable through `uv run`; `render_report.py` self-provisions
+  optional render dependencies when they are not installed in the default
+  environment.
 - Prefer links to the authoritative files over duplicated explanations.
 
 When in doubt, make `SKILL.md` precise and keep this README short.

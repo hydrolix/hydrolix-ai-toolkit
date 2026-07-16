@@ -1,0 +1,15 @@
+{# ─────────────────────────────────────────────────────────────────
+   pill — semantic chip.
+   Args:
+     tone   "brand" | "observe" | "monitor" | "elevated"
+             | "escalate" | "critical" | "neutral" | "low"
+     size   "sm" | "md" (default) | "lg"
+     solid  boolean — filled, high-emphasis
+     label  the visible text
+   Usage:
+     {% from 'kit/_pill.html' import pill %}
+     {{ pill('escalate', label='Strong scraper lead', size='lg') }}
+   ────────────────────────────────────────────────────────────────── #}
+{% macro pill(tone='neutral', label='', size='md', solid=false, extra_class='') -%}
+<span class="hx-pill hx-pill-{{ tone }} hx-pill-{{ size }}{% if solid %} hx-pill-solid{% endif %}{% if extra_class %} {{ extra_class }}{% endif %}">{{ label }}</span>
+{%- endmacro %}

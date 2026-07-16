@@ -1,0 +1,36 @@
+{
+  "snapshot_name": "Bot Insights public AS reputation overrides",
+  "generated_at": "2026-05-20T00:00:00Z",
+  "entries": [
+    {
+      "asns": [
+        "44477"
+      ],
+      "name": "Stark Industries Solutions Ltd",
+      "label": "public_threat_enabler",
+      "confidence": "medium",
+      "evidence_grade": "public_threat_reputation_context",
+      "last_reviewed": "2026-05-20",
+      "sources": [
+        {
+          "title": "ThreatFox AS44477 network report",
+          "url": "https://threatfox.abuse.ch/asn/44477/",
+          "source_type": "threat_intelligence",
+          "summary": "ThreatFox publishes an ASN report for AS44477 and associates the network with public abuse and threat-intelligence observations."
+        },
+        {
+          "title": "Spamhaus ASN-DROP criteria",
+          "url": "https://www.spamhaus.org/blocklists/do-not-route-or-peer/",
+          "source_type": "network_intelligence",
+          "summary": "Spamhaus documents ASN-DROP as a public do-not-route-or-peer list for ASNs associated with hijacked, leased, spam, or cyber-crime operations; ThreatFox reports AS44477 as blocked by Spamhaus ASN-DROP."
+        },
+        {
+          "title": "Centripetal case study on Stark Industries Solutions Ltd.",
+          "url": "https://www.centripetal.ai/threat-research/insights-into-the-persistence-and-resilience-of-bulletproof-hosting-a-case-study-on-stark-industries-solutions",
+          "source_type": "security_research",
+          "summary": "Centripetal published a public case study describing Stark Industries Solutions Ltd. in bulletproof-hosting and threat-infrastructure context."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,585 @@
+"""Top-of-report Impact strip and the per-bucket volume chart view."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from datetime import timedelta
+
+from .formatters import (
+    _format_count,
+    _format_int,
+    _format_pct,
+    _format_signed_pct,
+    _safe_number,
+    _short_iso,
+    _top_delta,
+)
+
+__all__ = [
+    '_CHART_SELECTION_RULE',
+    '_CHART_SELECTION_REASONS',
+    '_impact_view',
+    '_window_timeline_view',
+    '_volume_chart_view',
+    '_interpolate_time_label',
+    '_duration_display',
+    '_select_chart_series',
+]
+
+
+_CHART_SELECTION_RULE = [
+    ("rate_429_up", "req_429_per_minute"),
+    ("bot_share_up", "bot_like_requests_per_minute"),
+    ("volume_up", "requests_per_minute"),
+]
+
+
+_CHART_SELECTION_REASONS = {
+    "rate_429_up": (
+        "rate_429_up was the most specific spike flag — the rate-limit "
+        "pressure curve is the lede"
+    ),
+    "bot_share_up": (
+        "bot_share_up was the most specific spike flag — the automation "
+        "wave shape is the lede"
+    ),
+    "volume_up": (
+        "volume_up was the dominant spike — total request volume is the lede"
+    ),
+}
+
+
+def _edge_blocks_tile(requests: float, blocked_share: object) -> dict:
+    """Edge-blocks tile, with em-dash fallback when no edge-block data
+    is available (neither SIEM actionClass share nor action_applied
+    share from raw akamai.logs)."""
+    if blocked_share is None:
+        return {
+            "label": "Edge blocks",
+            "value": "—",
+            "sub": "no edge block data",
+            "rank_score": 0,
+        }
+    blocked = float(blocked_share or 0)
+    req_blocks = int(requests * blocked / 100.0) if requests else 0
+    return {
+        "label": "Edge blocks",
+        "value": _format_count(req_blocks),
+        "sub": _format_pct(blocked_share) + " of window",
+        "rank_score": blocked,
+    }
+
+
+def _top_path_share_tile(paths_rows: list[dict]) -> dict:
+    """Top-path-share tile (briefing.html v2). Falls back to em-dashes
+    when the path_pattern_rows are empty so the strip never collapses."""
+    top_path_row = paths_rows[0] if paths_rows else None
+    if not top_path_row:
+        return {
+            "label": "Top path share",
+            "value": "—",
+            "sub": "no path data",
+            "rank_score": 0,
+        }
+    path_label = str(top_path_row.get("value") or "")
+    delta_display = _format_signed_pct(top_path_row.get("delta_vs_baseline_pct"))
+    if path_label and delta_display != "—":
+        sub = f"{path_label} · {delta_display}"
+    elif path_label:
+        sub = path_label
+    else:
+        sub = delta_display
+    return {
+        "label": "Top path share",
+        "value": _format_pct(top_path_row.get("share_pct")),
+        "sub": sub,
+        "rank_score": abs(
+            float(_safe_number(top_path_row.get("delta_vs_baseline_pct")) or 0)
+        ) or float(_safe_number(top_path_row.get("share_pct")) or 0),
+    }
+
+
+def _requests_tile(requests: float, hosts_rows: list[dict]) -> dict:
+    delta = _top_delta(hosts_rows)
+    return {
+        "label": "Requests",
+        "value": _format_count(requests),
+        "sub": _format_signed_pct(delta),
+        "rank_score": abs(float(_safe_number(delta) or 0)),
+    }
+
+
+def _served_rate_tile(label: str, requests: float, rate_pct: float) -> dict:
+    """Build a "X served" KPI tile (e.g. 429s, 5xx) from total + percentage."""
+    served = int(requests * (rate_pct or 0) / 100.0) if requests else 0
+    return {
+        "label": label,
+        "value": _format_count(served),
+        "sub": _format_pct(rate_pct) + " of window",
+        "rank_score": float(_safe_number(rate_pct) or 0),
+    }
+
+
+def _build_impact_tiles(scope_art: dict, window: dict) -> list[dict]:
+    """Build the ordered KPI tiles for the Impact strip."""
+    requests = _safe_number(window.get("requests")) or 0
+    hosts_rows = scope_art.get("top_targeted_hosts") or []
+    paths_rows = scope_art.get("top_targeted_path_patterns") or []
+    hosts_affected = sum(
+        1 for row in hosts_rows if (_safe_number(row.get("requests")) or 0) > 0
+    )
+
+    return [
+        _requests_tile(requests, hosts_rows),
+        _served_rate_tile("429s served", requests, window.get("rate_429_pct") or 0),
+        _served_rate_tile("5xx served", requests, window.get("rate_5xx_pct") or 0),
+        _edge_blocks_tile(requests, window.get("blocked_share_pct")),
+        {
+            "label": "Hosts affected",
+            "value": _format_int(hosts_affected),
+            "sub": "in window",
+            "rank_score": float(hosts_affected),
+        },
+        _top_path_share_tile(paths_rows),
+    ]
+
+
+# Host-concentration projection thresholds. A host is named in the
+# "top affected" line when its window share is at or above
+# ``_HOST_AFFECTED_SHARE_THRESHOLD``; at most ``_HOST_AFFECTED_CAP``
+# hosts are surfaced even if more cross the threshold. When no host
+# crosses the threshold, the projection falls back to the single
+# top-ranked host so the line never collapses to empty when there is
+# meaningful host data.
+_HOST_AFFECTED_SHARE_THRESHOLD = 10.0
+_HOST_AFFECTED_CAP = 5
+
+
+def _projected_host_row(row: dict) -> dict:
+    return {
+        "value": str(row.get("value") or ""),
+        "requests": _safe_number(row.get("requests")),
+        "requests_display": _format_count(row.get("requests")),
+        "share_pct": _safe_number(row.get("share_pct")),
+        "share_pct_display": _format_pct(row.get("share_pct")),
+        "delta_pct": _safe_number(row.get("delta_vs_baseline_pct")),
+        "delta_pct_display": _format_signed_pct(
+            row.get("delta_vs_baseline_pct")
+        ),
+    }
+
+
+def _top_affected_hosts_view(scope_art: dict) -> dict | None:
+    """Project the list of meaningfully-affected hosts for the
+    "top affected" sentence.
+
+    Returns a dict ``{hosts, cumulative_share_pct_display, is_fallback}``
+    or None when no host data is present. ``hosts`` is the list of
+    rows above the share threshold (capped at ``_HOST_AFFECTED_CAP``).
+    ``is_fallback`` is True when no host crossed the threshold and the
+    projection collapsed to the single top-ranked host.
+    """
+    hosts_rows = scope_art.get("top_targeted_hosts") or []
+    if not hosts_rows:
+        return None
+    above = [
+        row for row in hosts_rows
+        if (row.get("share_pct") or 0) >= _HOST_AFFECTED_SHARE_THRESHOLD
+    ]
+    if above:
+        selected = above[:_HOST_AFFECTED_CAP]
+        is_fallback = False
+    else:
+        selected = hosts_rows[:1]
+        is_fallback = True
+    projected = [_projected_host_row(row) for row in selected]
+    cumulative = sum(row.get("share_pct") or 0 for row in selected)
+    return {
+        "hosts": projected,
+        "cumulative_share_pct_display": _format_pct(cumulative),
+        "is_fallback": is_fallback,
+    }
+
+
+def _top_path_pattern_view(scope_art: dict) -> dict | None:
+    """Project the single top-ranked path-pattern row for the
+    "top path pattern" sentence. Returns None when no rows exist."""
+    paths_rows = scope_art.get("top_targeted_path_patterns") or []
+    if not paths_rows:
+        return None
+    top_path = paths_rows[0]
+    return {
+        "value": str(top_path.get("value") or ""),
+        "requests": _safe_number(top_path.get("requests")),
+        "requests_display": _format_count(top_path.get("requests")),
+        "share_pct": _safe_number(top_path.get("share_pct")),
+        "share_pct_display": _format_pct(top_path.get("share_pct")),
+        "delta_pct": _safe_number(top_path.get("delta_vs_baseline_pct")),
+        "delta_pct_display": _format_signed_pct(
+            top_path.get("delta_vs_baseline_pct")
+        ),
+    }
+
+
+def _impact_view(scope_art: dict) -> dict:
+    """Build the top-of-report Impact strip + 'top affected' sentence.
+
+    Six tiles in v2 (Peak/minute is deferred to Phase 3):
+    Requests, 429s, 5xx, Edge blocks, Hosts affected, Top path share.
+    Edge-blocks tile renders an em-dash placeholder when the producer
+    could derive neither a SIEM-table actionClass share nor an
+    action_applied share from raw ``akamai.logs``.
+
+    Also projects a ``volume_chart`` block when the scope artifact
+    carries a ``volume_timeseries`` field (per-minute or per-bucket
+    request counts for current and baseline). Renders as a SVG chart
+    above the KPI tiles; gracefully absent when the artifact has no
+    timeseries data.
+    """
+    window = scope_art.get("window_confirmation") or {}
+    return {
+        "tiles": _build_impact_tiles(scope_art, window),
+        "top_affected_hosts": _top_affected_hosts_view(scope_art),
+        "top_path_pattern": _top_path_pattern_view(scope_art),
+        "window_timeline": _window_timeline_view(scope_art),
+        "volume_chart": _volume_chart_view(scope_art),
+    }
+
+
+def _timeline_dt(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _window_timeline_view(scope_art: dict) -> dict | None:
+    """Project baseline/current windows into a compact print timeline."""
+    scope_meta = scope_art.get("scope") or {}
+    baseline_start = scope_meta.get("baseline_start") or ""
+    baseline_end = scope_meta.get("baseline_end") or ""
+    current_start = scope_meta.get("start") or ""
+    current_end = scope_meta.get("end") or ""
+    points = {
+        "baseline_start": _timeline_dt(baseline_start),
+        "baseline_end": _timeline_dt(baseline_end),
+        "current_start": _timeline_dt(current_start),
+        "current_end": _timeline_dt(current_end),
+    }
+    if not all(points.values()):
+        return None
+
+    min_start = min(points.values())
+    max_end = max(points.values())
+    total_seconds = max((max_end - min_start).total_seconds(), 1.0)
+
+    def segment(start: datetime, end: datetime, label: str) -> dict:
+        left = ((start - min_start).total_seconds() / total_seconds) * 100.0
+        width = max(((end - start).total_seconds() / total_seconds) * 100.0, 1.0)
+        return {
+            "label": label,
+            "left_pct": f"{left:.3f}%",
+            "width_pct": f"{width:.3f}%",
+            "start_label": _short_iso(start.isoformat().replace("+00:00", "Z")),
+            "end_label": _short_iso(end.isoformat().replace("+00:00", "Z")),
+        }
+
+    return {
+        "start_label": _short_iso(min_start.isoformat().replace("+00:00", "Z")),
+        "end_label": _short_iso(max_end.isoformat().replace("+00:00", "Z")),
+        "segments": [
+            segment(points["baseline_start"], points["baseline_end"], "Baseline"),
+            segment(points["current_start"], points["current_end"], "Current"),
+        ],
+    }
+
+
+def _resolve_chart_series_dict(ts: dict) -> dict:
+    """Normalize the v1 / v2 timeseries payload shapes.
+
+    Multi-series shape (v2): ``series`` dict keyed by metric name.
+    Single-series shape (v1 back-compat): ``current`` + ``baseline``
+    at top level, treated as the requests_per_minute series.
+    """
+    if "series" in ts:
+        return ts.get("series") or {}
+    if "current" in ts:
+        return {
+            "requests_per_minute": {
+                "label": "Requests per minute",
+                "spike_flag": "volume_up",
+                "current": ts.get("current") or [],
+                "baseline": ts.get("baseline") or [],
+            }
+        }
+    return {}
+
+
+def _clean_series_values(series: list) -> list[float]:
+    out: list[float] = []
+    for v in series:
+        n = _safe_number(v)
+        out.append(float(n) if n is not None else 0.0)
+    return out
+
+
+def _baseline_avg_display(baseline_values: list[float]) -> str | None:
+    if not baseline_values:
+        return None
+    return _format_count(sum(baseline_values) / len(baseline_values))
+
+
+def _chart_window_iso(
+    ts: dict, scope_art: dict
+) -> tuple[str, str, str, str]:
+    """Resolve (start, end, scope_start, scope_end) for the chart window.
+
+    The duration label reflects the *incident scope* window, not the
+    chart's timeseries window — the chart often carries 24h of context
+    for a 1h incident, and the operator-facing label should name the
+    incident, not the chart's framing window.
+    """
+    scope_meta = scope_art.get("scope", {})
+    start = ts.get("start") or scope_meta.get("start") or ""
+    end = ts.get("end") or scope_meta.get("end") or ""
+    scope_start = scope_meta.get("start") or ""
+    scope_end = scope_meta.get("end") or ""
+    return start, end, scope_start, scope_end
+
+
+def _incident_window_fraction(
+    chart_start_iso: str,
+    chart_end_iso: str,
+    scope_start_iso: str,
+    scope_end_iso: str,
+) -> tuple[float, float] | None:
+    """Project the incident scope window onto the broader chart axis."""
+    if not all((chart_start_iso, chart_end_iso, scope_start_iso, scope_end_iso)):
+        return None
+    try:
+        chart_start = datetime.fromisoformat(chart_start_iso.replace("Z", "+00:00"))
+        chart_end = datetime.fromisoformat(chart_end_iso.replace("Z", "+00:00"))
+        scope_start = datetime.fromisoformat(scope_start_iso.replace("Z", "+00:00"))
+        scope_end = datetime.fromisoformat(scope_end_iso.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    chart_seconds = (chart_end - chart_start).total_seconds()
+    if chart_seconds <= 0 or scope_end <= chart_start or scope_start >= chart_end:
+        return None
+    start_f = (max(scope_start, chart_start) - chart_start).total_seconds() / chart_seconds
+    end_f = (min(scope_end, chart_end) - chart_start).total_seconds() / chart_seconds
+    if end_f <= start_f:
+        return None
+    return start_f, end_f
+
+
+def _fractions_differ(
+    first: tuple[float, float] | None,
+    second: tuple[float, float] | None,
+) -> bool:
+    if first is None or second is None:
+        return False
+    return abs(first[0] - second[0]) > 0.001 or abs(first[1] - second[1]) > 0.001
+
+
+def _build_chart_context(
+    scope_art: dict,
+    ts: dict,
+    selected_name: str,
+    selected_series: dict,
+    current_values: list[float],
+    baseline_values: list[float],
+) -> dict:
+    """Final shaping step: project the cleaned series into chart-ready dict."""
+    peak_value = max(current_values)
+    peak_idx = current_values.index(peak_value)
+    n = len(current_values)
+    start, end, scope_start, scope_end = _chart_window_iso(ts, scope_art)
+    scope_fraction = _incident_window_fraction(start, end, scope_start, scope_end)
+    detection = scope_art.get("incident_detection") or {}
+    detected_fraction = _incident_window_fraction(
+        start,
+        end,
+        detection.get("detected_start") or "",
+        detection.get("detected_end") or "",
+    )
+    primary_fraction = detected_fraction or scope_fraction
+    scoped_marker_fraction = (
+        scope_fraction if _fractions_differ(detected_fraction, scope_fraction) else None
+    )
+    spike_flag = selected_series.get("spike_flag") or ""
+    granularity = ts.get("granularity") or ""
+    duration_display = _duration_display(scope_start, scope_end, n, granularity)
+    detected_duration_display = _duration_display(
+        detection.get("detected_start") or "",
+        detection.get("detected_end") or "",
+        n,
+        granularity,
+    )
+    detected_label = (
+        f"Detected anomaly period ({detected_duration_display})"
+        if detected_duration_display else "Detected anomaly period"
+    )
+    return {
+        "current": current_values,
+        "baseline": baseline_values,
+        "peak_value": peak_value,
+        "peak_value_display": _format_count(peak_value),
+        "peak_index": peak_idx,
+        "peak_fraction": peak_idx / (n - 1) if n > 1 else 0.5,
+        "peak_time_display": _interpolate_time_label(start, end, peak_idx, n),
+        "duration_display": duration_display,
+        "incident_window_label": (
+            f"Incident window ({duration_display})" if duration_display else "Incident window"
+        ),
+        "detected_window_label": detected_label,
+        "highlight_label": detected_label if detected_fraction else (
+            f"Incident window ({duration_display})" if duration_display else "Incident window"
+        ),
+        "incident_highlight_start": primary_fraction[0] if primary_fraction else None,
+        "incident_highlight_end": primary_fraction[1] if primary_fraction else None,
+        "scoped_analysis_highlight_start": (
+            scoped_marker_fraction[0] if scoped_marker_fraction else None
+        ),
+        "scoped_analysis_highlight_end": (
+            scoped_marker_fraction[1] if scoped_marker_fraction else None
+        ),
+        "has_incident_detection": bool(detected_fraction),
+        "left_label": _short_iso(start),
+        "right_label": _short_iso(end),
+        "metric_name": selected_name,
+        "metric_label": selected_series.get("label") or selected_name.replace("_", " "),
+        "selection_reason": _CHART_SELECTION_REASONS.get(
+            spike_flag, "default — total volume tells the story"
+        ),
+        "baseline_avg_display": _baseline_avg_display(baseline_values),
+        "granularity": granularity,
+    }
+
+
+def _volume_chart_view(scope_art: dict) -> dict | None:
+    """Project ``volume_timeseries`` into chart-ready context, or None.
+
+    Returns a dict the template feeds into ``incident_volume_chart()``
+    plus a peak label, left/right time labels, and a textual summary.
+    Returns ``None`` when the artifact does not carry timeseries data
+    (e.g. degraded clusters, v1 wrappers from before this field
+    existed), so the template can ``{% if impact.volume_chart %}``
+    around it.
+
+    Series selection is mechanical, driven by the dominant spike flag:
+      - ``rate_429_up`` fired → plot 429s/minute (rate-limit story)
+      - ``bot_share_up`` fired → plot bot-classified/minute
+      - default → plot total requests/minute (volume story)
+    See :func:`_select_chart_series`. Same inputs produce the same
+    chart choice; the rule is unit-tested in tests/test_report_engine.py.
+    """
+    ts = scope_art.get("volume_timeseries") or {}
+    series_dict = _resolve_chart_series_dict(ts)
+    if not series_dict:
+        return None
+
+    spike_flags = list(
+        (scope_art.get("window_confirmation") or {}).get("spike_flags") or []
+    )
+    selected_name, selected_series = _select_chart_series(series_dict, spike_flags)
+    if selected_series is None:
+        return None
+
+    current_values = _clean_series_values(selected_series.get("current") or [])
+    if len(current_values) < 2:
+        return None
+    baseline = selected_series.get("baseline") or []
+    baseline_values = _clean_series_values(baseline) if len(baseline) >= 2 else []
+
+    return _build_chart_context(
+        scope_art, ts, selected_name, selected_series,
+        current_values, baseline_values,
+    )
+
+
+def _interpolate_time_label(
+    start_iso: str, end_iso: str, idx: int, n: int
+) -> str:
+    """Return a clock-friendly UTC label for index ``idx`` along
+    [start_iso, end_iso] (n samples).
+
+    Returns empty string when the timestamps don't parse cleanly. The
+    label is intentionally clock-only (HH:MM UTC); the date is already
+    in the window line above the chart.
+    """
+    if not start_iso or not end_iso or n <= 1:
+        return ""
+    try:
+        start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+        end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return ""
+    total = (end_dt - start_dt).total_seconds()
+    if total <= 0:
+        return ""
+    fraction = idx / (n - 1)
+    peak_seconds = total * fraction
+    from datetime import timedelta
+
+    peak_dt = start_dt + timedelta(seconds=peak_seconds)
+    return f"{peak_dt:%H:%M} UTC"
+
+
+def _duration_display(
+    start_iso: str, end_iso: str, n: int, granularity: str
+) -> str:
+    """Return a humanized duration ("1 hour", "12 hours", "45 minutes").
+
+    Computed from the timestamp delta; granularity is accepted so the
+    label can shade to the producer's sampling step when timestamps are
+    coarse. Returns empty string when parsing fails.
+    """
+    del n, granularity  # reserved for future granularity-aware rendering
+    if not start_iso or not end_iso:
+        return ""
+    try:
+        start_dt = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+        end_dt = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return ""
+    seconds = int((end_dt - start_dt).total_seconds())
+    if seconds <= 0:
+        return ""
+    if seconds % 3600 == 0:
+        hours = seconds // 3600
+        return f"{hours} hour" if hours == 1 else f"{hours} hours"
+    if seconds >= 3600:
+        hours = seconds / 3600
+        return f"{hours:.1f} hours"
+    minutes = max(1, seconds // 60)
+    return f"{minutes} minute" if minutes == 1 else f"{minutes} minutes"
+
+
+def _select_chart_series(
+    series_dict: dict, spike_flags: list[str]
+) -> tuple[str, dict | None]:
+    """Mechanical chart-series selection from the dominant spike flag.
+
+    Walks :data:`_CHART_SELECTION_RULE` in order; the first rule where
+    (a) the spike flag is in ``spike_flags`` AND (b) the series is
+    present in ``series_dict`` wins. Falls back to whatever's first in
+    ``series_dict`` if nothing matches — common case is volume_up
+    being the only fired flag, and ``requests_per_minute`` is the
+    natural default series.
+
+    Returns ``(metric_name, series_dict_entry)``. The entry is
+    ``None`` only when ``series_dict`` is empty.
+    """
+    if not series_dict:
+        return "", None
+    spike_set = set(spike_flags)
+    for spike_flag, metric_name in _CHART_SELECTION_RULE:
+        if spike_flag in spike_set and metric_name in series_dict:
+            return metric_name, series_dict[metric_name]
+    # Fallback: first key in insertion order. Python dicts preserve
+    # insertion order since 3.7, so this is deterministic.
+    fallback_name = next(iter(series_dict))
+    return fallback_name, series_dict[fallback_name]

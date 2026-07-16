@@ -62,6 +62,12 @@ summaries.
 - `aiSource`
 - `trafficCohort`
 
+> **Bundle version note:** deployed clusters expose the path-pattern dimension
+> as `requestPathPattern` (examples on this page use that name). The
+> `bot_insights_cdn/1.1` bundle renames it to `reqPathPattern`. Resolve the
+> physical name from table metadata before writing SQL; the deterministic
+> producer scripts resolve either spelling automatically.
+
 Important metrics and aggregate states:
 
 - total requests: ``countMerge(`count()`)`` or per-row alias `cnt_all`

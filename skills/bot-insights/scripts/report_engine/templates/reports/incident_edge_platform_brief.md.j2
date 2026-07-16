@@ -1,0 +1,39 @@
+# {{ headline }} — Edge Platform Brief
+
+**Window:** {{ windows.current.start }} -> {{ windows.current.end }} UTC
+
+## Request Impact
+
+{% for tile in impact.tiles %}- **{{ tile.label }}:** {{ tile.value }}{{ (" (" ~ tile.sub ~ ")") if tile.sub else "" }}
+{% endfor %}
+
+## 429 / 5xx Shape
+
+{% for row in status_rows %}- {{ row.value }}: {{ row.requests_display }} ({{ row.share_pct_display }})
+{% else %}- Status mix was not emitted for this incident artifact.
+{% endfor %}
+
+## Top Hosts And Paths
+
+{% for row in top_hosts %}- Host `{{ row.value }}`: {{ row.requests_display }} ({{ row.share_pct_display }})
+{% else %}- No top-host rows emitted.
+{% endfor %}
+{% for row in top_paths %}- Path `{{ row.value }}`: {{ row.requests_display }} ({{ row.share_pct_display }})
+{% else %}- No top-path rows emitted.
+{% endfor %}
+
+## Policy Assessment
+
+{% set pa = notes_by_slot.get("policy_assessment") if notes_by_slot else None -%}
+{% if pa %}{{ pa.text }}
+{% else %}{{ policy_assessment.headline }}
+{% for item in policy_assessment.evidence %}
+- {{ item }}
+{% endfor %}
+{% if policy_assessment.gap %}{{ policy_assessment.gap }}{% endif %}
+{% endif %}
+
+## Operational Caveats
+
+{% for item in coverage_limitations %}- {{ item }}
+{% endfor %}

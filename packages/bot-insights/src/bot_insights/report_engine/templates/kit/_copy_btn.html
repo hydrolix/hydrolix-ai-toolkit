@@ -1,0 +1,20 @@
+{# ─────────────────────────────────────────────────────────────────
+   copy_btn — "copy to clipboard" button.
+   Static-renders the affordance; the JS shim binds click handlers
+   via [data-hx-copy] (see kit.js). Works no-JS as a labelled control
+   the user can still select-and-copy from.
+
+   Args:
+     text          the string to copy (HTML-escaped via |e at use site)
+     label         optional visible label (icon-only when omitted)
+     size          "xs" | "sm" (default) | "md"
+     stop_propag   if true, click won't bubble (use inside clickable rows)
+   ────────────────────────────────────────────────────────────────── #}
+{% macro copy_btn(text, label='', size='sm', stop_propag=false) -%}
+<button type="button" class="hx-copy hx-copy-{{ size }}"
+        data-hx-copy="{{ text | e }}"
+        {% if stop_propag %}data-hx-copy-stop="1"{% endif %}>
+  <span class="hx-copy-icon" aria-hidden="true">⧉</span>
+  {% if label %}<span class="hx-copy-label">{{ label }}</span>{% endif %}
+</button>
+{%- endmacro %}

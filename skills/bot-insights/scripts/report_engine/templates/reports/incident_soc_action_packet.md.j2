@@ -1,0 +1,70 @@
+# {{ headline }} — SOC Action Packet
+
+**Window:** {{ windows.current.start }} -> {{ windows.current.end }} UTC
+
+{% if deterministic_summary -%}
+## Verdict
+
+**{{ deterministic_summary.level_label }}** · Confidence: {{ deterministic_summary.confidence_label }}
+
+Assessed with {{ deterministic_summary.confidence }} confidence: {{ deterministic_summary.headline }}
+
+{% if deterministic_summary.reasons -%}
+**Why it fires:**
+
+{% for reason in deterministic_summary.reasons %}- {{ reason }}
+{% endfor %}
+{%- endif %}
+
+**Window shape:** {{ incident_window_shape }}
+
+{% if impact.top_affected_hosts -%}
+**Top affected {{ "host" if impact.top_affected_hosts.hosts | length == 1 else "hosts" }}:** {% for h in impact.top_affected_hosts.hosts %}`{{ h.value }}` ({{ h.share_pct_display }}){% if not loop.last %}, {% endif %}{% endfor %}{% if impact.top_affected_hosts.hosts | length > 1 %} — together {{ impact.top_affected_hosts.cumulative_share_pct_display }} of window{% endif %}.
+
+{% endif -%}
+{% endif -%}
+## Suspicious Actors
+
+{% if primary_targets -%}
+{% for target in primary_targets %}
+{%- set _seen_at = target.get('seen_at') %}
+{%- set _seen_with = target.get('seen_with') %}
+{%- set _edge_action = target.get('edge_action') %}
+- `{{ target.target_value }}` ({{ target.target_type_label }}): {{ target.severity_label }}, {{ target.confidence_label }} confidence, {{ target.requests_display }} requests; {{ (target.reason_flag_labels or []) | join(", ") }}
+{%- if _seen_at %}
+  - Seen at: {% for row in _seen_at %}`{{ row.value }}` ({{ "%.1f%%" % (row.share * 100) }}){% if not loop.last %}, {% endif %}{% endfor %}
+{%- endif %}
+{%- if _seen_with %}
+  - Seen with: {% for row in _seen_with %}`{{ row.value }}` ({{ "%.1f%%" % (row.share * 100) }}){% if not loop.last %}, {% endif %}{% endfor %}
+{%- endif %}
+{%- if _edge_action %}
+  - Edge action: {{ _edge_action.top_action_label }} ({{ "%.1f%%" % (_edge_action.top_action_share * 100) }})
+{%- endif %}
+{% endfor %}
+{% else -%}
+No suspicious actor rows were emitted by the mechanical heuristic.
+{% endif %}
+
+## IOC Handoff
+
+{% if ioc_indicators -%}
+{% for ioc in ioc_indicators %}
+- {{ ioc.type }} `{{ ioc.value }}`: {{ ioc.severity }} severity, {{ ioc.action_class }} action class
+{% endfor %}
+{% else -%}
+No IOC export rows were derived from the action-target artifact.
+{% endif %}
+
+## Edge Actions And Deny Rules
+
+{% for row in edge_controls %}- Edge action `{{ row.value }}`: {{ row.requests_display }} ({{ row.share_pct_display }})
+{% else %}- Edge action mix unavailable in this artifact.
+{% endfor %}
+{% for row in deny_rules %}- Deny rule `{{ row.value }}`: {{ row.requests_display }} ({{ row.share_pct_display }})
+{% else %}- Deny-rule mix unavailable in this artifact.
+{% endfor %}
+
+## Evidence Caveats
+
+{% for item in coverage_limitations %}- {{ item }}
+{% endfor %}

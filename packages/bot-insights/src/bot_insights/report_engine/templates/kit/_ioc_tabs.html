@@ -1,0 +1,39 @@
+{# ─────────────────────────────────────────────────────────────────
+   ioc_tabs — tabbed code panel with one-click copy + download.
+   Server-renders every tab's body inline; the JS shim toggles
+   which one is visible. No-JS: all panels stack open (sub-optimal
+   but readable).
+
+   Args:
+     tabs    list of {id, label, body, filename, count (opt), language (opt)}
+     initial id of the tab shown first (default: first tab)
+     theme   "light" (default) | "dark"
+   ────────────────────────────────────────────────────────────────── #}
+{% macro ioc_tabs(tabs, initial=none, theme='light') -%}
+{% set _initial = initial or tabs[0].id %}
+<div class="hx-ioc{% if theme == 'dark' %} hx-ioc-dark{% endif %}" data-hx-ioc-tabs>
+  <div class="hx-ioc-tabbar">
+    <div class="hx-ioc-tabs" role="tablist">
+      {% for t in tabs -%}
+      <button type="button" role="tab"
+              aria-selected="{{ 'true' if t.id == _initial else 'false' }}"
+              class="hx-ioc-tab{% if t.id == _initial %} is-active{% endif %}"
+              data-hx-tab="{{ t.id }}">
+        {{ t.label }}
+        {% if t.count is not none and t.count is defined %}<span class="hx-ioc-tabcount hx-tnum">{{ t.count }}</span>{% endif %}
+      </button>
+      {%- endfor %}
+    </div>
+    <div class="hx-ioc-tools">
+      <button type="button" class="hx-ioc-toolbtn" data-hx-ioc-copy>⧉ Copy</button>
+      <button type="button" class="hx-ioc-toolbtn" data-hx-ioc-download>↓ Download</button>
+    </div>
+  </div>
+  {% for t in tabs -%}
+  <pre class="hx-ioc-body"
+       data-hx-panel="{{ t.id }}"
+       data-hx-filename="{{ t.filename }}"
+       {% if t.id != _initial %}hidden{% endif %}><code>{{ t.body }}</code></pre>
+  {%- endfor %}
+</div>
+{%- endmacro %}

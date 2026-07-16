@@ -1,6 +1,8 @@
 dist/
 site/
-docs/
+docs/*
+!docs/population-distribution-modeling/
+!docs/population-distribution-modeling/*.md
 .claude/
 __pycache__/
 *.pyc
