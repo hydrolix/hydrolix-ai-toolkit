@@ -1,0 +1,21 @@
+[project]
+name = "reportkit"
+version = "0.1.0"
+description = "Reusable report rendering, artifact routing, and Hydrolix capture primitives."
+requires-python = ">=3.11"
+dependencies = [
+  "jinja2>=3.1",
+  "markdown-it-py>=3.0",
+  "bleach>=6.1",
+  "httpx>=0.28.1",
+  "sqlglot>=30.8.0",
+]
+
+[project.optional-dependencies]
+pdf = ["playwright>=1.44"]
+yaml = ["pyyaml>=6.0"]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

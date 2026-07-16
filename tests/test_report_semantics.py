@@ -406,12 +406,29 @@ def test_html_slot_routed_notes_surface(wrapper: Path):
     html, _, rc = _render(wrapper, "html")
     if rc != 0:
         pytest.skip(f"{wrapper.name} did not render to HTML")
-    text = html_tree.parse(html).text()
+
+    # ``_html_tree.text()`` flattens by emitting each parent's text
+    # before its inline-child text (documented limitation, see
+    # ``tests/_html_tree.py``). That reorders text around ``<strong>``
+    # and ``<code>`` so a snippet that spans an inline boundary
+    # (e.g. ``**Bold:** rest of sentence``) won't be found. Strip
+    # ``<script>``/``<style>`` blocks first, then replace remaining
+    # tags with a space, which yields document-order body text.
+    # ``markdown_render`` removes ``*``/``_``/`` ` `` when emitting
+    # HTML, so strip the same characters from the snippet too.
+    body = re.sub(r"<(script|style)\b[^>]*>.*?</\1>", " ", html, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", " ", body)
+
+    def _normalize(s: str) -> str:
+        s = s.translate(str.maketrans("", "", "*_`"))
+        return re.sub(r"\s+", " ", s).strip()
+
+    text_normalized = _normalize(text)
     for slot, note_text in notes:
-        snippet = _note_snippet(note_text)
+        snippet = _normalize(_note_snippet(note_text))
         if not snippet:
             continue
-        assert snippet in text, (
+        assert snippet in text_normalized, (
             f"{wrapper.name} HTML render omits the analyst note "
             f"routed to slot {slot!r}: {snippet!r}"
         )

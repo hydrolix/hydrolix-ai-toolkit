@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% from "macros/method.html" import method_section %}
+
+{% block header %}{% endblock %}
+{% block hero %}{% endblock %}
+{% block content %}
+<article class="brief-incident incident-stakeholder edge-platform-brief">
+  <header class="brief-mast">
+    <div class="mast-titles header-titles">
+      <div class="mast-eyebrow">
+        <span class="mast-brand" aria-label="Hydrolix">{{ hydrolix_logotype_svg }}</span>
+        <span class="mast-eyebrow-divider"></span>
+        <span class="kicker section-eyebrow">{{ kicker }}</span>
+      </div>
+      <h1 class="display-xl">{{ headline }}</h1>
+      {% if dek %}<p class="mast-dek dek">{{ dek }}</p>{% endif %}
+    </div>
+  </header>
+
+  <section>
+    <h2>Request impact</h2>
+    {% if impact.tiles %}
+      <dl class="kpis" style="grid-template-columns: repeat({{ impact.tiles | length }}, 1fr);">
+        {% for tile in impact.tiles %}
+          <div class="kpi"><dt class="kpi-label">{{ tile.label }}</dt><dd class="kpi-value tnum">{{ tile.value }}</dd>{% if tile.sub %}<dd class="kpi-sub tnum">{{ tile.sub }}</dd>{% endif %}</div>
+        {% endfor %}
+      </dl>
+    {% endif %}
+  </section>
+
+  <section>
+    <h2>429 / 5xx shape</h2>
+    {% if status_rows %}
+      <table class="mini-table"><thead><tr><th>Status</th><th class="is-num">Requests</th><th class="is-num">Share</th></tr></thead><tbody>
+      {% for row in status_rows %}<tr><td>{{ row.value }}</td><td class="is-num">{{ row.requests_display }}</td><td class="is-num">{{ row.share_pct_display }}</td></tr>{% endfor %}
+      </tbody></table>
+    {% else %}
+      <p class="muted">Status mix was not emitted for this incident artifact.</p>
+    {% endif %}
+  </section>
+
+  <section>
+    <h2>Top hosts and paths</h2>
+    <div class="split-2col">
+      <div>
+        <h3>Hosts</h3>
+        {% if top_hosts %}<ul>{% for row in top_hosts %}<li><code>{{ row.value }}</code> — {{ row.requests_display }} ({{ row.share_pct_display }})</li>{% endfor %}</ul>{% else %}<p class="muted">No top-host rows emitted.</p>{% endif %}
+      </div>
+      <div>
+        <h3>Paths</h3>
+        {% if top_paths %}<ul>{% for row in top_paths %}<li><code>{{ row.value }}</code> — {{ row.requests_display }} ({{ row.share_pct_display }})</li>{% endfor %}</ul>{% else %}<p class="muted">No top-path rows emitted.</p>{% endif %}
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Action / rule mix</h2>
+    <div class="split-2col">
+      <div><h3>Edge actions</h3>{% if edge_actions %}<ul>{% for row in edge_actions %}<li><code>{{ row.value }}</code> — {{ row.requests_display }} ({{ row.share_pct_display }})</li>{% endfor %}</ul>{% else %}<p class="muted">Edge action mix unavailable.</p>{% endif %}</div>
+      <div><h3>Deny rules</h3>{% if deny_rules %}<ul>{% for row in deny_rules %}<li><code>{{ row.value }}</code> — {{ row.requests_display }} ({{ row.share_pct_display }})</li>{% endfor %}</ul>{% else %}<p class="muted">Deny-rule mix unavailable.</p>{% endif %}</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Policy assessment</h2>
+    {% set pa = notes_by_slot.get("policy_assessment") if notes_by_slot else None %}
+    {% if pa %}
+      <div class="prose">{{ markdown_render(pa.text) }}</div>
+    {% else %}
+      <p>{{ policy_assessment.headline }}</p>
+      {% if policy_assessment.evidence %}
+        <ul class="evidence-list">
+          {% for item in policy_assessment.evidence %}<li>{{ item }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+      {% if policy_assessment.gap %}
+        <p class="muted-small">{{ policy_assessment.gap }}</p>
+      {% endif %}
+    {% endif %}
+  </section>
+
+  <section>
+    <h2>Operational caveats</h2>
+    <ul>{% for item in coverage_limitations %}<li>{{ item }}</li>{% endfor %}</ul>
+  </section>
+
+  {{ method_section(method, scope, confidence.reasons) }}
+</article>
+{% endblock %}

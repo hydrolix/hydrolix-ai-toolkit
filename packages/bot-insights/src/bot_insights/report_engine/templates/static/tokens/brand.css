@@ -1,0 +1,42 @@
+/* ──────────────────────────────────────────────────────────────────
+   Hydrolix brand tokens. Same definitions as the React kit's
+   tokens/brand.css. Load this stylesheet before _kit.css.
+   ────────────────────────────────────────────────────────────────── */
+:root {
+  --hx-neutral-50:  #FAFBFC;
+  --hx-neutral-75:  #F4F6F8;
+  --hx-neutral-100: #DEE3E6;
+  --hx-neutral-200: #B8C3CB;
+  --hx-neutral-300: #8B9FAD;
+  --hx-neutral-500: #424D57;
+  --hx-neutral-700: #0A1E2E;
+  --hx-white:       #FFFFFF;
+
+  --hx-teal:        #00A99D;
+  --hx-teal-light:  #6EF6D9;
+  --hx-teal-deep:   #008C82;
+
+  --hx-blue-50:     #D1FBFF;
+  --hx-blue-ink:    #092747;
+
+  --hx-bg:          var(--hx-neutral-50);
+  --hx-paper:       var(--hx-white);
+  --hx-paper-soft:  var(--hx-neutral-75);
+  --hx-rule:        var(--hx-neutral-100);
+  --hx-rule-strong: var(--hx-neutral-200);
+  --hx-text:        var(--hx-neutral-700);
+  --hx-text-2:      var(--hx-neutral-500);
+  --hx-muted:       var(--hx-neutral-300);
+  --hx-muted-2:     var(--hx-neutral-200);
+  --hx-accent:      var(--hx-teal);
+  --hx-accent-deep: var(--hx-teal-deep);
+  --hx-accent-soft: var(--hx-blue-50);
+
+  --hx-ink-bg:      var(--hx-neutral-700);
+  --hx-ink-bg-2:    var(--hx-blue-ink);
+  --hx-ink-text:    var(--hx-neutral-50);
+  --hx-ink-text-2:  var(--hx-neutral-200);
+  --hx-ink-muted:   var(--hx-neutral-300);
+  --hx-ink-rule:    #1a3148;
+  --hx-ink-accent:  var(--hx-teal-light);
+}

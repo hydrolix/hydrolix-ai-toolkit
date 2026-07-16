@@ -1,0 +1,1938 @@
+{% extends "base.html" %}
+{% from "macros/method.html" import method_section %}
+{% from "macros/report_purpose.html" import report_purpose %}
+
+{# Editorial incident brief — the masthead, verdict, KPI strip, actors
+   table, ATT&CK split, numbered actions, IOC pane, dashboard CTA, and
+   method footer replace the engine's default header + content frame.
+   The legacy Section A / Section B tables move into the Full Evidence
+   disclosure so analysts still have access to the same scope evidence
+   the previous template surfaced.
+
+   Block overrides:
+     - {% block header %}{% endblock %} suppresses the engine masthead;
+       the editorial .brief-mast carries the .kicker (eyebrow), .dek
+       (subtitle), and method/window strip itself.
+     - {% block hero %}{% endblock %} stays empty for the same reason. #}
+{% block header %}{% endblock %}
+{% block hero %}{% endblock %}
+
+{% block content %}
+<article class="brief-incident">
+
+  {# ══════ MASTHEAD ══════════════════════════════════════════ #}
+  {# The masthead carries the universal `header-titles` class on the
+     titles column so the engine-wide class audit
+     (tests/test_report_class_audit.py) still sees the report-shaped
+     scaffolding even though base.html's default {% block header %}
+     has been suppressed. #}
+  <header class="brief-mast">
+    <div class="mast-titles header-titles">
+      <div class="mast-eyebrow">
+        <span class="mast-brand" aria-label="Hydrolix">{{ hydrolix_logotype_svg }}</span>
+        <span class="mast-eyebrow-divider"></span>
+        <span class="kicker section-eyebrow">{{ kicker }}</span>
+      </div>
+      <h1 class="display-xl">{{ headline }}</h1>
+      {% if windows %}
+        <p class="mast-window-line">{{ windows.current | headline_window_fmt(clock) }}</p>
+      {% endif %}
+      {% set _exec_readout_anchor = notes_by_slot.get("executive_impact") if notes_by_slot else None %}
+      {% set _exec_readout_anchor = _exec_readout_anchor or (notes_by_slot.get("current_status") if notes_by_slot else None) %}
+      {% set _exec_readout_anchor = _exec_readout_anchor or (notes_by_slot.get("incident_context") if notes_by_slot else None) %}
+      {% set _mast_anchors = [("#verdict", "Verdict")] %}
+      {% if _exec_readout_anchor %}{% set _ = _mast_anchors.append(("#exec-readout", "Readout")) %}{% endif %}
+      {% set _ = _mast_anchors.append(("#impact", "Impact")) %}
+      {% set _ = _mast_anchors.append(("#flagged", "Flagged")) %}
+      {% if as_reputation_context and as_reputation_context.available %}{% set _ = _mast_anchors.append(("#as-context", "AS Context")) %}{% endif %}
+      {% if browser_version_context and browser_version_context.available %}{% set _ = _mast_anchors.append(("#browser-age", "UA Age")) %}{% endif %}
+      {% if assessment_explainers and assessment_explainers.available %}{% set _ = _mast_anchors.append(("#explainers", "Signals")) %}{% endif %}
+      {% set _ = _mast_anchors.append(("#actions", "Actions")) %}
+      {% if iocs.indicators %}{% set _ = _mast_anchors.append(("#iocs", "IOCs")) %}{% endif %}
+      {% set _ = _mast_anchors.append(("#evidence", "Evidence")) %}
+      <nav class="mast-anchors" aria-label="Jump to section">
+        {% for href, label in _mast_anchors %}<a href="{{ href }}">{{ label }}</a>
+        {% endfor %}</nav>
+      {% if dek %}<p class="mast-dek dek">{{ dek }}</p>{% endif %}
+    </div>
+  </header>
+
+  {# ══════ VERDICT + FINDINGS ══════════════════════════════════ #}
+  {% set exec_note = notes_by_slot.get("executive_summary") if notes_by_slot else None %}
+  <section id="verdict" class="verdict">
+    <div class="verdict-cover">
+      <div class="verdict-print-top-row">
+        <div class="verdict-main">
+          <div class="kicker section-eyebrow">The Verdict</div>
+          <div class="verdict-pills">
+            <span class="pill pill-{{ deterministic_summary.level_tone }} pill-lg verdict-level-pill">
+              {{ deterministic_summary.level_label }}
+            </span>
+            <span class="pill pill-{{ deterministic_summary.level_tone }} pill-lg print-risk-pill">
+              Risk: {{ risk_score.value }}/100
+            </span>
+            <span class="pill pill-medium pill-lg"
+                  title="Traffic-anomaly confidence reflects spike evidence, baseline availability, raw access-log drilldown, and edge-response evidence. Targeted-automation confidence is separate.">
+              {{ claim_profile.traffic_anomaly_confidence_label if claim_profile else "Confidence: " ~ deterministic_summary.confidence_label }}
+            </span>
+            {% if claim_profile %}
+              <span class="pill pill-medium pill-lg"
+                    title="Targeted automation remains a hypothesis unless multi-signal actor/path evidence and a stronger baseline are present.">
+                {{ claim_profile.targeted_automation_confidence_label }}
+              </span>
+            {% endif %}
+          </div>
+
+          {# 5-step severity ladder. The .is-on / .is-current state +
+             --bar-color come from contexts/incident_report._severity_ladder. #}
+          <div class="severity-ladder" role="img"
+               aria-label="Severity ladder — current level {{ deterministic_summary.level_label }}">
+            <div class="severity-ladder-bars">
+              {% for step in severity_ladder %}
+                <div class="severity-ladder-bar{% if step.on %} is-on{% endif %}{% if step.current %} is-current{% endif %}"
+                     style="--bar-color: {{ step.bar_color }};"></div>
+              {% endfor %}
+            </div>
+            <div class="severity-ladder-labels">
+              {% for step in severity_ladder %}
+                <span{% if step.current %} class="is-current"{% endif %}>{{ step.label }}</span>
+              {% endfor %}
+            </div>
+          </div>
+
+          {% if orientation and orientation.cant_say %}
+            <p class="verdict-caveat">{{ orientation.cant_say }}</p>
+            <p class="verdict-caveat">
+              Confidence labels separate the observed traffic anomaly from
+              the targeted-automation hypothesis. Each indicator row carries
+              its own confidence — that may be higher or lower than the
+              report-level gates.
+            </p>
+          {% endif %}
+          <div class="story-grid" style="margin-top: 14px;">
+            <div class="story-panel">
+              <h3>Confidence Drivers</h3>
+              <ul class="story-bullets">
+                {% for reason in deterministic_summary.reasons[:3] %}
+                  <li>{{ reason | inline_code }}</li>
+                {% endfor %}
+                <li>Raw actor and action-target rows are separated below so rank, severity, and action class stay explicit.</li>
+              </ul>
+            </div>
+            <div class="story-panel">
+              <h3>Open Validation Items</h3>
+              <ul class="story-bullets">
+                <li>Validate edge-control candidates against protected traffic before enforcement.</li>
+                <li>{{ soc_evidence.credential_evidence_rule }}</li>
+                <li>Confirm whether path-pattern rows are normalized routes or aggregation artifacts before route-level controls.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        {% if impact.volume_chart %}
+          <figure class="impact-chart verdict-volume-timeline">
+            <div class="timeline-title">
+              <span class="kicker section-eyebrow">{{ impact.volume_chart.metric_label }} timeline</span>
+              <span class="timeline-range tnum">Current period vs baseline</span>
+            </div>
+            {{ incident_volume_chart(
+                 impact.volume_chart.current,
+                 baseline=impact.volume_chart.baseline,
+                 accent=editorial.red,
+                 accent_fill=editorial.red_bg,
+                 baseline_color=editorial.mute,
+                 peak_label="Peak " + impact.volume_chart.peak_value_display,
+                 left_label=impact.volume_chart.left_label,
+                 right_label=impact.volume_chart.right_label,
+                 y_axis_label=impact.volume_chart.metric_label,
+                 highlight_start_fraction=impact.volume_chart.incident_highlight_start,
+                 highlight_end_fraction=impact.volume_chart.incident_highlight_end,
+                 secondary_highlight_start_fraction=impact.volume_chart.scoped_analysis_highlight_start,
+                 secondary_highlight_end_fraction=impact.volume_chart.scoped_analysis_highlight_end
+            ) }}
+            <figcaption class="timeline-series-legend">
+              <span><span class="swatch" style="background: {{ editorial.blue }};"></span>Current period</span>
+              {% if impact.volume_chart.baseline %}
+                <span><span class="swatch swatch-baseline"></span>Baseline</span>
+              {% endif %}
+              {% if impact.volume_chart.incident_highlight_start is not none %}
+                <span><span class="swatch swatch-incident"></span>{{ impact.volume_chart.highlight_label }}</span>
+              {% endif %}
+              {% if impact.volume_chart.scoped_analysis_highlight_start is not none %}
+                <span><span class="swatch swatch-scope"></span>{{ impact.volume_chart.incident_window_label }}</span>
+              {% endif %}
+            </figcaption>
+          </figure>
+        {% endif %}
+      </div>
+
+      <aside class="verdict-score-card">
+        <div class="kicker section-eyebrow">Risk Score</div>
+        <div class="verdict-score-num tnum">{{ risk_score.value }}<small>/100</small></div>
+      </aside>
+
+    </div>
+
+    <section class="analyst-assessment">
+      <div class="kicker section-eyebrow">Analyst Assessment</div>
+      {% if exec_note %}
+        <div class="assessment-prose prose">{{ markdown_render(exec_note.text) }}</div>
+      {% else %}
+        <div class="assessment-source">Deterministic interpretation</div>
+        <p class="assessment-conclusion">{{ analyst_assessment.conclusion | inline_code }}</p>
+        {% if analyst_assessment.pillars %}
+          <ul class="assessment-pillars">
+            {% for pillar in analyst_assessment.pillars %}
+              <li>{{ pillar | inline_code }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+        <p class="assessment-boundary">{{ analyst_assessment.boundary }}</p>
+      {% endif %}
+    </section>
+
+    {% if primary_concern %}
+      <aside class="primary-concern">
+        <div>
+          <div class="kicker section-eyebrow">Primary Concern</div>
+          <h2>{{ primary_concern.title }}</h2>
+          <p>{{ primary_concern.summary | inline_code }}</p>
+          <p class="assessment-boundary">{{ primary_concern.boundary }}</p>
+        </div>
+        <ul>
+          {% for evidence in primary_concern.evidence %}
+            <li>{{ evidence | inline_code }}</li>
+          {% endfor %}
+        </ul>
+      </aside>
+    {% endif %}
+
+    <ol class="verdict-findings">
+      {% for finding in incident_findings %}
+        <li>
+          <div class="finding-label">{{ finding.label }}</div>
+          <div class="finding-lead">{{ finding.lead | inline_code }}</div>
+          <p class="finding-body">{{ finding.body | inline_code }}</p>
+          {% if finding.get('entities') %}
+            <ul class="finding-entities">
+              {% for entity in finding.entities %}
+                <li>
+                  <code class="finding-entity-value">{{ entity.value }}</code>
+                  {% if entity.get('meta') %}
+                    <span class="finding-entity-meta">{{ entity.meta }}</span>
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ol>
+
+    <div class="score-methodology" aria-label="How the score was calculated">
+      <div class="score-methodology-head">
+        <span class="kicker section-eyebrow">How the score was calculated</span>
+        <span class="score-methodology-pill tnum">
+          Risk {{ risk_score.value }}/100 · {{ deterministic_summary.level_label }} · {{ deterministic_summary.confidence_label }} confidence
+        </span>
+      </div>
+      <p>
+        The score is based on severity-weighted suspicious target counts.
+        Those counts are normalized with a hyperbolic curve, which rises
+        quickly and then tapers, and the displayed score is clamped to
+        the current verdict band so the number and verdict stay aligned.
+      </p>
+      {% if risk_score.severity_rows %}
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th scope="col">Severity</th>
+              <th scope="col" class="is-num">Targets</th>
+              <th scope="col" class="is-num">Weight</th>
+              <th scope="col" class="is-num">Weighted count</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in risk_score.severity_rows %}
+              <tr>
+                <td>{{ row.severity_label }}</td>
+                <td class="is-num">{{ row.count }}</td>
+                <td class="is-num">{{ row.weight }}</td>
+                <td class="is-num">{{ row.weighted_count }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+      <p>
+        Raw score {{ risk_score.raw_score_display }}; verdict band
+        {{ risk_score.band_display }}{% if risk_score.clamped %}, so the
+        displayed value was clamped into that band{% endif %}. {{
+        risk_score.confidence_basis }}
+      </p>
+      {% if deterministic_summary.reasons %}
+        <ul class="score-methodology-reasons">
+          {% for reason in deterministic_summary.reasons %}
+            {% if loop.index <= 3 %}
+              <li>{{ reason | inline_code }}</li>
+            {% endif %}
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </div>
+  </section>
+
+  {# ══════ EXECUTIVE READOUT ══════════════════════════════════════
+     Analyst-authored narrative for executive readers — impact,
+     current status, incident context. Producer cannot derive these
+     from access logs, so the section is conditional on at least one
+     of the three slots being populated by the wrapper. Stays out of
+     the way (and out of the print render) when those notes are
+     absent.
+  #}
+  {% set exec_impact_note = notes_by_slot.get("executive_impact") if notes_by_slot else None %}
+  {% set current_status_note = notes_by_slot.get("current_status") if notes_by_slot else None %}
+  {% set incident_context_note = notes_by_slot.get("incident_context") if notes_by_slot else None %}
+  {% if exec_impact_note or current_status_note or incident_context_note %}
+    <section id="exec-readout" class="exec-readout">
+      <div class="section-head">
+        <span class="kicker section-eyebrow">Executive readout</span>
+      </div>
+      {% if exec_impact_note %}
+        <div class="exec-readout-block">
+          <div class="exec-readout-label">Impact</div>
+          <div class="exec-readout-body prose">{{ markdown_render(exec_impact_note.text) }}</div>
+        </div>
+      {% endif %}
+      {% if current_status_note %}
+        <div class="exec-readout-block">
+          <div class="exec-readout-label">Current status</div>
+          <div class="exec-readout-body prose">{{ markdown_render(current_status_note.text) }}</div>
+        </div>
+      {% endif %}
+      {% if incident_context_note %}
+        <div class="exec-readout-block">
+          <div class="exec-readout-label">Context</div>
+          <div class="exec-readout-body prose">{{ markdown_render(incident_context_note.text) }}</div>
+        </div>
+      {% endif %}
+    </section>
+  {% endif %}
+
+  {# ══════ RECOMMENDED ACTIONS ══════════════════════════════════ #}
+  <section id="actions" class="section section-actions">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">Recommended</span>
+        <span class="hr"></span>
+      </div>
+      <h2 class="display">What to do next</h2>
+    </div>
+    {% set next_note = notes_by_slot.get("next_steps") if notes_by_slot else None %}
+    {% if recommended_actions %}
+      <ol class="actions-list">
+        {% for action in recommended_actions %}
+          <li>
+            <div class="action-rank">
+              <span class="num tnum">{{ action.num }}</span>
+              <span class="action-rank-label">Priority</span>
+            </div>
+            <div class="action-content">
+              <div class="action-meta">
+                <span class="pill pill-mono pill-sm">{{ action.role }}</span>
+                <span class="pill pill-{{ action.urgency_tone }} pill-sm">{{ action.urgency }}</span>
+              </div>
+              <div class="step">{{ action.step | inline_code }}</div>
+              {% if action.effect %}
+                <div class="action-effect tnum">{{ action.effect | inline_code }}</div>
+              {% endif %}
+              <div class="action-effect tnum">Target: {{ action.target | inline_code }} · Duration: {{ action.duration }}</div>
+              <div class="action-reason">Risk: {{ action.risk | inline_code }}</div>
+              <div class="action-reason">Validation: {{ action.validation | inline_code }}</div>
+              <div class="action-reason">Rollback: {{ action.rollback | inline_code }}</div>
+              {% if action.reason %}
+                <div class="action-reason">{{ action.reason | inline_code }}</div>
+              {% endif %}
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+    {% endif %}
+    {% if next_note %}
+      <details class="full-evidence" style="margin-top: 24px;">
+        <summary>Analyst note — next steps narrative</summary>
+        <div class="full-evidence-body prose">
+          {{ markdown_render(next_note.text) }}
+        </div>
+      </details>
+    {% endif %}
+    {% if recommended_actions %}
+      <table class="mini-table" style="margin-top: 18px;">
+        <thead>
+          <tr>
+            <th>Action</th>
+            <th>Target</th>
+            <th>Duration</th>
+            <th>Risk</th>
+            <th>Validation</th>
+            <th>Rollback</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for action in recommended_actions %}
+            <tr>
+              <td>{{ action.step | inline_code }}</td>
+              <td>{{ action.target | inline_code }}</td>
+              <td>{{ action.duration }}</td>
+              <td>{{ action.risk | inline_code }}</td>
+              <td>{{ action.validation | inline_code }}</td>
+              <td>{{ action.rollback | inline_code }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  </section>
+
+  {# ══════ IMPACT: chart + KPI strip ══════════════════════════ #}
+  <section id="impact" class="section section-impact">
+    <div class="impact-print-pack">
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Attack Shape</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display">When pressure landed, and how hard</h2>
+      </div>
+
+      {% if impact.volume_chart %}
+        <p class="impact-lead">
+          <strong>{{ impact.volume_chart.metric_label }}</strong> across the
+          incident window. Series choice is mechanical
+          ({{ impact.volume_chart.selection_reason }}).
+        </p>
+        <figure class="impact-chart impact-volume-timeline">
+          {{ incident_volume_chart(
+               impact.volume_chart.current,
+               baseline=impact.volume_chart.baseline,
+               accent=editorial.red,
+               accent_fill=editorial.red_bg,
+               baseline_color=editorial.mute,
+               peak_label="Peak " + impact.volume_chart.peak_value_display,
+               left_label=impact.volume_chart.left_label,
+               right_label=impact.volume_chart.right_label,
+               y_axis_label=impact.volume_chart.metric_label,
+               highlight_start_fraction=impact.volume_chart.incident_highlight_start,
+               highlight_end_fraction=impact.volume_chart.incident_highlight_end,
+               secondary_highlight_start_fraction=impact.volume_chart.scoped_analysis_highlight_start,
+               secondary_highlight_end_fraction=impact.volume_chart.scoped_analysis_highlight_end
+          ) }}
+          <figcaption class="impact-chart-legend">
+            <span><span class="swatch" style="background: {{ editorial.blue }};"></span>Current window</span>
+            {% if impact.volume_chart.baseline %}
+              <span><span class="swatch swatch-baseline"></span>Baseline (avg ~{{ impact.volume_chart.baseline_avg_display }})</span>
+            {% endif %}
+            {% if impact.volume_chart.has_incident_detection %}
+              <span><span class="swatch swatch-incident"></span>{{ impact.volume_chart.detected_window_label }}</span>
+            {% endif %}
+            {% if impact.volume_chart.scoped_analysis_highlight_start is not none %}
+              <span><span class="swatch swatch-scope"></span>{{ impact.volume_chart.incident_window_label }}</span>
+            {% endif %}
+          </figcaption>
+          <div class="volume-chart-labels tnum">
+            <span><span class="label">Peak</span> {{ impact.volume_chart.peak_value_display }}{% if impact.volume_chart.peak_time_display %} @ {{ impact.volume_chart.peak_time_display }}{% endif %}</span>
+            {% if impact.volume_chart.duration_display %}
+              <span><span class="label">Duration</span> {{ impact.volume_chart.duration_display }}</span>
+            {% endif %}
+            {% if windows %}
+              <span><span class="label">Window</span> {{ windows.current | headline_window_fmt(clock) }}</span>
+            {% endif %}
+          </div>
+        </figure>
+      {% endif %}
+
+      {% if impact.window_timeline %}
+        <div class="window-timeline-compact impact-timeline" aria-label="Evidence window timeline">
+          <div class="timeline-title">
+            <span class="kicker section-eyebrow">Evidence timeline</span>
+            <span class="timeline-range tnum">{{ impact.window_timeline.start_label }} → {{ impact.window_timeline.end_label }}</span>
+          </div>
+          <div class="timeline-track" role="img" aria-label="Baseline and current comparison windows">
+            {% for segment in impact.window_timeline.segments %}
+              <div class="timeline-segment timeline-{{ segment.label | lower }}"
+                   style="left: {{ segment.left_pct }}; width: {{ segment.width_pct }};">
+                <span>{{ segment.label }}</span>
+              </div>
+            {% endfor %}
+          </div>
+          <div class="timeline-legend">
+            {% for segment in impact.window_timeline.segments %}
+              <span><strong>{{ segment.label }}:</strong> {{ segment.start_label }} → {{ segment.end_label }}</span>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+    </div>
+
+    <dl class="kpis">
+      {% for tile in impact.tiles %}
+        <div class="kpi">
+          <dt class="kpi-label">{{ tile.label }}</dt>
+          <dd class="kpi-value tnum">{{ tile.value }}</dd>
+          {% if tile.sub %}
+            <dd class="kpi-delta tnum">{{ tile.sub }}</dd>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </dl>
+
+    {% if impact.top_affected_hosts %}
+      <p class="impact-lead" style="margin-top: 18px;">
+        Top affected {{ "host" if impact.top_affected_hosts.hosts | length == 1 else "hosts" }}:
+        {% for h in impact.top_affected_hosts.hosts -%}
+          <strong>{{ h.value }}</strong> ({{ h.share_pct_display }}{% if impact.top_affected_hosts.hosts | length == 1 %}, {{ h.delta_pct_display }} vs baseline{% endif %}){% if not loop.last %}, {% endif %}
+        {%- endfor %}
+        {% if impact.top_affected_hosts.hosts | length > 1 %}
+          — together {{ impact.top_affected_hosts.cumulative_share_pct_display }} of incident requests.
+        {% else %}.{% endif %}
+      </p>
+    {% endif %}
+    {% if impact.top_path_pattern %}
+      <p class="impact-lead">
+        Top path pattern: <code class="mono">{{ impact.top_path_pattern.value }}</code> —
+        {{ impact.top_path_pattern.requests_display }} requests
+        ({{ impact.top_path_pattern.share_pct_display }} of target traffic,
+        {{ impact.top_path_pattern.delta_pct_display }} vs baseline).
+      </p>
+    {% endif %}
+  </section>
+
+  {# ══════ ANALYTIC STORY BEFORE DEEP TABLES ══════════════════ #}
+  <section class="section section-analytic-story">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">Why This Stood Out</span>
+        <span class="hr"></span>
+      </div>
+      <h2 class="display">Evidence chain before the tables</h2>
+    </div>
+
+    <div class="story-grid">
+      <div class="story-panel">
+        <h3>Why this stood out</h3>
+        {% if stood_out_bullets %}
+          <ul class="story-bullets">
+            {% for bullet in stood_out_bullets %}
+              <li>{{ bullet | inline_code }}</li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="finding-body">No additional deterministic standout signals were available beyond the verdict evidence.</p>
+        {% endif %}
+      </div>
+
+      <div class="story-panel">
+        <h3>Observed vs inferred</h3>
+        <div class="taxonomy-grid">
+          <div>
+            <div class="taxonomy-label">Observed</div>
+            <ul>
+              {% for item in observed_inferred.observed %}
+                <li>{{ item }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+          <div>
+            <div class="taxonomy-label">Inferred</div>
+            <ul>
+              {% for item in observed_inferred.inferred %}
+                <li>{{ item }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+        <p class="assessment-boundary">{{ observed_inferred.boundary }}</p>
+      </div>
+    </div>
+
+    <div class="coordination-matrix">
+      <h3>Coordination Signals</h3>
+      <table class="mini-table">
+        <thead>
+          <tr>
+            <th scope="col">Signal</th>
+            <th scope="col">Status</th>
+            <th scope="col">Evidence boundary</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in coordination_signals %}
+            <tr>
+              <td>{{ row.signal }}</td>
+              <td><span class="signal-status signal-{{ row.status | replace(' ', '-') }}">{{ row.status }}</span></td>
+              <td>{{ row.detail }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {% if browser_version_context and browser_version_context.available %}
+    <section id="browser-age" class="section section-browser-age">
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Browser UA Age</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display">Browser-token age context for flagged UAs</h2>
+        <p class="attack-note">{{ browser_version_context.boundary }}</p>
+      </div>
+      <table class="mini-table">
+        <thead>
+          <tr>
+            <th scope="col">Flagged UA</th>
+            <th scope="col">Browser token</th>
+            <th scope="col">Age</th>
+            <th scope="col" class="is-num">Requests</th>
+            <th scope="col" class="is-num">Share</th>
+            <th scope="col" class="is-num">Baseline delta</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in browser_version_context.rows %}
+            <tr>
+              <td><code>{{ row.user_agent }}</code></td>
+              <td>
+                {{ row.browser_label }} {{ row.version_display }}
+                {% if row.token_caveat %}<div class="action-edge">{{ row.token_caveat }}</div>{% endif %}
+              </td>
+              <td>
+                <span class="pill pill-sm {% if row.stale %}pill-critical{% else %}pill-medium{% endif %}">{{ row.status_label }}</span>
+                <span>{{ row.age_display }}</span>
+                {% if row.release_date %}
+                  <div class="action-edge">Released {{ row.release_date }}{% if row.source_url %} · <a href="{{ row.source_url }}" target="_blank" rel="noopener external">{{ row.source_name or "source" }}</a>{% endif %}</div>
+                {% endif %}
+              </td>
+              <td class="is-num">{{ row.requests_display }}</td>
+              <td class="is-num">{{ row.share_pct_display }}</td>
+              <td class="is-num">{{ row.baseline_delta_display }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if browser_version_context.comparison_rows %}
+        <h3>Comparison rows</h3>
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th scope="col">UA</th>
+              <th scope="col">Browser token</th>
+              <th scope="col">Age</th>
+              <th scope="col" class="is-num">Requests</th>
+              <th scope="col" class="is-num">Share</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in browser_version_context.comparison_rows %}
+              <tr>
+                <td><code>{{ row.user_agent }}</code></td>
+                <td>{{ row.browser_label }} {{ row.version_display }}</td>
+                <td>{{ row.age_display }}</td>
+                <td class="is-num">{{ row.requests_display }}</td>
+                <td class="is-num">{{ row.share_pct_display }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+      <p class="assessment-boundary">
+        Snapshot configured: {{ "yes" if browser_version_context.snapshot_configured else "no" }};
+        {{ browser_version_context.snapshot_row_count }} local release rows read.
+        Stale threshold: {{ browser_version_context.stale_threshold_months }} months as of {{ browser_version_context.as_of }}.
+      </p>
+    </section>
+  {% endif %}
+
+  {% if assessment_explainers and assessment_explainers.available %}
+    <section id="explainers" class="section section-assessment-explainers">
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Assessment Explanation Signals</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display">Corroborating signals behind the assessment</h2>
+      </div>
+      <p class="assessment-boundary">{{ assessment_explainers.boundary }}</p>
+      <div class="story-grid">
+        {% if assessment_explainers.path_ip_convergence.available %}
+          <div class="story-panel">
+            <h3>Path-by-IP convergence</h3>
+            <p class="finding-body">{{ assessment_explainers.path_ip_convergence.summary | inline_code }}</p>
+            <table class="mini-table">
+              <thead>
+                <tr>
+                  <th scope="col">Path</th>
+                  <th scope="col" class="is-num">Requests</th>
+                  <th scope="col" class="is-num">Share</th>
+                  <th scope="col" class="is-num">Flagged IPs</th>
+                  <th scope="col">Labels</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in assessment_explainers.path_ip_convergence.top_paths[:3] %}
+                  <tr>
+                    <td><code>{{ row.path }}</code></td>
+                    <td class="is-num">{{ row.requests_display }}</td>
+                    <td class="is-num">{{ row.share_display }}</td>
+                    <td class="is-num">{{ row.flagged_ip_count }}</td>
+                    <td>{% if row.auth_related %}auth{% endif %}{% if row.auth_related and row.api_related %}, {% endif %}{% if row.api_related %}API{% endif %}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% endif %}
+        {% if assessment_explainers.flagged_ip_timeseries_alignment.available %}
+          <div class="story-panel">
+            <h3>Flagged-IP time-series alignment</h3>
+            <p class="finding-body">{{ assessment_explainers.flagged_ip_timeseries_alignment.summary | inline_code }}</p>
+            {% if assessment_explainers.flagged_ip_timeseries_alignment.correlations %}
+              <table class="mini-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Signal</th>
+                    <th scope="col" class="is-num">Correlation</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in assessment_explainers.flagged_ip_timeseries_alignment.correlations[:5] %}
+                    <tr>
+                      <td>{{ row.signal }}</td>
+                      <td class="is-num tnum">{{ "%.3f" | format(row.correlation) }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% endif %}
+          </div>
+        {% endif %}
+        {% if assessment_explainers.user_agent_rotation.available %}
+          <div class="story-panel">
+            <h3>User-agent rotation</h3>
+            <p class="finding-body">{{ assessment_explainers.user_agent_rotation.summary | inline_code }}</p>
+            <table class="mini-table">
+              <thead>
+                <tr>
+                  <th scope="col">Client IP</th>
+                  <th scope="col" class="is-num">UAs</th>
+                  <th scope="col" class="is-num">Top UA share</th>
+                  <th scope="col">Rotation</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in assessment_explainers.user_agent_rotation.rows[:4] %}
+                  <tr>
+                    <td><code>{{ row.client_ip }}</code></td>
+                    <td class="is-num">{{ row.distinct_user_agents }}</td>
+                    <td class="is-num">{{ row.top_user_agent_share_display }}</td>
+                    <td>{{ row.rotation_label }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            <p class="assessment-boundary">{{ assessment_explainers.user_agent_rotation.boundary }}</p>
+          </div>
+        {% endif %}
+        {% if assessment_explainers.bot_proxy_provenance_overlap.available %}
+          <div class="story-panel">
+            <h3>Bot/proxy provenance overlap</h3>
+            <p class="finding-body">{{ assessment_explainers.bot_proxy_provenance_overlap.summary | inline_code }}</p>
+            <dl class="mitigation-tiles">
+              <div>
+                <dt>Flagged client-IP requests</dt>
+                <dd class="tnum">{{ assessment_explainers.bot_proxy_provenance_overlap.flagged_client_ip_requests | int }}</dd>
+              </div>
+              <div>
+                <dt>Overlap share</dt>
+                <dd class="tnum">{{ assessment_explainers.bot_proxy_provenance_overlap.overlap_share_display }}</dd>
+              </div>
+              <div>
+                <dt>Overlapping IP targets</dt>
+                <dd class="tnum">{{ assessment_explainers.bot_proxy_provenance_overlap.overlapping_target_count }}</dd>
+              </div>
+            </dl>
+            <p class="assessment-boundary">{{ assessment_explainers.bot_proxy_provenance_overlap.boundary }}</p>
+          </div>
+        {% endif %}
+      </div>
+    </section>
+  {% endif %}
+
+  {# ══════ TEMPORAL PROGRESSION + ENTITY CLUSTERS ══════════ #}
+  <section class="section section-progression">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">Temporal Progression</span>
+        <span class="hr"></span>
+      </div>
+      <h2 class="display">How the pressure evolved</h2>
+    </div>
+    {% if temporal_progression.available %}
+      <p class="finding-body">{{ temporal_progression.summary }}</p>
+      <ul class="story-bullets">
+        {% for bullet in temporal_progression.bullets %}
+          <li>{{ bullet | inline_code }}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="finding-body muted">{{ temporal_progression.summary }}</p>
+    {% endif %}
+  </section>
+
+  {% if mitigation_coverage %}
+    <section class="section section-mitigation-coverage">
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Mitigation Coverage</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display">What edge actions covered</h2>
+      </div>
+      <div class="mitigation-panel mitigation-{{ mitigation_coverage.tone }}">
+        <div>
+          <p class="mitigation-interpretation">{{ mitigation_coverage.interpretation }}</p>
+          <p class="assessment-boundary">{{ mitigation_coverage.boundary }}</p>
+        </div>
+        <dl class="mitigation-tiles">
+          {% for tile in mitigation_coverage.tiles %}
+            <div>
+              <dt>{{ tile.label }}</dt>
+              <dd class="tnum">{{ tile.value }}</dd>
+            </div>
+          {% endfor %}
+        </dl>
+        {% if mitigation_coverage.top_deny_rule %}
+          <p class="mitigation-rule">Top deny rule: <code>{{ mitigation_coverage.top_deny_rule.value }}</code> ({{ mitigation_coverage.top_deny_rule.share }})</p>
+        {% endif %}
+      </div>
+    </section>
+  {% endif %}
+
+  {% if analysis_availability and analysis_availability.rows %}
+    <section class="section section-analysis-availability">
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Analysis Availability</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display">What the bundled artifacts can support</h2>
+        <p class="attack-note">{{ analysis_availability.boundary }}</p>
+      </div>
+      <table class="mini-table">
+        <thead>
+          <tr>
+            <th scope="col">Analysis</th>
+            <th scope="col">Status</th>
+            <th scope="col">Interpretation</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in analysis_availability.rows %}
+            <tr>
+              <td>{{ row.analysis }}</td>
+              <td>{{ row.status }}</td>
+              <td>{{ row.detail }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+
+  {% if entity_clusters %}
+    <section class="section section-entity-clusters">
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Entity Clusters</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display">Shared evidence before individual rows</h2>
+      </div>
+      <div class="cluster-grid">
+        {% for cluster in entity_clusters %}
+          <article class="cluster-card">
+            <div class="cluster-card-head">
+              <h3>{{ cluster.title }}</h3>
+              <span class="cluster-count">{{ cluster.confidence_label }} confidence</span>
+            </div>
+            <p class="cluster-volume">{{ cluster.member_count_text }}{% if cluster.confidence_basis %} · {{ cluster.confidence_basis }}{% endif %}</p>
+            {% if cluster.get('shared_facets') %}
+              <div class="cluster-facets">
+                {% for facet in cluster.shared_facets %}
+                  <span>{{ facet.label }}: <code>{{ facet.display }}</code></span>
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="cluster-facet">Shared facet: <code>{{ cluster.basis_value }}</code></p>
+            {% endif %}
+            {% if cluster.get('total_observed_requests_display') %}
+              <p class="cluster-volume">Total observed requests: <strong>{{ cluster.total_observed_requests_display }}</strong></p>
+            {% endif %}
+            {% if cluster.get('aggregate_behavior') %}
+              <p class="cluster-volume">Aggregate behavior: <strong>{{ cluster.aggregate_behavior | inline_code }}</strong></p>
+            {% endif %}
+            {% if cluster.get('coverage_summary') %}
+              <p class="cluster-volume">Mitigation coverage: <strong>{{ cluster.coverage_summary | inline_code }}</strong></p>
+            {% endif %}
+            {% if cluster.get('dominant_action_profile') %}
+              <p class="cluster-volume">Dominant action profile: <strong>{{ cluster.dominant_action_profile.share_display }} {{ cluster.dominant_action_profile.action }}</strong></p>
+            {% endif %}
+            {% if cluster.get('representative_actors') %}
+              <div class="cluster-members">
+                {% for member in cluster.representative_actors %}
+                  <code title="{{ member.target_type }} · {{ member.requests_display }}">{{ member.target_value }}</code>
+                {% endfor %}
+              </div>
+            {% elif cluster.get('top_members') %}
+              <div class="cluster-members">
+                {% for member in cluster.top_members %}
+                  <code>{{ member }}</code>
+                {% endfor %}
+              </div>
+            {% endif %}
+            <p class="assessment-boundary">{{ cluster.boundary }}</p>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {# ══════ FLAGGED SIGNALS — UNIFIED TABLE ══════════════════ #}
+  <section id="flagged" class="section section-actors">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">Drilldown</span>
+        <span class="hr"></span>
+        <span class="section-head-count">{{ suspicious_targets | length }} flagged</span>
+      </div>
+        <h2 class="display">Drilldown: Flagged Signals</h2>
+        <p class="attack-note">Source: action-target heuristic (`bot_incident_action_targets.v1`). These rows are the authoritative priority list; raw volume rankings are shown separately in Full Evidence.</p>
+      </div>
+
+    {% if suspicious_targets %}
+      <table class="actors-table" data-state="populated">
+        <thead>
+          <tr>
+            <th scope="col">Rank</th>
+            <th scope="col">Kind</th>
+            <th scope="col">Identifier</th>
+            <th scope="col" class="is-num">Requests</th>
+            <th scope="col" class="is-num">% of incident requests</th>
+            <th scope="col" class="is-num">429 rate</th>
+            <th scope="col">Severity</th>
+            <th scope="col">Action</th>
+            <th scope="col">ATT&amp;CK</th>
+            <th scope="col">Why ranked here</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in suspicious_targets_visible %}
+            <tr data-kind="{{ row.kind }}"{% if row.severity in ['critical', 'high'] or 'behavioral anomaly' in row.reason_flag_labels %} class="row-strong"{% endif %}>
+              <td class="rank">{{ "%02d" | format(loop.index) }}</td>
+              <td class="kind-cell">
+                <span class="kind-bucket kind-{{ row.kind }}">{{ row.kind_label }}</span>
+                <span class="kind-type">{{ row.target_type_label }}</span>
+              </td>
+              <td>
+                <code class="ident">{{ row.target_value }}</code>
+                {% if row.reason_flag_labels %}
+                  <div class="reasons">
+                    {% for label in row.display_reason_labels %}
+                      <span>{{ label }}</span>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+                {% if row.provenance_lines %}
+                  <div class="action-edge"
+                       title="Corroborating source bot/proxy metadata; not proof of intent or root cause.">
+                    {% for line in row.provenance_lines %}
+                      <span>{{ line }}</span>{% if not loop.last %}<br>{% endif %}
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </td>
+              <td class="is-num"><span class="num-large tnum">{{ row.requests_display }}</span></td>
+              <td class="is-num">
+                <span class="pct tnum">{{ row.share_pct_display }}</span>
+              </td>
+              <td class="is-num">
+                <span class="pct tnum{% if (row.req_429_share_pct or 0) >= 10 %} hot{% endif %}">{{ row.req_429_share_display }}</span>
+              </td>
+              <td class="severity-cell">
+                <span class="pill pill-{{ row.severity_tone }} pill-sm">{{ row.severity_label }}</span>
+                {% if row.confidence_label %}
+                  <span class="severity-conf"
+                        title="Per-indicator confidence — set by the producer for this specific actor. Independent of the report-level Confidence pill.">{{ row.confidence_label }} conf.</span>
+                {% endif %}
+              </td>
+              <td class="action-cell">
+                <span class="action-chip action-{{ row.action_class }} action-tone-{{ row.action_class_tone }}"
+                      title="Descriptive — names the typical mitigation pathway, not a directive">{{ row.action_class_label }}</span>
+                {% if row.edge_action_top_label %}
+                  <span class="action-edge"
+                        title="Edge response observed for this actor in the window">{{ row.edge_action_top_share_display }} {{ row.edge_action_top_label }}</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if row.attack_techniques %}
+                  <div class="attack-chips">
+                    {% for tech in row.attack_techniques %}
+                      <a class="attack-chip-link"
+                         href="{{ tech.id | attack_url }}"
+                         target="_blank"
+                         rel="noopener external"
+                         title="{{ tech.name }} — Tactic: {{ tech.tactic }} · opens MITRE ATT&amp;CK in a new tab"><code>{{ tech.id }}</code></a>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>{{ row.why_ranked_here | default("Action-target heuristic rank") }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+        {% if suspicious_targets_hidden_count %}
+          <tfoot>
+            <tr class="actors-overflow">
+              <td colspan="10">
+                +{{ suspicious_targets_hidden_count }} more flagged below this cut —
+                see Full Evidence below for the complete list.
+              </td>
+            </tr>
+          </tfoot>
+        {% endif %}
+      </table>
+    {% else %}
+      {# Empty-state still emits the wrapper element so the class
+         audit (tests/test_report_class_audit.py) sees the
+         section-anchor `actors-table` class on every render. #}
+      <table class="actors-table" data-state="empty">
+        <tbody>
+          <tr>
+            <td>
+              No targets were flagged by the suspicious-actor heuristics
+              for this window. Either the cluster has no raw access log
+              for this run, or no actor crossed the heuristic
+              thresholds. Scope evidence still applies.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    {% endif %}
+  </section>
+
+  {% if as_reputation_context and as_reputation_context.available %}
+    <section id="as-context" class="section section-as-context">
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">External AS Context</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display">Public reputation context for observed ASNs</h2>
+        <p class="attack-note">{{ as_reputation_context.boundary }}</p>
+      </div>
+      <div class="story-grid">
+        {% for row in as_reputation_context.rows %}
+          <article class="story-panel">
+            <h3>{{ row.asn_display }}{% if row.name %} · {{ row.name }}{% endif %}</h3>
+            <p class="cluster-volume">
+              <strong>{{ row.label_display }}</strong>
+              {% if row.confidence %} · {{ row.confidence | title }} confidence{% endif %}
+              {% if row.evidence_grade %} · {{ row.evidence_grade | replace("_", " ") }}{% endif %}
+            </p>
+            <p class="finding-body">{{ row.external_reputation_point | inline_code }}</p>
+            <p class="finding-body">{{ row.report_local_behavior_point | inline_code }}</p>
+            {% if row.sources %}
+              <table class="mini-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Source</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Summary</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for source in row.sources %}
+                    <tr>
+                      <td><a href="{{ source.url }}" target="_blank" rel="noopener external">{{ source.title }}</a></td>
+                      <td>{{ source.source_type | replace("_", " ") }}</td>
+                      <td>{{ source.summary }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% endif %}
+            <p class="assessment-boundary">
+              Last reviewed {{ row.last_reviewed }}. Public reputation is not a
+              detection gate and does not imply every IP, customer, or request
+              from this AS is malicious.
+            </p>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {# ══════ TOP PATHS ═════════════════════════════════════════ #}
+  <section class="section section-paths">
+    <div>
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Top Paths</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display-lg">Where they aimed</h2>
+      </div>
+      {% if path_pattern_rows %}
+        {% set top_share = (path_pattern_rows[0].share_pct or 1) %}
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th scope="col">Path</th>
+              <th scope="col" class="is-num">Reqs</th>
+              <th scope="col" class="is-num">% of incident requests</th>
+              <th scope="col" class="is-num">Share bar</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in path_pattern_rows %}
+              <tr>
+                <td><code class="mono">{{ row.value }}</code></td>
+                <td class="is-num">{{ row.requests_display }}</td>
+                <td class="is-num"><strong>{{ row.share_pct_display }}</strong></td>
+                <td>
+                  <div class="share-cell">
+                    <div class="share-bar">
+                      <i style="width: {{ '%.0f' | format(((row.share_pct or 0) / (top_share or 1)) * 100) }}%;"></i>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="finding-body">No path-pattern aggregation available for this window.</p>
+      {% endif %}
+
+    </div>
+  </section>
+
+  {# ══════ SPECIFIC URLS — FULL WIDTH ════════════════════════
+     The raw-reqPath drilldown gets its own full-width row so the
+     long obfuscated probe URLs (often 80+ characters with no
+     whitespace) have room to breathe instead of fragmenting into
+     6-line stacks inside a half-width grid cell. Conditional —
+     clusters / reports without a raw drilldown skip this entire
+     section so the editorial rhythm stays clean.
+  #}
+  {% if top_raw_paths_rows %}
+    <section class="section section-urls print-raw-only">
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Specific URLs attackers hit</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display-lg">Where they aimed, exactly</h2>
+      <p class="attack-note">
+        Top raw <code class="mono">reqPath</code> values
+        scoped to the top-{{ top_raw_paths_rows | length }}
+        suspicious client IPs. Share is share-of-attacker-traffic,
+        not share-of-window.
+      </p>
+      <p class="attack-note">
+        Path-pattern controls should verify whether the displayed path is
+        a normalized route, a real path pattern, or an aggregation artifact.
+      </p>
+      </div>
+      <table class="mini-table mini-table-urls">
+        <thead>
+          <tr>
+            <th scope="col">URL</th>
+            <th scope="col" class="is-num">Reqs</th>
+            <th scope="col" class="is-num">% of target traffic</th>
+            <th scope="col" class="is-num">Actors</th>
+            <th scope="col" class="is-num">5xx</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in top_raw_paths_rows %}
+            <tr>
+              <td><code class="mono">{{ row.value }}</code></td>
+              <td class="is-num">{{ row.requests_display }}</td>
+              <td class="is-num"><strong>{{ row.share_pct_display }}</strong></td>
+              <td class="is-num">{{ row.distinct_actors_display }}</td>
+              <td class="is-num">{{ row.req_5xx_display }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+
+  {# ══════ GEO + COHORT MIX — split 2-col ═══════════════════
+     Geographic origin (left) + traffic-classification cohort mix
+     (right) together describe the SHAPE of attack traffic. Both
+     are window-wide summaries that complement the actor-target
+     table above. The cohort side corroborates Finding 03's
+     disjoint-cohort observation — if the IP heuristic caught
+     one population and the UA heuristic caught another, the
+     cohort split shows how the upstream classifier bucketed
+     all of it.
+  #}
+  <section class="section section-geo split-2col">
+    <div class="print-pane">
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Geo Mix</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display-lg">Geo mix shifted</h2>
+        <p class="attack-note">
+          Country mix is baseline-divergence context. It is not actor-origin
+          attribution and does not identify where a request operator is located.
+        </p>
+      </div>
+      {% if country_mix_rows %}
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th scope="col">Country</th>
+              <th scope="col" class="is-num">Reqs</th>
+              <th scope="col" class="is-num">% of incident requests</th>
+              <th scope="col" class="is-num">Δ vs baseline</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in country_mix_rows %}
+              <tr{% if (row.delta_vs_baseline_pct or 0) >= 25 or (row.delta_vs_baseline_pct or 0) <= -25 %} class="row-strong"{% endif %}>
+                <td><code class="mono">{{ row.value }}</code></td>
+                <td class="is-num">{{ row.requests_display }}</td>
+                <td class="is-num"><strong>{{ row.share_pct_display }}</strong></td>
+                <td class="is-num">{{ row.delta_vs_baseline_display }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="finding-body">No country aggregation available for this window.</p>
+      {% endif %}
+    </div>
+
+    <div class="print-pane">
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Traffic Cohorts</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display-lg">How it was classified</h2>
+      </div>
+      <p class="cohort-framing">
+        Cohort labels are Akamai's bot-manager verdict per request.
+        Suspicious actors above are flagged by the heuristic ladder against
+        per-IP traffic concentration — they are detected regardless of
+        cohort label.
+      </p>
+      {% if cohort_mix_rows %}
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th scope="col">Cohort</th>
+              <th scope="col" class="is-num">Reqs</th>
+              <th scope="col" class="is-num">% of cohort traffic</th>
+              <th scope="col" class="is-num">429 rate within cohort traffic</th>
+              <th scope="col" class="is-num">5xx%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in cohort_mix_rows %}
+              <tr{% if (row.value | lower in ['human', 'browser']) and ((row.req_429_share_pct or 0) >= 10 or (row.req_5xx_share_pct or 0) >= 5) %} class="row-strong"{% endif %}>
+                <td><code class="mono">{{ row.value }}</code></td>
+                <td class="is-num">{{ row.requests_display }}</td>
+                <td class="is-num"><strong>{{ row.share_pct_display }}</strong></td>
+                <td class="is-num{% if (row.req_429_share_pct or 0) >= 10 %} hot{% endif %}">{{ row.req_429_share_display }}</td>
+                <td class="is-num{% if (row.req_5xx_share_pct or 0) >= 5 %} hot{% endif %}">{{ row.req_5xx_share_display }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="finding-body">No bot-manager cohort aggregation available for this window — the heuristic-actor signal above is unaffected.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  {# ══════ EDGE RESPONSE — split 2-col ══════════════════════════
+     Action mix (left) shows what the edge decided per request —
+     Deny / Monitor / Allow. Top deny rules (right) names the
+     specific WAF / bot-manager rules that fired. Both come from
+     raw ``akamai.logs`` and only render when the producer
+     populated them (canonical-schema clusters with
+     ``action_applied`` + ``denyRule`` columns inline).
+  #}
+  {% if edge_action_mix_rows or deny_rule_mix_rows %}
+  <section class="section section-edge split-2col">
+    <div>
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Edge Action Mix</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display-lg">What the edge decided</h2>
+      </div>
+      {% if edge_action_mix_rows %}
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th scope="col">Action</th>
+              <th scope="col" class="is-num">Reqs</th>
+              <th scope="col" class="is-num">% of incident requests</th>
+              <th scope="col" class="is-num">Δ vs baseline</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in edge_action_mix_rows %}
+              <tr>
+                <td><code class="mono">{{ row.value }}</code></td>
+                <td class="is-num">{{ row.requests_display }}</td>
+                <td class="is-num"><strong>{{ row.share_pct_display }}</strong></td>
+                <td class="is-num">{{ row.delta_vs_baseline_display }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="finding-body">No edge-action aggregation available for this window.</p>
+      {% endif %}
+    </div>
+
+    <div>
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Top Deny Rules</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display-lg">Which rules fired</h2>
+      </div>
+      {% if deny_rule_mix_rows %}
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th scope="col">Deny rule</th>
+              <th scope="col" class="is-num">Reqs</th>
+              <th scope="col" class="is-num">% of incident requests</th>
+              <th scope="col" class="is-num">Δ vs baseline</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in deny_rule_mix_rows %}
+              <tr>
+                <td><code class="mono">{{ row.value }}</code></td>
+                <td class="is-num">{{ row.requests_display }}</td>
+                <td class="is-num"><strong>{{ row.share_pct_display }}</strong></td>
+                <td class="is-num">{{ row.delta_vs_baseline_display }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="finding-body">No deny-rule aggregation available for this window.</p>
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if bot_source_rows or proxy_classification_rows %}
+  <section class="section section-provenance">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">Source Metadata</span>
+        <span class="hr"></span>
+      </div>
+      <h2 class="display">Bot and Proxy Provenance</h2>
+    </div>
+    {% if claim_profile and claim_profile.provenance_overlap and claim_profile.provenance_overlap.available %}
+      <p class="finding-body">
+        {{ claim_profile.provenance_overlap.summary }}
+      </p>
+    {% endif %}
+    <div class="split-2col">
+      <div>
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Bot Source Provenance</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display-lg">Bot-manager source metadata</h2>
+      </div>
+      {% if bot_source_rows %}
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th scope="col">Category / type / botnet</th>
+              <th scope="col" class="is-num">Reqs</th>
+              <th scope="col" class="is-num">% of incident requests</th>
+              <th scope="col" class="is-num">Δ vs baseline</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in bot_source_rows %}
+              <tr>
+                <td><code class="mono">{{ row.value }}</code></td>
+                <td class="is-num">{{ row.requests_display }}</td>
+                <td class="is-num"><strong>{{ row.share_pct_display }}</strong></td>
+                <td class="is-num">{{ row.delta_vs_baseline_display }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="finding-body">No source bot-manager metadata was populated for this window.</p>
+      {% endif %}
+      </div>
+
+      <div>
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">Proxy Classification</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display-lg">EPD proxy classification</h2>
+      </div>
+      {% if proxy_classification_rows %}
+        <table class="mini-table">
+          <thead>
+            <tr>
+              <th scope="col">Category / action / match</th>
+              <th scope="col" class="is-num">Reqs</th>
+              <th scope="col" class="is-num">% of incident requests</th>
+              <th scope="col" class="is-num">Δ vs baseline</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in proxy_classification_rows %}
+              <tr>
+                <td><code class="mono">{{ row.value }}</code></td>
+                <td class="is-num">{{ row.requests_display }}</td>
+                <td class="is-num"><strong>{{ row.share_pct_display }}</strong></td>
+                <td class="is-num">{{ row.delta_vs_baseline_display }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="finding-body">No EPD proxy-classification category was populated for this window.</p>
+      {% endif %}
+      </div>
+    </div>
+    <p class="assessment-boundary">
+      Bot and proxy provenance is corroborating source evidence. It does not
+      prove actor intent, root cause, or ownership.
+    </p>
+  </section>
+  {% endif %}
+
+  {# ══════ ATT&CK MAPPING ═══════════════════════════════════════ #}
+  <section class="section section-attack">
+    <div class="section-head">
+      <div class="section-head-rule">
+        <span class="kicker section-eyebrow">ATT&amp;CK Mapping</span>
+        <span class="hr"></span>
+      </div>
+      <h2 class="display">Consistent with</h2>
+    </div>
+    <p class="attack-note">Techniques the observed signal is consistent with — not an attribution. Credential-access techniques are investigation leads unless auth-specific telemetry is present.</p>
+    <div class="attack-list" data-state="{{ 'populated' if attack_aggregation else 'empty' }}">
+      {% if attack_aggregation %}
+        <div class="attack-row attack-row-head">
+          <div>Technique</div>
+          <div>Supporting evidence</div>
+          <div>Tactic</div>
+        </div>
+        {% for tech in attack_aggregation %}
+          <div class="attack-row">
+            <a class="attack-row-link"
+               href="{{ tech.id | attack_url }}"
+               target="_blank"
+               rel="noopener external"
+               title="Open {{ tech.id }} on MITRE ATT&amp;CK"><code>{{ tech.id }}</code></a>
+            <div>
+              <div class="technique">{{ tech.name or "—" }}</div>
+              <div class="attack-evidence"><strong>{{ tech.mapping_class }}</strong></div>
+              <div class="attack-evidence">{{ tech.supporting_evidence_text | inline_code }}</div>
+              {% if tech.metric_chips %}
+                <div class="attack-metric-chips">
+                  {% for chip in tech.metric_chips %}
+                    <span>{{ chip | inline_code }}</span>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </div>
+            <div class="tactic">{{ tech.tactic or "—" }}</div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <p class="finding-body">No ATT&amp;CK techniques were associated with flagged targets in this window.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  {# ══════ IOC EXPORT ════════════════════════════════════════ #}
+  {% if iocs.indicators %}
+    <section id="iocs" class="section section-ioc print-raw-only">
+      <div class="section-head">
+        <div class="section-head-rule">
+          <span class="kicker section-eyebrow">For Your SIEM</span>
+          <span class="hr"></span>
+        </div>
+        <h2 class="display">Indicators, ready to ingest</h2>
+      </div>
+      <div class="ioc-meta">
+        <span class="pill pill-mono pill-sm">{{ iocs.schema }}</span>
+        <span class="pill pill-mono pill-sm">{{ iocs.indicators | length }} indicators</span>
+        <span class="label">JSON · UTF-8 · {{ iocs.scope.window_start }} → {{ iocs.scope.window_end }}</span>
+      </div>
+      <pre class="ioc-export"><code>{{ iocs_json_text }}</code></pre>
+    </section>
+  {% endif %}
+
+  {# ══════ DASHBOARD CTA ════════════════════════════════════ #}
+  {% if dashboard_url %}
+    <section class="cta" data-print-url="{{ dashboard_url }}">
+      <div>
+        <div class="kicker section-eyebrow">Continue investigating</div>
+        <div class="cta-title">Open the linked Grafana dashboard</div>
+        <p class="cta-meta">Pre-scoped to this window and scope filters for further drilldown.</p>
+      </div>
+      <a class="cta-link" href="{{ dashboard_url }}" rel="noopener">Open dashboard →</a>
+    </section>
+  {% endif %}
+
+  {# ══════ METHOD FOOTER ════════════════════════════════════ #}
+  <footer class="method">
+    <div>
+      <span class="label">Method</span>
+      Rule-based scorecard. Mechanical features only. No causal claim, no malicious-intent claim.
+    </div>
+    <div>
+      <span class="label">Baseline window</span>
+      <span class="tnum">{{ windows.baseline | window_fmt }}</span>
+    </div>
+    <div>
+      <span class="label">Schema</span>
+      <span class="mono">{{ method.schema_version }}</span>
+    </div>
+    <div class="right">
+      <span class="label">Generated</span>
+      <span class="tnum">{{ generated_at }}</span>
+    </div>
+  </footer>
+
+  {# ══════ FULL EVIDENCE (legacy Section A + Section B) ═══════
+     Folded into a disclosure so the editorial layout stays clean for
+     execs, while analysts who need the original scope-confirmation
+     tables and per-field actor rankings can still get them without
+     a separate report.
+  #}
+  <details id="evidence" class="full-evidence print-raw-only">
+    <summary>Full evidence — scope tables, per-field actor rankings, limitations</summary>
+    <div class="full-evidence-body">
+
+      <section>
+        <div class="section-head">
+          <h3 class="display-lg">Section A — Scope confirmation</h3>
+        </div>
+        {% if window_confirmation.tiles %}
+          <div class="kpis" style="grid-template-columns: repeat({{ window_confirmation.tiles | length }}, 1fr);">
+            {% for tile in window_confirmation.tiles %}
+              <div class="kpi">
+                <div class="kpi-label">{{ tile.label }}</div>
+                <div class="kpi-value tnum">{{ tile.value }}</div>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+        {% if baseline_context.metric_rows %}
+          <h4 style="margin-top: 20px;">Baseline defensibility</h4>
+          <p class="finding-body">
+            Current {{ baseline_context.current_window.start }} → {{ baseline_context.current_window.end }};
+            baseline {{ baseline_context.baseline_window.start }} → {{ baseline_context.baseline_window.end }}.
+            {{ baseline_context.strategy }}
+          </p>
+          <table class="mini-table">
+            <thead>
+              <tr><th>Metric</th><th class="is-num">Current absolute</th><th class="is-num">Baseline absolute</th><th class="is-num">Δ</th><th>Source</th></tr>
+            </thead>
+            <tbody>
+              {% for row in baseline_context.metric_rows %}
+                <tr>
+                  <td>{{ row.metric }}</td>
+                  <td class="is-num">{{ row.current_display }}</td>
+                  <td class="is-num">{{ row.baseline_display }}</td>
+                  <td class="is-num">{{ row.delta_display }}</td>
+                  <td>{{ row.source }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+        {% if window_confirmation.spike_flags %}
+          <p class="finding-body" style="margin-top: 14px;">
+            Spike flags:
+            {% for flag in window_confirmation.spike_flags %}
+              <span class="pill pill-escalate pill-sm">{{ flag.label }}</span>
+            {% endfor %}
+          </p>
+        {% endif %}
+        {% if scope.scope_filters %}
+          <p class="finding-body">
+            Scope:
+            {% for filter in scope.scope_filters %}
+              <strong>{{ filter.label }}</strong> {{ filter.value }}{% if not loop.last %} · {% endif %}
+            {% endfor %}
+            {% if scope.granularity %} · <strong>Granularity</strong> {{ scope.granularity }}{% endif %}
+            · <strong>SIEM surface</strong> {{ "available" if scope.siem_available else "not available" }}
+          </p>
+        {% endif %}
+
+        {% if concentration_chart.rows %}
+          <div class="section-head" style="margin-top: 18px;">
+            <div class="section-head-rule">
+              <span class="kicker section-eyebrow">Concentration</span>
+              <span class="hr"></span>
+            </div>
+          </div>
+          <table class="mini-table">
+            <thead>
+              <tr>
+                <th scope="col">Target</th>
+                <th scope="col" class="is-num">% of incident requests</th>
+                <th scope="col" class="is-num">Bar</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in concentration_chart.rows %}
+                <tr>
+                  <td>
+                    <span class="type-cell">{{ row.target_type_label }}</span>
+                    <code class="mono">{{ row.target_value }}</code>
+                  </td>
+                  <td class="is-num"><strong>{{ row.share_pct_display }}</strong></td>
+                  <td>
+                    <div class="share-cell">
+                      <div class="share-bar">
+                        <i style="width: {{ '%.0f' | format(row.bar_width_pct) }}%;"></i>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+
+        {% if targeted_hosts_rows %}
+          <h4 style="margin-top: 20px;">Top targeted hosts</h4>
+          <table class="mini-table">
+            <thead>
+              <tr>
+                <th>Host</th>
+                <th class="is-num">Requests</th>
+                <th class="is-num">% of incident requests</th>
+                <th class="is-num">Δ vs baseline</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in targeted_hosts_rows %}
+                <tr>
+                  <td>{{ row.value }}</td>
+                  <td class="is-num">{{ row.requests_display }}</td>
+                  <td class="is-num">{{ row.share_pct_display }}</td>
+                  <td class="is-num">{{ row.delta_vs_baseline_display }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+
+        {% if status_mix_rows %}
+          <h4 style="margin-top: 20px;">Status mix</h4>
+          <table class="mini-table">
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th class="is-num">Requests</th>
+                <th class="is-num">% of target traffic</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in status_mix_rows %}
+                <tr>
+                  <td class="tnum">{{ row.value }}</td>
+                  <td class="is-num">{{ row.requests_display }}</td>
+                  <td class="is-num">{{ row.share_pct_display }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+
+        {% if scope.siem_available %}
+          {% if siem_action_rows %}
+            <h4 style="margin-top: 20px;">SIEM action mix</h4>
+            <table class="mini-table">
+              <thead>
+                <tr><th>Action</th><th class="is-num">Requests</th><th class="is-num">% of incident requests</th><th class="is-num">Δ vs baseline</th></tr>
+              </thead>
+              <tbody>
+                {% for row in siem_action_rows %}
+                  <tr>
+                    <td>{{ row.value }}</td>
+                    <td class="is-num">{{ row.requests_display }}</td>
+                    <td class="is-num">{{ row.share_pct_display }}</td>
+                    <td class="is-num">{{ row.delta_vs_baseline_display }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% endif %}
+
+          {% if siem_policy_rows %}
+            <h4 style="margin-top: 20px;">SIEM policy mix</h4>
+            <table class="mini-table">
+              <thead>
+                <tr><th>Policy</th><th class="is-num">Requests</th><th class="is-num">% of incident requests</th><th class="is-num">Δ vs baseline</th></tr>
+              </thead>
+              <tbody>
+                {% for row in siem_policy_rows %}
+                  <tr>
+                    <td><code class="mono">{{ row.value }}</code></td>
+                    <td class="is-num">{{ row.requests_display }}</td>
+                    <td class="is-num">{{ row.share_pct_display }}</td>
+                    <td class="is-num">{{ row.delta_vs_baseline_display }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% endif %}
+
+          {% if siem_bot_type_rows %}
+            <h4 style="margin-top: 20px;">SIEM bot-type mix</h4>
+            <table class="mini-table">
+              <thead>
+                <tr><th>Bot type</th><th class="is-num">Requests</th><th class="is-num">% of incident requests</th><th class="is-num">Δ vs baseline</th></tr>
+              </thead>
+              <tbody>
+                {% for row in siem_bot_type_rows %}
+                  <tr>
+                    <td>{{ row.value }}</td>
+                    <td class="is-num">{{ row.requests_display }}</td>
+                    <td class="is-num">{{ row.share_pct_display }}</td>
+                    <td class="is-num">{{ row.delta_vs_baseline_display }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% endif %}
+        {% endif %}
+      </section>
+
+      <section>
+        <div class="section-head" style="margin-top: 28px;">
+          <h3 class="display-lg">Section B — Highest volume raw actors</h3>
+        </div>
+        {% if not raw_drilldown_available %}
+          <p class="finding-body">
+            The cluster's raw access log was not available for this report,
+            so per-actor rankings are not shown. Scope evidence in Section A
+            above still applies.
+          </p>
+        {% else %}
+          {% if raw_actor_rows %}
+            <p class="finding-body">Source: raw actor ranking (`bot_incident_actors.v1`). Severity shown here is either matched from the action-target heuristic or explicitly marked raw-volume only.</p>
+            <table class="mini-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Client IP</th>
+                  <th class="is-num">Requests</th>
+                  <th class="is-num">Share</th>
+                  <th class="is-num">429s</th>
+                  <th class="is-num">5xx</th>
+                  <th class="is-num">Paths</th>
+                  <th>ASN</th>
+                  <th>Baseline</th>
+                  <th>Edge action</th>
+                  <th>Bot/proxy provenance</th>
+                  <th>Why ranked here</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in raw_actor_rows %}
+                  <tr>
+                    <td>{{ row.rank }}</td>
+                    <td><code class="mono">{{ row.value }}</code></td>
+                    <td class="is-num">{{ row.requests_display }}</td>
+                    <td class="is-num">{{ row.share_display }}</td>
+                    <td class="is-num">{{ row.req_429_display }} / {{ row.req_429_rate_display }}</td>
+                    <td class="is-num">{{ row.req_5xx_display }} / {{ row.req_5xx_rate_display }}</td>
+                    <td class="is-num">{{ row.distinct_paths_display }}</td>
+                    <td>{{ row.asn }}</td>
+                    <td>{{ row.baseline_presence }}</td>
+                    <td>{{ row.edge_action }}</td>
+                    <td>{{ row.provenance }}</td>
+                    <td>{{ row.why_ranked_here }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% endif %}
+          {% if action_target_rows %}
+            <h4 style="margin-top: 20px;">Highest priority action targets</h4>
+            <p class="finding-body">Source: action-target heuristic (`bot_incident_action_targets.v1`). This is the authoritative target priority list for SOC handoff.</p>
+            <table class="mini-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Type</th>
+                  <th>Target</th>
+                  <th>Severity</th>
+                  <th>Action class</th>
+                  <th>Confidence</th>
+                  <th>Evidence refs</th>
+                  <th>Why ranked here</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in action_target_rows[:10] %}
+                  <tr>
+                    <td>{{ row.priority_rank }}</td>
+                    <td>{{ row.target_type_label }}</td>
+                    <td><code class="mono">{{ row.target_value }}</code></td>
+                    <td>{{ row.severity_label }}</td>
+                    <td>{{ row.action_class_label }}</td>
+                    <td>{{ row.confidence_label }}</td>
+                    <td>{{ row.evidence_refs_display }}</td>
+                    <td>{{ row.why_ranked_here }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% endif %}
+          {% for ranking in actor_rankings %}
+            <h4 style="margin-top: 20px;">{{ ranking.field_label }} — top {{ ranking.rows | length }}</h4>
+            <table class="mini-table">
+              <thead>
+                <tr>
+                  <th>{{ ranking.field_label }}</th>
+                  <th class="is-num">Requests</th>
+                  <th class="is-num">Distinct paths</th>
+                  <th class="is-num">429s</th>
+                  <th class="is-num">429 rate within row traffic</th>
+                  <th class="is-num">5xx</th>
+                  <th class="is-num">5xx share</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in ranking.rows %}
+                  <tr>
+                    <td><code class="mono">{{ row.value }}</code></td>
+                    <td class="is-num">{{ row.requests_display }}</td>
+                    <td class="is-num">{{ row.distinct_paths_display }}</td>
+                    <td class="is-num">{{ row.req_429_display }}</td>
+                    <td class="is-num">{{ row.req_429_share_display }}</td>
+                    <td class="is-num">{{ row.req_5xx_display }}</td>
+                    <td class="is-num">{{ row.req_5xx_share_display }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% endfor %}
+        {% endif %}
+      </section>
+
+      {% set op_note = notes_by_slot.get("operational_interpretation") if notes_by_slot else None %}
+      {% if op_note %}
+        <section>
+          <div class="section-head" style="margin-top: 28px;">
+            <h3 class="display-lg">Analyst narrative</h3>
+          </div>
+          <h4>Operational interpretation</h4>
+          <div class="prose">{{ markdown_render(op_note.text) }}</div>
+        </section>
+      {% endif %}
+
+      {% if limitations %}
+        <section>
+          <div class="section-head" style="margin-top: 28px;">
+            <h3 class="display-lg">Limitations</h3>
+          </div>
+          <ul>
+            {% for item in limitations %}
+              <li>{{ item }}</li>
+            {% endfor %}
+          </ul>
+        </section>
+      {% endif %}
+
+      <section>
+        <div class="section-head" style="margin-top: 28px;">
+          <h3 class="display-lg">SOC Evidence Appendix</h3>
+        </div>
+        <h4>Artifact source map</h4>
+        <table class="mini-table">
+          <thead><tr><th>Claim</th><th>Artifact</th><th>Source fields</th></tr></thead>
+          <tbody>
+            {% for row in soc_evidence.source_map %}
+              <tr><td>{{ row.claim }}</td><td><code>{{ row.artifact }}</code></td><td>{{ row.source }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <p class="finding-body">{{ soc_evidence.credential_evidence_rule }}</p>
+      </section>
+
+      <section>
+        <div class="section-head" style="margin-top: 28px;">
+          <h3 class="display-lg">Reasoning trail</h3>
+        </div>
+        <ul>
+          {% for reason in deterministic_summary.reasons %}
+            <li>{{ reason | inline_code }}</li>
+          {% endfor %}
+        </ul>
+      </section>
+
+      <section>
+        <div class="section-head" style="margin-top: 28px;">
+          <h3 class="display-lg">Method detail</h3>
+        </div>
+        {{ method_section(method, scope, confidence.reasons) }}
+      </section>
+
+    </div>
+  </details>
+
+  {% if orientation %}
+    <details class="full-evidence" style="margin-top: 16px;">
+      <summary>Orientation — what this report measures</summary>
+      <div class="full-evidence-body">
+        {{ report_purpose(orientation, palette, orientation.bands) }}
+      </div>
+    </details>
+  {% endif %}
+
+</article>
+{% endblock %}

@@ -88,7 +88,7 @@ Important source-style aliases in that project:
 | AI category/source | `aiCategory`, `aiSource` |
 | user-agent category | `userAgentCategory` |
 | traffic cohort | `trafficCohort` (`Human`, `Bot`, `AI`) |
-| path grouping | `requestPathPattern` |
+| path grouping | `requestPathPattern` (renamed `reqPathPattern` in bundle 1.1; resolve from metadata) |
 | cache outcome | `cacheStatus` |
 | status | `statusCode` on posture, `status`/`statusCode` on SIEM policy |
 | SIEM policy/action/type | `policyId`, `actionClass`, `botType` |

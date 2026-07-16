@@ -86,6 +86,9 @@ Do not read every reference at startup. Pick the smallest relevant file:
 - Advanced aggregate-delta attribution CLI → [references/advanced-attribution.md](references/advanced-attribution.md)
 - Executive posture, multi-domain triage, mitigation verification → [references/executive-analysis.md](references/executive-analysis.md)
 - Rendering saved artifacts to Markdown/HTML → [references/reporting.md](references/reporting.md)
+- Adding a predefined report, custom report wiring, report skinning, themes,
+  or brand report presentation → [references/report-extension.md](references/report-extension.md)
+- Population anomaly conceptual design → [references/population-distribution-modeling.md](references/population-distribution-modeling.md)
 - Runnable report-rendering demo payloads → [examples/](examples/)
 - Known schema and analysis footguns → [references/pitfalls.md](references/pitfalls.md)
 - Worked conversation examples for non-predefined-report workflows → [examples/conversations/](examples/conversations/)
@@ -159,7 +162,13 @@ For `executive_posture`, `control_review`, `soc_triage`, `scorecard_brief`,
    the JSON to `target_raw_output_path`, and resume with `--raw-input`.
 4. Hand the evidence packet to the LLM with its `interpretation_contract`.
    Require concise prose only: no new metrics, no root-cause claims, no
-   malicious-traffic claims without additional artifacts. Use the
+   malicious-traffic claims without additional artifacts. Do not add
+   business/customer-impact facts, response-timeline facts, WAF push times,
+   prior-incident history, or policy-configuration explanations unless those
+   facts are explicit fields in the packet or user-supplied context. When
+   describing infrastructure topology, preserve the evidence's ASN grouping:
+   only say "single-ASN" when every named actor in that claim has the same
+   ASN; otherwise say "across N ASN clusters" or similar. Use the
    human-readable `*_label` fields ("Cache miss rate high", "Origin impact",
    "Request host"), not snake_case identifiers. Do not name internal tables
    in prose — refer to "this report's evidence".

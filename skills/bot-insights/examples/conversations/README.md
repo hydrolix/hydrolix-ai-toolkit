@@ -14,7 +14,5 @@ pattern clearly.
 
 | Example | What it demonstrates |
 | --- | --- |
-| [Anomaly investigation](anomaly-investigation.md) | Incident-style bot-share spike triage with coincident verified and unverified movers. |
 | [Cross-window capacity plan](cross-window-capacity-plan.md) | Planning analysis across non-adjacent windows that do not fit predefined reports. |
-| [SIEM unavailable triage](siem-unavailable-triage.md) | A less-clean investigation where posture data is available but SIEM/security evidence is missing. |
 

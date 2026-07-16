@@ -1,0 +1,412 @@
+# {{ headline | md_escape }}
+
+{{ dek | md_escape }}
+
+Report type: `threat_hunt`
+
+Scope: {{ scope.cluster | md_escape }}{% if scope.database %} / {{ scope.database | md_escape }}{% endif %}
+
+{% if scope.current_window %}Window: {{ scope.current_window.start | md_escape }} → {{ scope.current_window.end | md_escape }}{% endif %}{% if scope.baseline_window %} vs {{ scope.baseline_window.start | md_escape }} → {{ scope.baseline_window.end | md_escape }}{% endif %}
+
+## Hunt Impact
+
+{% if threat_hunt_ui.impact_rows %}
+| Lane | Value | Context |
+| --- | --- | --- |
+{% for row in threat_hunt_ui.impact_rows %}
+| {{ row.label | md_escape }} | {{ row.value | md_escape }} | {{ row.detail | md_escape }} |
+{% endfor %}
+{% if impact_note %}
+
+{{ impact_note | md_escape }}
+{% endif %}
+{% else %}
+Hunt impact rows were not available.
+{% endif %}
+
+{% if pattern_notes %}
+## Scraper Pattern Context
+
+These notes explain source-backed behavior patterns only when the artifact crosses the renderer's thresholds and at least one supporting evidence family is present. They are not classification evidence by themselves.
+
+{% for note in pattern_notes %}
+### {{ note.title | md_escape }}
+
+{{ note.text | md_escape }}
+
+Evidence basis: {{ note.evidence_basis | join("; ") | md_escape }}
+
+Boundary: {{ note.confidence_boundary | md_escape }}
+
+Sources: {% for link in note.links %}[{{ link.label | md_escape }}]({{ link.url }}){% if not loop.last %}; {% endif %}{% endfor %}
+
+{% endfor %}
+{% endif %}
+
+## Recommended Actions
+
+{% if recommended_actions %}
+{% for action in recommended_actions %}
+### {{ action.tier_label | md_escape }} — {{ action.action_type_label | md_escape }}
+
+Scope: **{{ action.scope_label | md_escape }}**; wording: {{ action.wording_label | md_escape }}; IMPACT: {{ action.impact_requests_display }} requests ({{ action.impact_request_share_display }} of window total){% if action.impact_bytes_display != "unavailable" %} · {{ action.impact_bytes_display }} response body ({{ action.impact_byte_share_display }} of response bytes){% endif %}.
+
+{% if action.threat_category %}Threat classification: **{{ action.threat_category_label | md_escape }}** ({{ action.threat_confidence_display }}).{% if action.classification_ambiguity_note %} {{ action.classification_ambiguity_note | md_escape }}{% endif %}
+
+{% endif %}
+
+Targets: `{% if action.target_values.campaign_id %}{{ action.target_values.campaign_id | md_escape }}{% elif action.target_values.ua_family_id %}{{ action.target_values.ua_family_id | md_escape }}{% elif action.target_values.user_agents %}{{ action.target_values.user_agents | join("`, `") | md_escape }}{% else %}selected scope{% endif %}`
+{% if action.target_values.endpoint_prefixes %}; endpoints: {% for endpoint in action.target_values.endpoint_prefixes[:5] %}`{{ endpoint | md_escape }}`{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+
+{% if action.supporting_evidence %}
+Evidence: {{ action.supporting_evidence | join(", ") | md_escape }}
+{% endif %}
+
+Validation: {{ action.validation_notes | join(" ") | md_escape }}
+
+Modifier guidance: {{ (action.threat_action_modifier or action.false_positive_caveat) | md_escape }}
+
+Rollback / monitoring: {{ action.rollback_monitoring | join(" ") | md_escape }}
+
+{% endfor %}
+{% else %}
+No tiered recommendations were supplied in the artifact.
+{% endif %}
+
+## Known Crawler And Infrastructure Traffic
+
+{% if known_traffic %}
+These records matched known crawler or infrastructure user-agent patterns and were excluded from threat classifications and recommended actions.
+
+| Disposition | User agent | Requests | Reason |
+| --- | --- | --- | --- |
+{% for row in known_traffic %}
+| {{ row.disposition_label | md_escape }} | `{{ row.user_agent | md_escape }}` | {{ row.requests_display | md_escape }} | {{ row.reason | md_escape }} |
+{% endfor %}
+{% else %}
+No known crawler or infrastructure user-agent patterns were separated from the action queue.
+{% endif %}
+
+## Bot Manager Context
+
+{{ bot_manager_context.caveat | md_escape }}
+
+{% if bot_manager_context.available %}
+{% if bot_manager_context.has_aggregate %}
+Aggregate source: {{ bot_manager_context.aggregate.source | md_escape }}{% if bot_manager_context.aggregate.source_tables %} ({{ bot_manager_context.aggregate.source_tables | join(", ") | md_escape }}){% endif %}; requests: {{ bot_manager_context.aggregate.total_requests_display }}{% if bot_manager_context.aggregate.average_bot_score_display != "unavailable" %}; average bot score: {{ bot_manager_context.aggregate.average_bot_score_display }}{% endif %}.
+
+{% if bot_manager_context.aggregate.action_class_mix %}
+Action class mix:
+{% for row in bot_manager_context.aggregate.action_class_mix[:5] %}
+- {{ row.label | md_escape }}: {{ row.requests_display }} ({{ row.share_display }})
+{% endfor %}
+{% endif %}
+{% if bot_manager_context.aggregate.bot_type_mix %}
+Bot type mix:
+{% for row in bot_manager_context.aggregate.bot_type_mix[:5] %}
+- {{ row.label | md_escape }}: {{ row.requests_display }} ({{ row.share_display }})
+{% endfor %}
+{% endif %}
+{% if bot_manager_context.aggregate.policy_mix %}
+Policy mix:
+{% for row in bot_manager_context.aggregate.policy_mix[:5] %}
+- {{ row.label | md_escape }}: {{ row.requests_display }} ({{ row.share_display }})
+{% endfor %}
+{% endif %}
+{% endif %}
+{% if not bot_manager_context.has_exact_ua %}
+Lead-level context: the Bot Manager source is aggregate and not UA-specific.
+{% endif %}
+{% else %}
+Bot Manager operational context was not supplied.
+{% endif %}
+
+## Campaign Summary
+
+{% if campaigns %}
+{% for campaign in campaigns %}
+### {{ campaign.campaign_id | md_escape }}
+
+Verdict: **{{ campaign.verdict_label | md_escape }}**; sophistication: {{ campaign.sophistication | md_escape }}; temporal pattern: {{ campaign.temporal_pattern_label | md_escape }}
+
+{% set surface = campaign.drilldown_coverage_summary %}
+Campaign surface: **{{ surface.surface_label_display | md_escape }}**; weighted coverage {{ surface.weighted_coverage_display }} ({{ surface.drilldown_requests_display }}/{{ surface.total_requests_display }} requests)
+
+{% set endpoint_summary = campaign.endpoint_evidence_summary %}
+Campaign endpoint evidence: confirmed {{ endpoint_summary.confirmed_member_count | default(0) }}, inferred {{ endpoint_summary.inferred_member_count | default(0) }}, unconfirmed {{ endpoint_summary.unconfirmed_member_count | default(0) }} members; verdict credit {{ "yes" if endpoint_summary.counts_for_verdict else "no" }}.
+{% if endpoint_summary.dominant_categories %}Dominant endpoint categories: {% for item in endpoint_summary.dominant_categories[:4] %}{{ item.category | md_escape }}{% if not loop.last %}, {% endif %}{% endfor %}
+{% endif %}
+
+{% set ua_summary = campaign.ua_plausibility_summary %}
+UA plausibility: {{ ua_summary.anomalous_member_count }} confirmed, {{ ua_summary.weak_member_count }} elevated; max score {{ ua_summary.max_score_display }}; forged-UA candidate {{ "yes" if ua_summary.forged_ua_candidate else "no" }}.
+{% if ua_summary.top_triggers %}Top UA triggers: {% for item in ua_summary.top_triggers[:3] %}{{ item.trigger | md_escape }}{% if not loop.last %}; {% endif %}{% endfor %}
+{% endif %}
+
+{% set confidence = campaign.confidence_summary %}
+Confidence summary: dominant **{{ confidence.dominant_qualifier_label | default("Unavailable") | md_escape }}**; baseline significance available for {{ confidence.baseline_significance_available_count | default(0) }} members.
+{% if confidence.get("strongest_reinforcing_combinations") %}Reinforcing combinations: {% for item in confidence.get("strongest_reinforcing_combinations") %}{{ item.check | md_escape }} ({{ item.member_count }}){% if not loop.last %}; {% endif %}{% endfor %}
+{% endif %}
+
+{% set timing_summary = campaign.get("timing_summary") %}
+{% if timing_summary and timing_summary.get("evidence_text") %}Timing summary: {{ timing_summary.get("evidence_text") | md_escape }}
+{% endif %}
+
+{% set classification = campaign.threat_classification %}
+{% if classification.primary %}Threat classification: **{{ classification.primary.category_label | md_escape }}** ({{ classification.primary.confidence_display }}).{% if classification.ambiguity_note %} {{ classification.ambiguity_note | md_escape }}{% endif %}
+
+{% set mapping = classification.primary.attack_mapping %}
+{% if mapping.mitre_techniques or mapping.hdx_techniques %}Mappings consistent with observed signal only, not attribution: {% for tech in mapping.mitre_techniques %}[`{{ tech }}`]({{ tech | attack_url }}){% if not loop.last or mapping.hdx_techniques %}, {% endif %}{% endfor %}{% for tech in mapping.hdx_techniques %}`{{ tech }}`{% if not loop.last %}, {% endif %}{% endfor %}
+{% endif %}
+{% endif %}
+
+Members: {{ campaign.leads | join("; ") | md_escape }}
+
+Composite metrics: {{ campaign.total_requests_display }} requests; baseline {{ campaign.baseline_requests_display }}; {{ campaign.baseline_delta_display }} vs baseline; {{ campaign.unique_client_ips }} IPs; {{ campaign.unique_asns }} ASNs; {{ campaign.unique_countries }} countries
+Impact: Share of total {{ campaign.impact_assessment.request_share_display }}; response body {{ campaign.impact_assessment.response_body_bytes_display }} ({{ campaign.impact_assessment.response_body_byte_share_display }} of response bytes); Akamai-billed {{ campaign.impact_assessment.akamai_billed_bytes_display }} ({{ campaign.impact_assessment.akamai_billed_byte_share_display }} of CDN billed bandwidth); Hydrolix log ingest {{ campaign.impact_assessment.hydrolix_log_ingest_bytes_display }} ({{ campaign.impact_assessment.hydrolix_log_ingest_byte_share_display }} of customer log volume).
+{% set fanout_summary = campaign.fanout_summary %}
+Campaign fan-out: {{ fanout_summary.line | md_escape }}
+
+Link evidence:
+{% for item in campaign.link_narratives %}
+- {{ item | md_escape }}
+{% endfor %}
+
+{% if campaign.endpoint_targets %}
+| Endpoint prefix | Requests | Share |
+| --- | --- | --- |
+{% for row in campaign.endpoint_targets[:5] %}
+| {{ row.endpoint_prefix | md_escape }} | {{ row.requests | big_number }} | {{ row.share_pct | pct2 if row.share_pct is not none else "—" }} |
+{% endfor %}
+{% endif %}
+
+{% endfor %}
+{% else %}
+No multi-lead scraper campaign passed the conservative linking thresholds. Singleton leads remain below as independent scraper cases.
+{% endif %}
+
+## UA Families
+
+{% if ua_families %}
+{% for family in ua_families %}
+### {{ family.family_id | md_escape }}
+
+Template: `{{ family.template | md_escape }}`
+
+Members: {{ family.member_count }}; version range: {{ family.version_range_display | md_escape }}; version count: {{ family.version_count }}; total requests: {{ family.total_requests_display }}; baseline: {{ family.total_baseline_display }}; request CV: {{ family.request_volume_cv_display }}.
+Impact: Share of total {{ family.impact_assessment.request_share_display }}; response body {{ family.impact_assessment.response_body_bytes_display }} ({{ family.impact_assessment.response_body_byte_share_display }} of response bytes); Akamai-billed {{ family.impact_assessment.akamai_billed_bytes_display }} ({{ family.impact_assessment.akamai_billed_byte_share_display }} of CDN billed bandwidth); Hydrolix log ingest {{ family.impact_assessment.hydrolix_log_ingest_bytes_display }} ({{ family.impact_assessment.hydrolix_log_ingest_byte_share_display }} of customer log volume).
+
+Common evidence:
+{% for item in family.common_evidence %}
+- {{ item | md_escape }}
+{% endfor %}
+
+{% if family.structural_checks %}Structural checks: {{ family.structural_checks | join(", ") | md_escape }}
+{% endif %}
+
+{% if family.campaign_overlaps %}
+Campaign overlap:
+{% for overlap in family.campaign_overlaps %}
+- {{ overlap.summary | md_escape }}
+{% endfor %}
+{% else %}
+Campaign overlap: none recorded.
+{% endif %}
+
+{% set classification = family.threat_classification %}
+{% if classification.primary %}Threat classification: **{{ classification.primary.category_label | md_escape }}** ({{ classification.primary.confidence_display }}).{% if classification.ambiguity_note %} {{ classification.ambiguity_note | md_escape }}{% endif %}
+{% endif %}
+
+{% if family.recommended_actions %}
+{% set action = family.recommended_actions[0] %}
+Recommendation: **{{ action.tier_label | md_escape }}** - {{ action.action_type_label | md_escape }}; wording: {{ action.wording_label | md_escape }}.
+{% endif %}
+
+Member UAs: {{ family.members[:12] | join("; ") | md_escape }}
+
+{% endfor %}
+{% else %}
+No browser-version UA family met the member, version-count, and request-uniformity thresholds.
+{% endif %}
+
+## Scraper Leads
+
+{% if scraper_cases %}
+{% for case in scraper_cases %}
+### {{ case.user_agent | md_escape }}
+
+Verdict: **{{ case.verdict_label | md_escape }}**
+{% if case.campaign_id %}
+
+Part of {{ case.campaign_id | md_escape }} (campaign verdict: {{ case.campaign_verdict | md_escape }}).
+{% endif %}
+{% if case.get("ua_family_id") %}
+
+Part of UA family {{ case.get("ua_family_id") | md_escape }}.
+{% if case.get("nested_under_family") %}Standalone recommended action is nested under the family recommendation.{% endif %}
+{% endif %}
+
+Requests: {{ case.requests_display }}; baseline: {{ case.baseline_display }}; delta vs baseline: {{ case.baseline_delta_display }}{% if case.unique_client_ips is not none %}; IPs: {{ case.unique_client_ips }}{% endif %}{% if case.unique_asns is not none %}; ASNs: {{ case.unique_asns }}{% endif %}{% if case.unique_countries is not none %}; countries: {{ case.unique_countries }}{% endif %}; Impact: Share of total {{ case.impact_assessment.request_share_display }}; response body {{ case.impact_assessment.response_body_bytes_display }} ({{ case.impact_assessment.response_body_byte_share_display }} of response bytes); Akamai-billed {{ case.impact_assessment.akamai_billed_bytes_display }} ({{ case.impact_assessment.akamai_billed_byte_share_display }} of CDN billed bandwidth); Hydrolix log ingest {{ case.impact_assessment.hydrolix_log_ingest_bytes_display }} ({{ case.impact_assessment.hydrolix_log_ingest_byte_share_display }} of customer log volume).
+
+{% set coverage = case.drilldown_coverage %}
+Surface coverage: **{{ coverage.status_label | md_escape }}**; {{ coverage.coverage_display }} ({{ coverage.drilldown_requests_display }}/{{ coverage.total_requests_display }} requests)
+
+{% set endpoint_evidence = case.endpoint_evidence %}
+Endpoint evidence: **{{ endpoint_evidence.tier_label | md_escape }}** from {{ endpoint_evidence.source_label | md_escape }}; verdict credit {{ "yes" if endpoint_evidence.counts_for_verdict else "no" }}; reason `{{ endpoint_evidence.reason | md_escape }}`
+
+{% set ua_plausibility = case.ua_plausibility %}
+UA plausibility: **{{ ua_plausibility.verdict_label | md_escape }}**; score {{ ua_plausibility.score_display }}; {{ ua_plausibility.boundary_text | md_escape }}{% if ua_plausibility.trigger_reason %}; {{ ua_plausibility.trigger_reason | md_escape }}{% endif %}
+{% if ua_plausibility.fired_structural_checks %}Structural checks: {{ ua_plausibility.fired_structural_checks | join(", ") | md_escape }}
+{% endif %}
+{% set fanout = case.fanout_enrichment %}
+{{ fanout.line | md_escape }}
+Caveat: {{ fanout.caveat | md_escape }}
+{% if fanout.shelf_life_guidance %}
+Fan-out shelf life: {{ fanout.shelf_life_guidance | md_escape }}
+{% endif %}
+
+Evidence flags: {{ case.evidence_flag_labels | join(", ") | md_escape if case.evidence_flag_labels else "None supplied" }}
+
+{% if case.timing %}
+Timing status: **{{ case.timing.status_label | md_escape }}**; {{ case.timing.archetype | md_escape }}; {{ case.timing.resolution | md_escape }}; sample {{ case.timing.sample_size }}; {{ case.timing.metric_line | md_escape }}
+
+{{ case.timing.summary | md_escape }}
+{% endif %}
+
+{% set classification = case.threat_classification %}
+{% if classification.primary %}Threat classification: **{{ classification.primary.category_label | md_escape }}** ({{ classification.primary.confidence_display }}).{% if classification.ambiguity_note %} {{ classification.ambiguity_note | md_escape }}{% endif %}
+
+Evidence: {{ classification.primary.trigger_evidence | join(" ") | md_escape }}
+Signals: {{ classification.primary.distinguishing_signals | join("; ") | md_escape }}
+{% set mapping = classification.primary.attack_mapping %}
+{% if mapping.mitre_techniques or mapping.hdx_techniques %}Mappings consistent with observed signal only, not attribution: {% for tech in mapping.mitre_techniques %}[`{{ tech }}`]({{ tech | attack_url }}){% if not loop.last or mapping.hdx_techniques %}, {% endif %}{% endfor %}{% for tech in mapping.hdx_techniques %}`{{ tech }}`{% if not loop.last %}, {% endif %}{% endfor %}
+{% endif %}
+{% endif %}
+
+{% set confidence = case.confidence_assessment %}
+Confidence assessment: **{{ confidence.qualifier_label | md_escape }}**; score {{ confidence.score_display }}; baseline z-score {{ confidence.baseline_z_display }}.
+{% if confidence.reasons %}
+{% for reason in confidence.reasons %}
+- {{ reason | md_escape }}
+{% endfor %}
+{% endif %}
+{% if confidence.background_rate_rows %}
+Background-rate caveats: {% for row in confidence.background_rate_rows %}{{ row.family_label | md_escape }} {{ row.rate_display }} ({{ row.concern | md_escape }}){% if not loop.last %}; {% endif %}{% endfor %}
+{% endif %}
+{% if confidence.shelf_life_rows %}
+Shelf-life notes:
+{% for row in confidence.shelf_life_rows %}
+- {{ row.evidence_label | md_escape }}: {{ row.guidance | md_escape }}
+{% endfor %}
+{% endif %}
+
+Case for:
+{% if case.case_for %}
+{% for item in case.case_for %}
+- {{ item | md_escape }}
+{% endfor %}
+{% else %}
+- No independent scraper evidence family cleared the threshold.
+{% endif %}
+
+Case against / missing evidence:
+{% for item in case.case_against %}
+- {{ item | md_escape }}
+{% endfor %}
+
+{% if case.endpoint_targets %}
+| Endpoint context | Requests | Share | Category | Markers |
+| --- | --- | --- | --- | --- |
+{% for row in case.endpoint_targets[:5] %}
+{% set endpoint_share = row.get("share_pct") if row.get("share_pct") is not none else row.get("request_share_pct") %}
+| {{ (row.get("request_path") or row.get("value")) | md_escape }} | {{ row.get("requests") | big_number }} | {{ endpoint_share | pct2 if endpoint_share is not none else "—" }} | {{ row.get("endpoint_category", "uncharacterized") | md_escape }} | {{ row.get("markers") | join(", ") | md_escape if row.get("markers") else "—" }} |
+{% endfor %}
+{% endif %}
+
+{% if case.hourly_bursts %}
+| Hour | Requests | Share |
+| --- | --- | --- |
+{% for row in case.hourly_bursts[:5] %}
+| {{ row.hour | md_escape }} | {{ row.requests | big_number }} | {{ row.share_pct | pct2 if row.share_pct is not none else "—" }} |
+{% endfor %}
+{% endif %}
+
+{% set bm = case.bot_manager_context %}
+{% if bm.available %}
+Bot Manager exact-UA context: {{ bm.total_requests_display }} requests{% if bm.average_bot_score_display != "unavailable" %}; average bot score {{ bm.average_bot_score_display }}{% endif %}.
+{% if bm.action_class_mix %}Action classes: {% for row in bm.action_class_mix[:3] %}{{ row.label | md_escape }} {{ row.share_display }}{% if not loop.last %}; {% endif %}{% endfor %}
+{% endif %}
+{% elif bot_manager_context.has_aggregate and not bot_manager_context.has_exact_ua %}
+Bot Manager context: aggregate only; no exact-UA row was supplied for this lead.
+{% endif %}
+
+{% endfor %}
+{% else %}
+No user-agent scraper cases could be assembled from the supplied actor evidence.
+{% endif %}
+
+A scraper lead here means repeated automated-looking access to API/search/catalog/content endpoints. It does not identify an operator, prove intent, or show cross-customer reuse.
+
+## Module Verdicts
+
+| Module | Verdict | Evidence basis |
+| --- | --- | --- |
+{% for card in scorecards %}
+| {{ card.module_label | md_escape }} | {{ card.verdict_label | md_escape }} | {{ card.rationale | md_escape }} |
+{% endfor %}
+
+## Exact UA Fingerprints
+
+{% if fingerprints %}
+| # | User agent | Requests | Baseline | IPs | ASNs | Countries |
+| --- | --- | --- | --- | --- | --- | --- |
+{% for row in fingerprints %}
+| {{ row.rank }} | {{ row.user_agent | md_escape }} | {{ row.requests | big_number }} | {{ row.baseline_requests | big_number }} | {{ row.unique_client_ips if row.unique_client_ips is not none else "—" }} | {{ row.unique_asns if row.unique_asns is not none else "—" }} | {{ row.unique_countries if row.unique_countries is not none else "—" }} |
+{% endfor %}
+{% else %}
+Raw actor user-agent exports were not supplied.
+{% endif %}
+
+## Site-Level Endpoint Context
+
+{% if endpoints %}
+| # | Path | Requests | Share | 429 | 5xx | Markers |
+| --- | --- | --- | --- | --- | --- | --- |
+{% for row in endpoints %}
+| {{ row.rank }} | {{ row.value | md_escape }} | {{ row.requests | big_number }} | {{ row.request_share_pct | pct2 if row.request_share_pct is not none else "—" }} | {{ row.rate_429_pct | pct2 if row.rate_429_pct is not none else "—" }} | {{ row.rate_5xx_pct | pct2 if row.rate_5xx_pct is not none else "—" }} | {{ row.markers | join(", ") | md_escape if row.markers else "—" }} |
+{% endfor %}
+{% else %}
+Path-ranked summary rows were not available.
+{% endif %}
+
+## Infrastructure
+
+{% set asns = infrastructure.asn_rollups if infrastructure else [] %}
+{% if asns %}
+| # | ASN | Organization | Requests | IPs | Countries |
+| --- | --- | --- | --- | --- | --- |
+{% for row in asns %}
+| {{ row.rank }} | {{ row.asn | md_escape }} | {{ (row.asn_org or "—") | md_escape }} | {{ row.requests | big_number }} | {{ row.client_ip_count }} | {{ row.country_count }} |
+{% endfor %}
+{% else %}
+GeoIP/ASN enrichment was not supplied or no client-IP rows were available.
+{% endif %}
+
+## Baseline Movement
+
+| Metric | Current | Baseline | Change |
+| --- | --- | --- | --- |
+{% for row in metric_rows %}
+| {{ row.metric_label | md_escape }} | {{ row.current_display }} | {{ row.baseline_display }} | {{ row.pct_change_display }} |
+{% endfor %}
+
+## Detection Visibility
+
+{{ (classification_gap.summary or "Bot/SIEM/edge visibility artifacts were not supplied.") | md_escape }}
+
+## Limitations
+
+| Input | Status | Effect |
+| --- | --- | --- |
+{% for row in limitations %}
+| {{ row.module | md_escape }} | {{ row.availability | md_escape }} | {{ row.detail | md_escape }} |
+{% endfor %}
