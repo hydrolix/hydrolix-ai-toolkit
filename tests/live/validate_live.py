@@ -4,21 +4,27 @@
 This is a REPEATABLE test harness. It proves that every SQL claim the skill makes
 actually holds on a live deployment (default: demo.trafficpeak.live). It covers:
 
-  1. Table/column schema  - documented columns exist; phantom columns do NOT.
-  2. Reference-doc SQL     - every ```sql block that targets a deployed summary
+  1. Discovery            - placeholder values (host, ASN, SIEM policyId) were
+                             resolved from real cluster data, not left as
+                             synthetic fallbacks that make scoped queries no-ops.
+  2. Table/column schema  - documented columns exist; phantom columns do NOT.
+  3. Reference-doc SQL     - every ```sql block that targets a deployed summary
                              table is extracted from the skill's markdown,
                              placeholders are resolved to real values, and the
                              query is executed. It must run without error.
-  3. Negative assertions   - things the docs say are impossible/absent MUST fail
+  4. Negative assertions   - things the docs say are impossible/absent MUST fail
                              (e.g. sum(cnt_all) -> ILLEGAL_AGGREGATION; selecting
                              cnt_cache_miss / p95_origin_ttfb / bot_class).
-  4. Prose-derived claims  - factual statements in the prose ("statusCode is
+  5. Prose-derived claims  - factual statements in the prose ("statusCode is
                              numeric", "trafficCohort in Human/Bot/AI", "aiSource
                              is empty when aiCategory is empty", etc.) are turned
                              into executable checks.
-  5. Producer generators   - every deployed-table SQL generator in
+  6. Producer generators   - every deployed-table SQL generator in
                              bot_insights.producers.sql is called with real
                              parameters and its emitted SQL is executed.
+  7. Capture presets       - every bot_insights_capture preset (posture-overview,
+                             posture-by-asn, posture-by-path, siem-policy) is
+                             rendered and executed.
 
 Connection reuses the skill's own cluster-env convention (no new DB client, no
 hardcoded credentials): it reads ~/.config/hydrolix/clusters/<cluster>.env for
@@ -104,7 +110,7 @@ class QueryError(RuntimeError):
 
 @dataclass
 class Result:
-    kind: str          # schema | doc-sql | negative | prose | producer
+    kind: str          # discovery | schema | doc-sql | negative | prose | producer | preset
     name: str
     status: str        # PASS | FAIL | SKIP | UNRESOLVED
     detail: str = ""
