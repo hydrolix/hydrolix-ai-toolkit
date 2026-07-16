@@ -13,6 +13,7 @@ those claims so drift is caught before it ships.
 
 | Family | What it proves |
 |--------|----------------|
+| **discovery** | Placeholder values (host, ASN, SIEM policyId) were resolved from real cluster data - not silently left as synthetic defaults that would make scope-filtered examples run against nothing. |
 | **schema**   | Every documented column exists (probed with a real `SELECT`, so Alias/Summary columns like `cnt_all`/`reqTimeSec` resolve); every phantom column the docs say is absent (`cnt_cache_miss`, `p95_origin_ttfb`, `bot_class`, `requestPathPattern`, ...) is in fact absent. |
 | **doc-sql**  | Every ```` ```sql ```` block in the skill markdown that targets a deployed summary table is extracted, its placeholders resolved to real values, and executed. `bot_agg_*` / `bot_detection` blocks (documented as not-deployed) are skipped. |
 | **negative** | Things the docs say are impossible actually fail: `sum(cnt_all)` -> `ILLEGAL_AGGREGATION`; selecting `cnt_cache_miss` / `p95_origin_ttfb` / `bot_class` / `requestPathPattern` / `is_bot_traffic`. |

@@ -1067,7 +1067,7 @@ class BotInsightsScriptTests(unittest.TestCase):
                 ),
                 "reqPathPattern",
             )
-            # Currently-deployed shape resolves to requestPathPattern.
+            # Legacy (pre-1.1) shape resolves to requestPathPattern when present.
             self.assertEqual(
                 _resolve_standard_path_pattern_column(
                     args, granularity="day", sample_dir=Path(tmp),
@@ -4822,8 +4822,9 @@ class BotInsightsScriptTests(unittest.TestCase):
         # bot_insights_cdn/1.1 renames the path-pattern summary dimension to
         # ``reqPathPattern`` (hydrolix/tables/bi_summary_*.sql). The renderer
         # resolves the canonical ``request_path_pattern`` against table
-        # metadata, so the physical candidate list must include it alongside
-        # the currently-deployed ``requestPathPattern``.
+        # metadata, so the physical candidate list must include the
+        # currently-deployed ``reqPathPattern`` alongside the legacy
+        # ``requestPathPattern``.
         aliases = self.attribution.metadata_column_aliases("request_path_pattern")
         self.assertIn("requestPathPattern", aliases)
         self.assertIn("reqPathPattern", aliases)

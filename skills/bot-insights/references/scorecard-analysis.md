@@ -256,8 +256,8 @@ WITH
         countMergeIf(`count()`, cacheStatus = false AND (reqTimeSec >= baseline_start AND reqTimeSec < baseline_end))
         / greatest(baseline_requests, 1) * 100, 2
       ) AS baseline_cache_miss_pct,
-      sum_originTurnAroundTime_ms / greatest(cnt_originTurnAroundTime, 1) AS current_origin_p95_ms,  -- percentiles not retained on bi_summary_*; overall-window mean (identical for current/baseline - cannot split per window)
-      sum_originTurnAroundTime_ms / greatest(cnt_originTurnAroundTime, 1) AS baseline_origin_p95_ms,  -- percentiles not retained on bi_summary_*; overall-window mean (identical for current/baseline - cannot split per window)
+      NULL AS current_origin_p95_ms,   -- tail-latency percentiles are NOT retained on bi_summary_*; the deployed producer emits NULL here. For average origin latency use sum_originTurnAroundTime_ms / cnt_originTurnAroundTime (see edge-ops-analysis.md).
+      NULL AS baseline_origin_p95_ms,
       round(
         countMergeIf(`count()`, statusCode = 429 AND (reqTimeSec >= current_start AND reqTimeSec < current_end))
         / greatest(current_requests, 1) * 100, 2
@@ -296,8 +296,7 @@ SELECT
   baseline_rate_5xx_pct,
   abs(current_requests - baseline_requests)
     / greatest(sum(abs(current_requests - baseline_requests)) OVER (), 1) * 100 AS contribution_pct,
-  current_requests * current_origin_p95_ms
-    / greatest(sum(current_requests * current_origin_p95_ms) OVER (), 1) * 100 AS origin_cost_contribution_pct
+  NULL AS origin_cost_contribution_pct   -- needs per-entity tail latency, not retained on bi_summary_* (see the origin_p95 note above); the deployed producer emits NULL
 FROM by_entity
 ORDER BY abs(current_requests - baseline_requests) DESC
 LIMIT 50
@@ -334,8 +333,8 @@ SELECT
   -- bad-bot classification requires SIEM botType (bi_siem_policy_summary_*); not retained on posture
   round(countMergeIf(`count()`, cacheStatus = false AND (reqTimeSec >= current_start AND reqTimeSec < current_end)) / greatest(current_requests, 1) * 100, 2) AS current_cache_miss_pct,
   round(countMergeIf(`count()`, cacheStatus = false AND (reqTimeSec >= baseline_start AND reqTimeSec < baseline_end)) / greatest(baseline_requests, 1) * 100, 2) AS baseline_cache_miss_pct,
-  sum_originTurnAroundTime_ms / greatest(cnt_originTurnAroundTime, 1) AS current_origin_p95_ms,  -- percentiles not retained on bi_summary_*; overall-window mean (identical for current/baseline - cannot split per window)
-  sum_originTurnAroundTime_ms / greatest(cnt_originTurnAroundTime, 1) AS baseline_origin_p95_ms,  -- percentiles not retained on bi_summary_*; overall-window mean (identical for current/baseline - cannot split per window)
+  NULL AS current_origin_p95_ms,   -- tail-latency percentiles are NOT retained on bi_summary_*; the deployed producer emits NULL here. For average origin latency use sum_originTurnAroundTime_ms / cnt_originTurnAroundTime (see edge-ops-analysis.md).
+  NULL AS baseline_origin_p95_ms,
   round(countMergeIf(`count()`, statusCode = 429 AND (reqTimeSec >= current_start AND reqTimeSec < current_end)) / greatest(current_requests, 1) * 100, 2) AS current_rate_429_pct,
   round(countMergeIf(`count()`, statusCode = 429 AND (reqTimeSec >= baseline_start AND reqTimeSec < baseline_end)) / greatest(baseline_requests, 1) * 100, 2) AS baseline_rate_429_pct,
   round(countMergeIf(`count()`, statusCode >= 500 AND (reqTimeSec >= current_start AND reqTimeSec < current_end)) / greatest(current_requests, 1) * 100, 2) AS current_rate_5xx_pct,

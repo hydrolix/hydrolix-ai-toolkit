@@ -133,9 +133,12 @@ denominators are computed in the `scored` CTE before the final output `LIMIT`.
 Summary tables store each metric twice: an expression-named
 `AggregateColumn` holding the aggregate state (must be wrapped in the
 `merge_function` reported by metadata) and a friendly-named `SummaryColumn`
-alias that resolves to a per-row merged value (use directly, never wrap in
-`sum()`/`count()`/`avg()`). Always confirm the exact names from table
-metadata; the deployed 1.1 columns are:
+alias that resolves to a per-row merged value (use directly; never wrap it in an
+*aggregate* `sum()`/`count()`/`avg()` in the same query - that raises
+`ILLEGAL_AGGREGATION`). Using it inside a *window* function is fine - e.g.
+`round(cnt_all / sum(cnt_all) OVER () * 100, 2)` for a share-of-total column -
+because the window runs after the per-group merge, not as a nested aggregate.
+Always confirm the exact names from table metadata; the deployed 1.1 columns are:
 
 **`bi_summary_*` (CDN posture).** SummaryColumn aliases:
 

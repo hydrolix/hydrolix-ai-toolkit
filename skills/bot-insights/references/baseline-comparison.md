@@ -261,19 +261,19 @@ SELECT
   period,
   countMerge(`count()`) AS requests,
   round(countMergeIf(`count()`, isBotTraffic = true) / greatest(countMerge(`count()`), 1) * 100, 2) AS bot_share_pct,
-  round(countMergeIf(`count()`, userAgentCategory = 'Search Engine Crawler') / greatest(countMerge(`count()`), 1) * 100, 2) AS good_bot_share_pct,
+  round(countMergeIf(`count()`, trafficCohort = 'Bot') / greatest(countMerge(`count()`), 1) * 100, 2) AS good_bot_share_pct,
   round(countMergeIf(`count()`, statusCode = 429) / greatest(countMerge(`count()`), 1) * 100, 2) AS rate_429_pct,
   round(countMergeIf(`count()`, statusCode >= 500) / greatest(countMerge(`count()`), 1) * 100, 2) AS rate_5xx_pct,
   round(countMergeIf(`count()`, cacheStatus = false) / greatest(countMerge(`count()`), 1) * 100, 2) AS cache_miss_pct
   -- origin-latency movement: see edge-ops-analysis.md (sum/count latency columns)
 FROM (
-  SELECT 'current' AS period, `count()`, isBotTraffic, userAgentCategory, statusCode, cacheStatus
+  SELECT 'current' AS period, `count()`, isBotTraffic, trafficCohort, statusCode, cacheStatus
   FROM <project>.<posture_summary_day>
   WHERE reqTimeSec >= current_start
     AND reqTimeSec < current_end
     AND reqHost = '<host>'
   UNION ALL
-  SELECT 'baseline' AS period, `count()`, isBotTraffic, userAgentCategory, statusCode, cacheStatus
+  SELECT 'baseline' AS period, `count()`, isBotTraffic, trafficCohort, statusCode, cacheStatus
   FROM <project>.<posture_summary_day>
   WHERE reqTimeSec >= baseline_start
     AND reqTimeSec < baseline_end
@@ -283,11 +283,10 @@ GROUP BY period
 ORDER BY period
 ```
 
-`good_bot_share_pct` filters on `userAgentCategory = 'Search Engine Crawler'`
-because deployed posture summaries do not retain a queryable `bot_class`
-column; confirm the metadata-matched user-agent category value for the
-target cluster. `bad_bot_share_pct` is intentionally omitted: there is no
-clean `userAgentCategory` value for "bad". For SIEM-grade bad-bot share on
+`good_bot_share_pct` filters on `trafficCohort = 'Bot'` (declared non-AI bot
+traffic) - the same "good bot" proxy the deployed scorecard producer uses -
+because posture summaries do not retain a `bot_class` column. `bad_bot_share_pct`
+is intentionally omitted: posture has no good/bad split. For SIEM-grade bad-bot share on
 SIEM-enabled clusters, layer `bi_siem_policy_summary_*` (filter on
 `botType`) on top of this template; otherwise apply the
 deployment-availability rule (SKILL.md). See the metadata-alias note in

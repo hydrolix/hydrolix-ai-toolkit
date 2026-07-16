@@ -215,7 +215,7 @@ LIMIT {limit}
     if args.preset == "posture-by-path":
         return f"""
 SELECT
-  requestPathPattern AS request_path_pattern,
+  reqPathPattern AS request_path_pattern,
   reqHost AS request_host,
   trafficCohort,
   resourceCategory,

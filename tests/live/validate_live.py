@@ -361,6 +361,29 @@ def _col_exists(ctx: Ctx, table: str, col: str, time_col: str) -> bool:
         return False
 
 
+def check_discovery(ctx: Ctx, results: list[Result]) -> None:
+    """Fail loudly if placeholder discovery fell back to synthetic values. A
+    synthetic host/ASN means scope-filtered example queries ran against filters
+    that match no real data - they still execute, but prove nothing, so this
+    must not pass silently. An empty policyId is tolerated (a cluster may have
+    no SIEM policies) but reported."""
+    if ctx.host == "www.example.com":
+        results.append(Result("discovery", "real reqHost discovered", "FAIL",
+                              "fell back to synthetic host; scope-filtered examples ran against no real data"))
+    else:
+        results.append(Result("discovery", "real reqHost discovered", "PASS", ctx.host))
+    if ctx.asn == "0":
+        results.append(Result("discovery", "real asn discovered", "FAIL",
+                              "fell back to synthetic ASN; scope-filtered examples ran against no real data"))
+    else:
+        results.append(Result("discovery", "real asn discovered", "PASS", ctx.asn))
+    if not ctx.policy_id:
+        results.append(Result("discovery", "SIEM policyId discovered", "SKIP",
+                              "no policyId found (cluster may have no SIEM policies); policy-scoped filters degrade to no-op"))
+    else:
+        results.append(Result("discovery", "SIEM policyId discovered", "PASS", ctx.policy_id))
+
+
 def check_schema(ctx: Ctx, results: list[Result], quick: bool = False) -> None:
     tables = ["bi_summary_hour", "bi_siem_policy_summary_hour"] if quick else POSTURE_TABLES + SIEM_TABLES
     for table in tables:
@@ -410,28 +433,37 @@ def check_doc_sql(ctx: Ctx, results: list[Result]) -> None:
 def check_negative(ctx: Ctx, results: list[Result]) -> None:
     db, h = ctx.db, "bi_summary_hour"
     win = "WHERE reqTimeSec >= now() - INTERVAL 1 HOUR"
+    # (name, expected ClickHouse error code, sql). 184 = ILLEGAL_AGGREGATION,
+    # 47 = UNKNOWN_IDENTIFIER. Asserting the exact code prevents an unrelated
+    # failure (connection/permission/table) from masquerading as the expected
+    # rejection.
     cases = [
-        ("sum(SummaryColumn) -> ILLEGAL_AGGREGATION",
+        ("sum(SummaryColumn) -> ILLEGAL_AGGREGATION", "184",
          f"SELECT reqHost, sum(cnt_all) FROM {db}.{h} {win} GROUP BY reqHost"),
-        ("cnt_cache_miss column absent", f"SELECT cnt_cache_miss FROM {db}.{h} {win} LIMIT 1"),
-        ("p95_origin_ttfb column absent", f"SELECT p95_origin_ttfb FROM {db}.{h} {win} LIMIT 1"),
-        ("cnt_2xx column absent", f"SELECT cnt_2xx FROM {db}.{h} {win} LIMIT 1"),
-        ("bot_class column absent (posture)", f"SELECT bot_class FROM {db}.{h} {win} LIMIT 1"),
-        ("requestPathPattern absent (renamed reqPathPattern)",
+        ("cnt_cache_miss column absent", "47", f"SELECT cnt_cache_miss FROM {db}.{h} {win} LIMIT 1"),
+        ("p95_origin_ttfb column absent", "47", f"SELECT p95_origin_ttfb FROM {db}.{h} {win} LIMIT 1"),
+        ("cnt_2xx column absent", "47", f"SELECT cnt_2xx FROM {db}.{h} {win} LIMIT 1"),
+        ("bot_class column absent (posture)", "47", f"SELECT bot_class FROM {db}.{h} {win} LIMIT 1"),
+        ("requestPathPattern absent (renamed reqPathPattern)", "47",
          f"SELECT requestPathPattern FROM {db}.{h} {win} LIMIT 1"),
-        ("is_bot_traffic absent (physical isBotTraffic)",
+        ("is_bot_traffic absent (physical isBotTraffic)", "47",
          f"SELECT is_bot_traffic FROM {db}.{h} {win} LIMIT 1"),
-        ("uniq_client_ip absent on CDN posture", f"SELECT uniq_client_ip FROM {db}.{h} {win} LIMIT 1"),
-        ("cnt_auth_fail absent (physical cnt_authFail)",
+        ("uniq_client_ip absent on CDN posture", "47", f"SELECT uniq_client_ip FROM {db}.{h} {win} LIMIT 1"),
+        ("cnt_auth_fail absent (physical cnt_authFail)", "47",
          f"SELECT cnt_auth_fail FROM {db}.bi_siem_policy_summary_hour "
          f"WHERE timestamp >= now() - INTERVAL 1 HOUR LIMIT 1"),
     ]
-    for name, sql in cases:
+    for name, expected_code, sql in cases:
         try:
             ctx.conn.query(sql)
             results.append(Result("negative", name, "FAIL", "query unexpectedly SUCCEEDED"))
         except QueryError as exc:
-            results.append(Result("negative", name, "PASS", f"correctly rejected [{exc.code}]"))
+            if exc.code == expected_code:
+                results.append(Result("negative", name, "PASS", f"correctly rejected [{exc.code}]"))
+            else:
+                results.append(Result("negative", name, "FAIL",
+                                      f"rejected with UNEXPECTED code {exc.code} (wanted {expected_code}); "
+                                      f"not proof of the documented failure: {exc}"))
 
 
 def check_prose(ctx: Ctx, results: list[Result]) -> None:
@@ -606,6 +638,7 @@ def main() -> int:
     print(f"#   discovered host={ctx.host!r} asn={ctx.asn!r} policyId={ctx.policy_id!r}\n")
 
     results: list[Result] = []
+    check_discovery(ctx, results)
     check_schema(ctx, results, quick=quick)
     check_doc_sql(ctx, results)
     check_negative(ctx, results)
@@ -630,7 +663,9 @@ def main() -> int:
              "results": [r.__dict__ for r in results]}, indent=2) + "\n", encoding="utf-8")
         print(f"# report -> {args.json}")
 
-    return 1 if counts["FAIL"] else 0
+    # UNRESOLVED means a documented example was never executed (unresolved
+    # placeholder) - that is a coverage gap, not a pass, so fail the run on it too.
+    return 1 if (counts["FAIL"] or counts["UNRESOLVED"]) else 0
 
 
 if __name__ == "__main__":

@@ -62,7 +62,7 @@ def _by_kind(results, kind):
     return [r for r in results if r.kind == kind]
 
 
-@pytest.mark.parametrize("kind", ["schema", "doc-sql", "negative", "prose", "producer", "preset"])
+@pytest.mark.parametrize("kind", ["discovery", "schema", "doc-sql", "negative", "prose", "producer", "preset"])
 def test_no_failures_by_kind(live_results, kind):
     failed = [r for r in _by_kind(live_results, kind) if r.status == "FAIL"]
     assert not failed, "\n".join(f"{r.name}: {r.detail}" for r in failed)
@@ -72,6 +72,21 @@ def test_no_unresolved_doc_sql(live_results):
     """Every deployed-table example in the docs must resolve to runnable SQL."""
     unresolved = [r for r in live_results if r.status == "UNRESOLVED"]
     assert not unresolved, "\n".join(f"{r.name} ({r.source})" for r in unresolved)
+
+
+@pytest.mark.parametrize("kind", ["producer", "preset"])
+def test_coverage_actually_ran(live_results, kind):
+    """A package import failure turns producer/preset checks into SKIPs. Since a
+    cluster is configured (the fixture didn't skip) and the package is importable
+    under `uv run`, at least one check of each kind must have actually executed -
+    otherwise a dangling import silently erased this coverage while the suite
+    stayed green."""
+    kind_results = _by_kind(live_results, kind)
+    ran = [r for r in kind_results if r.status != "SKIP"]
+    assert ran, (
+        f"{kind} coverage did not run (all SKIP) - likely a package import failure: "
+        + "; ".join(f"{r.name}: {r.detail}" for r in kind_results)
+    )
 
 
 def test_something_was_checked(live_results):
