@@ -254,8 +254,8 @@ def test_bot_insights_package_file_length_audit() -> None:
 
 def test_bot_insights_complexity_allowlist_tracks_legacy_hotspots() -> None:
     required_hotspots = {
-        "src/bot_insights/attribution.py",
-        "src/bot_insights/producers/cli.py",
+        "src/bot_insights/attribution/trust_validation.py",
+        "src/bot_insights/attribution/rows.py",
     }
     pyproject = (ROOT / "packages/bot-insights/pyproject.toml").read_text(encoding="utf-8")
     assert 'select = ["C901"]' in pyproject
