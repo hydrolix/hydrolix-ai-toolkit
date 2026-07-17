@@ -6,11 +6,7 @@ is safe to include in the default test run: offline CI stays green, and live
 validation is opt-in via the cluster env (and, for tokens stored as op://
 references, a signed-in 1Password CLI).
 
-Run just this suite against the default cluster (demo.trafficpeak.live):
-
-    uv run pytest tests/live/test_live_query_surface.py -v
-
-Point it at another cluster / database:
+Point it at a cluster / database (required - the suite SKIPS without them):
 
     BOT_INSIGHTS_LIVE_CLUSTER=<cluster> BOT_INSIGHTS_LIVE_DB=<db> \
         uv run pytest tests/live/test_live_query_surface.py -v
@@ -38,8 +34,13 @@ _spec.loader.exec_module(validate_live)
 
 @pytest.fixture(scope="module")
 def live_results():
-    cluster = os.environ.get("BOT_INSIGHTS_LIVE_CLUSTER", validate_live.DEFAULT_CLUSTER)
-    db = os.environ.get("BOT_INSIGHTS_LIVE_DB", validate_live.DEFAULT_DB)
+    cluster = os.environ.get("BOT_INSIGHTS_LIVE_CLUSTER")
+    db = os.environ.get("BOT_INSIGHTS_LIVE_DB")
+    if not cluster or not db:
+        pytest.skip(
+            "set BOT_INSIGHTS_LIVE_CLUSTER and BOT_INSIGHTS_LIVE_DB to run live "
+            "validation (opt-in)"
+        )
     conn = validate_live.connect(cluster)
     if conn is None:
         pytest.skip(
