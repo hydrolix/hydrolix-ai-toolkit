@@ -133,7 +133,7 @@ class HydrolixCaptureScriptTests(unittest.TestCase):
             argv = [
                 "capture-hydrolix-query.py",
                 "--cluster",
-                "demo.trafficpeak.live",
+                "demo.example.com",
                 "--sql",
                 "SELECT secret_value FROM akamai.example WHERE timestamp >= now() - INTERVAL 1 HOUR",
                 "--output",
@@ -150,7 +150,7 @@ class HydrolixCaptureScriptTests(unittest.TestCase):
                     side_effect=lambda _cluster, _sql, out: (
                         Path(out).write_text(json.dumps(response)),
                         {
-                            "cluster": "demo.trafficpeak.live",
+                            "cluster": "demo.example.com",
                             "bytes": Path(out).stat().st_size,
                         },
                     )[1],
@@ -162,7 +162,7 @@ class HydrolixCaptureScriptTests(unittest.TestCase):
             self.assertEqual(json.loads(output.read_text()), response["data"])
             printed = stdout.getvalue()
             self.assertIn('"rows": 1', printed)
-            self.assertIn('"cluster": "demo.trafficpeak.live"', printed)
+            self.assertIn('"cluster": "demo.example.com"', printed)
             self.assertNotIn("do-not-print", printed)
             self.assertNotIn("secret_value", printed)
 

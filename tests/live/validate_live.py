@@ -2,7 +2,8 @@
 """Live validation of the bot-insights skill's query surface against a Hydrolix cluster.
 
 This is a REPEATABLE test harness. It proves that every SQL claim the skill makes
-actually holds on a live deployment (default: demo.trafficpeak.live). It covers:
+actually holds on a live deployment (the target cluster is supplied at run time).
+It covers:
 
   1. Discovery            - placeholder values (host, ASN, SIEM policyId) were
                              resolved from real cluster data, not left as
@@ -32,11 +33,11 @@ HYDROLIX_HOST/HDX_HOSTNAME + HYDROLIX_TOKEN/HDX_TOKEN. If no cluster is
 configured the whole suite SKIPS (so offline CI stays green); live validation is
 opt-in.
 
-Usage:
-    python3 tests/live/validate_live.py                 # default cluster + db
-    BOT_INSIGHTS_LIVE_CLUSTER=demo.trafficpeak.live \
-    BOT_INSIGHTS_LIVE_DB=akamai python3 tests/live/validate_live.py
-    python3 tests/live/validate_live.py --json report.json
+Usage (cluster/db are required - the run SKIPS if neither env nor flag is set):
+    BOT_INSIGHTS_LIVE_CLUSTER=<cluster> BOT_INSIGHTS_LIVE_DB=<db> \
+        python3 tests/live/validate_live.py
+    python3 tests/live/validate_live.py --cluster <cluster> --db <db>
+    python3 tests/live/validate_live.py --cluster <cluster> --db <db> --json report.json
 
 Exit code is non-zero if any check FAILS or a documented example is UNRESOLVED
 (never executed); SKIP (e.g. no cluster configured) does not fail the run.
@@ -61,8 +62,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_ROOT = REPO_ROOT / "skills" / "bot-insights"
 REFERENCES = SKILL_ROOT / "references"
 
-DEFAULT_CLUSTER = os.environ.get("BOT_INSIGHTS_LIVE_CLUSTER", "demo.trafficpeak.live")
-DEFAULT_DB = os.environ.get("BOT_INSIGHTS_LIVE_DB", "akamai")
+# Target cluster/db are supplied at run time (env vars or --cluster/--db); there
+# is no committed default deployment. When unset, live validation SKIPS.
+DEFAULT_CLUSTER = os.environ.get("BOT_INSIGHTS_LIVE_CLUSTER")
+DEFAULT_DB = os.environ.get("BOT_INSIGHTS_LIVE_DB")
 
 # Tables the skill documents as the deployed query surface.
 POSTURE_TABLES = ["bi_summary_minute", "bi_summary_hour", "bi_summary_day"]
@@ -625,14 +628,21 @@ def check_presets(ctx: Ctx, results: list[Result]) -> None:
 # --------------------------------------------------------------------------- #
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--cluster", default=DEFAULT_CLUSTER)
-    ap.add_argument("--db", default=DEFAULT_DB)
+    ap.add_argument("--cluster", default=DEFAULT_CLUSTER,
+                    help="Hydrolix cluster alias/.env name (or set BOT_INSIGHTS_LIVE_CLUSTER)")
+    ap.add_argument("--db", default=DEFAULT_DB,
+                    help="database/project to validate (or set BOT_INSIGHTS_LIVE_DB)")
     ap.add_argument("--json", type=Path, default=None, help="write a JSON report to this path")
     ap.add_argument("--quick", action="store_true",
                     help="probe only the hour-grain tables for schema checks (faster local runs)")
     args = ap.parse_args()
 
     quick = args.quick or os.environ.get("BOT_INSIGHTS_LIVE_QUICK", "").lower() in ("1", "true", "yes")
+
+    if not args.cluster or not args.db:
+        print("SKIP: set --cluster/--db (or BOT_INSIGHTS_LIVE_CLUSTER/BOT_INSIGHTS_LIVE_DB) "
+              "to run live validation. Live validation is opt-in.")
+        return 0
 
     conn = connect(args.cluster)
     if conn is None:
