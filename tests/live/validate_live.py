@@ -592,8 +592,8 @@ def check_presets(ctx: Ctx, results: list[Result]) -> None:
     generators, so they need their own coverage."""
     try:
         sys.path.insert(0, str(REPO_ROOT / "packages" / "bot-insights" / "src"))
-        from bot_insights.bot_insights_capture.part_02 import render_preset_sql  # type: ignore
-        from bot_insights.bot_insights_capture.part_01 import PRESET_CHOICES  # type: ignore
+        from bot_insights.bot_insights_capture.query import render_preset_sql  # type: ignore
+        from bot_insights.bot_insights_capture.constants import PRESET_CHOICES  # type: ignore
     except Exception as exc:  # noqa: BLE001
         results.append(Result("preset", "import render_preset_sql", "SKIP",
                               f"package not importable ({exc}); run under `uv run`"))

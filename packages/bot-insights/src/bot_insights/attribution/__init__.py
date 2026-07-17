@@ -1,46 +1,32 @@
-"""Compatibility package for the former monolithic module."""
+"""Deterministic Bot Insights attribution report from trusted aggregate JSON.
+
+This package does not query Hydrolix. It renders the attribution SQL template,
+validates trusted-context evidence, normalizes aggregate rows, and derives
+mover/displacement attribution with a canonical result digest. Hydrolix does the
+filtering, grouping, and aggregation.
+"""
 
 from __future__ import annotations
 
-import sys
-from importlib import import_module
-from types import ModuleType
+from .cli import main, parse_args
+from .errors import InvalidInputError
+from .fingerprint import metadata_fingerprint
+from .normalize import normalize_input_rows, result_digest_v1
+from .report import normalize_attribution
+from .sql import metadata_column_aliases
+from .sql_template import render_attribution_sql_template
+from .summary_tables import SUMMARY_TABLE_CATALOG, validate_summary_table_support
 
-_MODULE_NAMES = (
-    "_shared",
-    "part_01",
-    "part_02",
-    "part_03",
-    "part_04",
-    "part_05",
-    "part_06",
-    "part_07",
-    "part_08",
-    "part_09",
-    "part_10",
-    "part_11",
- )
-_MODULES = [import_module(f"{__name__}.{name}") for name in _MODULE_NAMES]
-
-for _module in _MODULES:
-    for _name, _value in vars(_module).items():
-        if not _name.startswith("__"):
-            globals()[_name] = _value
-
-_EXPORTS = {name: value for name, value in globals().items() if not name.startswith("__")}
-for _module in _MODULES:
-    _module.__dict__.update(_EXPORTS)
-
-__all__ = sorted(_EXPORTS)
-
-
-class _CompatModule(ModuleType):
-    def __setattr__(self, name: str, value: object) -> None:
-        super().__setattr__(name, value)
-        for module in _MODULES:
-            module.__dict__[name] = value
-
-
-sys.modules[__name__].__class__ = _CompatModule
-
-del ModuleType, import_module, sys, _module, _name, _value
+__all__ = [
+    "InvalidInputError",
+    "SUMMARY_TABLE_CATALOG",
+    "main",
+    "metadata_column_aliases",
+    "metadata_fingerprint",
+    "normalize_attribution",
+    "normalize_input_rows",
+    "parse_args",
+    "render_attribution_sql_template",
+    "result_digest_v1",
+    "validate_summary_table_support",
+]

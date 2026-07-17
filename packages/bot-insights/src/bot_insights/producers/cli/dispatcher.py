@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from .part_01 import *
-from .part_02 import parse_args
+from .args import parse_args
 from .standard_flow import run_standard_flow
 from .validation import prepare_cli_context
 

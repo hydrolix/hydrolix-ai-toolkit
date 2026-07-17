@@ -36,24 +36,24 @@ select = ["C901"]
 max-complexity = 10
 
 [tool.ruff.lint.per-file-ignores]
-# Remaining attribution follow-up functions: digest_payload_v1_from_normalized,
-# validate_common_evidence_fields, validate_provided_contribution_values,
-# validate_specific_evidence_fields, validate_trusted_context,
-# render_attribution_sql_template, extract_metadata_layer, result_rows,
-# infer_dimensions, validate_baseline_metadata, normalize_input_rows,
-# classify_row, build_buckets, normalize_attribution.
-"packages/bot-insights/src/bot_insights/attribution.py" = ["C901"]
-"packages/bot-insights/src/bot_insights/attribution/part_03.py" = ["C901"]
-"packages/bot-insights/src/bot_insights/attribution/part_04.py" = ["C901"]
-"packages/bot-insights/src/bot_insights/attribution/part_05.py" = ["C901"]
-"packages/bot-insights/src/bot_insights/attribution/part_07.py" = ["C901"]
-"packages/bot-insights/src/bot_insights/attribution/part_08.py" = ["C901"]
-"packages/bot-insights/src/bot_insights/attribution/part_09.py" = ["C901"]
-"packages/bot-insights/src/bot_insights/attribution/part_10.py" = ["C901"]
-"packages/bot-insights/src/bot_insights/attribution/part_11.py" = ["C901"]
-# Remaining CLI follow-up: split main into report command handlers while
-# preserving argparse behavior and bot_insights_report shim patch points.
-"packages/bot-insights/src/bot_insights/producers/cli.py" = ["C901"]
+# Legacy attribution complexity hotspots, grouped by responsibility module:
+#   trust_validation: validate_common_evidence_fields,
+#     validate_provided_contribution_values, validate_specific_evidence_fields,
+#     validate_trusted_context
+#   digest: digest_payload_v1_from_normalized
+#   rows: extract_metadata_layer, result_rows, infer_dimensions,
+#     validate_baseline_metadata
+#   normalize: normalize_input_rows
+#   classify: classify_row, build_buckets
+#   report: normalize_attribution
+#   sql_template: render_attribution_sql_template
+"packages/bot-insights/src/bot_insights/attribution/classify.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/attribution/digest.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/attribution/normalize.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/attribution/report.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/attribution/rows.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/attribution/sql_template.py" = ["C901"]
+"packages/bot-insights/src/bot_insights/attribution/trust_validation.py" = ["C901"]
 # Existing chart helper follow-up: split score histogram geometry from SVG
 # assembly without changing report snapshots.
 "reportkit/src/reportkit/charts.py" = ["C901"]

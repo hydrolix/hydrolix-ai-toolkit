@@ -2,4 +2,7 @@
 
 from __future__ import annotations
 
-from .dispatcher import *  # noqa: F401,F403  (re-exports main, parse_args, flow helpers)
+from .args import parse_args
+from .dispatcher import main
+
+__all__ = ["main", "parse_args"]
