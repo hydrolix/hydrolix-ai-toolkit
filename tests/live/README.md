@@ -9,7 +9,7 @@ those claims so drift is caught before it ships.
 ## What it checks
 
 `validate_live.py` runs seven families of checks (246+ checks against the
-`demo.trafficpeak.live` `akamai` project at last run, all passing):
+configured cluster/project at last run, all passing):
 
 | Family | What it proves |
 |--------|----------------|
@@ -36,10 +36,10 @@ opt-in.
 Standalone (prints a PASS/FAIL/SKIP table, non-zero exit on any FAIL or UNRESOLVED):
 
 ```bash
-python3 tests/live/validate_live.py                 # default: demo.trafficpeak.live / akamai
-python3 tests/live/validate_live.py --quick         # hour-grain schema probes only (faster)
-python3 tests/live/validate_live.py --json report.json
 BOT_INSIGHTS_LIVE_CLUSTER=<cluster> BOT_INSIGHTS_LIVE_DB=<db> python3 tests/live/validate_live.py
+python3 tests/live/validate_live.py --cluster <cluster> --db <db>
+python3 tests/live/validate_live.py --cluster <cluster> --db <db> --quick       # hour-grain probes only
+python3 tests/live/validate_live.py --cluster <cluster> --db <db> --json report.json
 ```
 
 Under pytest (skips without a cluster; `uv run` gives producer coverage by
