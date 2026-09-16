@@ -2,28 +2,10 @@
 name = "public-skills-workspace"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = [
-  "bot-insights",
-  "reportkit",
-]
+dependencies = []
 
-# Dev/test tooling installed into the workspace venv so `uv run pytest` uses the
-# project interpreter (with jinja2/reportkit/bot_insights available) instead of
-# falling back to an ephemeral tool environment that lacks the workspace deps.
 [dependency-groups]
-dev = [
-  "pytest>=8.0",
-]
-
-[tool.uv.workspace]
-members = [
-  "reportkit",
-  "packages/bot-insights",
-]
-
-[tool.uv.sources]
-reportkit = { workspace = true }
-bot-insights = { workspace = true }
+dev = ["pytest>=8.0"]
 
 [tool.ruff]
 line-length = 100
@@ -34,29 +16,6 @@ select = ["C901"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
-
-[tool.ruff.lint.per-file-ignores]
-# Legacy attribution complexity hotspots, grouped by responsibility module:
-#   trust_validation: validate_common_evidence_fields,
-#     validate_provided_contribution_values, validate_specific_evidence_fields,
-#     validate_trusted_context
-#   digest: digest_payload_v1_from_normalized
-#   rows: extract_metadata_layer, result_rows, infer_dimensions,
-#     validate_baseline_metadata
-#   normalize: normalize_input_rows
-#   classify: classify_row, build_buckets
-#   report: normalize_attribution
-#   sql_template: render_attribution_sql_template
-"packages/bot-insights/src/bot_insights/attribution/classify.py" = ["C901"]
-"packages/bot-insights/src/bot_insights/attribution/digest.py" = ["C901"]
-"packages/bot-insights/src/bot_insights/attribution/normalize.py" = ["C901"]
-"packages/bot-insights/src/bot_insights/attribution/report.py" = ["C901"]
-"packages/bot-insights/src/bot_insights/attribution/rows.py" = ["C901"]
-"packages/bot-insights/src/bot_insights/attribution/sql_template.py" = ["C901"]
-"packages/bot-insights/src/bot_insights/attribution/trust_validation.py" = ["C901"]
-# Existing chart helper follow-up: split score histogram geometry from SVG
-# assembly without changing report snapshots.
-"reportkit/src/reportkit/charts.py" = ["C901"]
 
 [tool.pyright]
 pythonVersion = "3.11"

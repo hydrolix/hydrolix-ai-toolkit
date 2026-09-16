@@ -11,7 +11,6 @@ ROOT = Path(__file__).resolve().parents[1]
 
 ALLOWED_OVERSIZED = {
     "scripts/validate-skill-examples.py",
-    "tests/test_skill_scripts.py",
 }
 
 
