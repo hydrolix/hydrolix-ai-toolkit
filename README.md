@@ -8,7 +8,7 @@ This repo is the landing place for Hydrolix-provided skills. Some skills support
 
 | Skill | Description |
 |-------|-------------|
-| [bot-insights](skills/bot-insights/) | Bot traffic intelligence — scoring, verified/unverified classification, attack data analysis |
+| [bot-insights](skills/bot-insights/) | Investigate bot traffic changes, crawler access, and cache/origin impact |
 | [debugging-hydrolix-queries](skills/debugging-hydrolix-queries/) | Use when a Hydrolix query is timing out, OOMing, returning DB::Exception or HdxStorageError, hitting a circuit breaker, or running slower than expected over MCP, the HTTP Query API, or another SQL client |
 
 ## Prerequisites
@@ -21,6 +21,13 @@ Current bundled skills assume:
 ## Download
 
 Standalone skill zip files are published by CI to the repo's GitHub Pages site and are also attached to releases when a release is cut.
+
+## Upgrading to 2.0
+
+Bot Insights now provides investigation guidance only. Reporting, capture, and
+scoring commands have been removed. For manual installations, replace the old
+`bot-insights` skill directory completely; extracting over it can leave obsolete
+scripts and references behind. See [release notes](RELEASE_NOTES.md).
 
 ## Installation
 
@@ -65,16 +72,15 @@ unzip bot-insights.zip -d .agents/skills/
 unzip bot-insights.zip -d .gemini/skills/
 ```
 
-## Refreshing Schemas
+## Maintaining Bot Insights guidance
 
-The `references/` files in each skill are generated from bundle definitions. To regenerate:
+Bot Insights is an investigation skill using existing Hydrolix query tools.
+Its references describe versioned bundle semantics and query patterns; verify
+actual tables and aggregate representations before applying them. It ships no
+capture client, scoring engine, or report renderer.
 
-```bash
-uv run python scripts/generate-schema.py \
-  --bundles-dir /path/to/solution-bundles/bundles \
-  --schemas-dir /path/to/catalog-content-live-dashboard-validation/bundles \
-  --output-dir skills
-```
+Source provenance and update guidance live in
+[docs/bot-insights-sources.md](docs/bot-insights-sources.md).
 
 ## License
 

@@ -1,190 +1,89 @@
-# bot_detection — Column Reference
+# Schema and classification
 
-> **Note**: This file documents the request-level `bot_detection` schema that
-> the Bot Insights summary tables aggregate from. The `bot_detection` and
-> `bot_detection_siem` tables themselves are **not currently deployed** on
-> production clusters; the deployed query surface is `bi_summary_*` and (on
-> SIEM-enabled clusters) `bi_siem_policy_summary_*`. The column list below is
-> retained as a design-intent reference for the underlying CDN log shape; do
-> not generate SQL against `bot_detection*` from this document. See
-> [data-model.md](data-model.md) and [summary-tables.md](summary-tables.md) for
-> the supported query surface.
+## Deployment selection
 
-Primary table schema for the **bot-insights** bundle.
-Total columns: 85
+The patterns describe the TrafficPeak CDN and Bot Manager/SIEM bundles at
+version `1.1.1`. This is source guidance, not detection of an installed version.
+Discover actual tables and inspect query-visible types and aggregate states.
 
-| Indexed | Virtual | Suppressed |
-|---------|---------|------------|
-| 37 | 0 | 20 |
+| Concept | Bundle 1.1.1 guidance | Other names documented by earlier toolkit guidance |
+| --- | --- | --- |
+| CDN summaries | `bi_cdn_summary_minute/hour/day` | `bi_summary_minute/hour/day` |
+| SIEM summaries | `bi_bm_siem_summary_minute/hour/day` | `bi_siem_policy_summary_minute/hour/day` |
+| CDN time / host | `reqTimeSec` / `reqHost` | Verify metadata |
+| SIEM time / host | `timestamp` / `reqHost` | `timestamp` / `host` or `reqHost` |
+| Cohort | `biTrafficCohort` | `trafficCohort` |
+| AI / UA category | `biAiCategory` / `biUserAgentCategory` | `aiCategory` / `userAgentCategory` |
+| Resource / path grouping | `biResourceCategory` / `biReqPathPattern` | `resourceCategory` / `reqPathPattern` |
+| SIEM action / bot type | `biActionClass` / `biBotType` | `actionClass` / `botType` |
 
-## Contents
+These are discovery hints, not interchangeable aliases. Establish each field's
+meaning and aggregation before adapting SQL. Neither table naming nor matching
+columns proves the active transform version. Request-level tables and path/IP/UA
+detail are usable only when separately discovered and authorized; a summary
+cannot recover dimensions it did not retain.
 
-- [Timestamp](#timestamp)
-- [Request](#request)
-- [Response](#response)
-- [Cache](#cache)
-- [Origin](#origin)
-- [Client](#client)
-- [Geo](#geo)
-- [User Agent](#user-agent)
-- [CDN](#cdn)
-- [Security](#security)
-- [Performance](#performance)
-- [Identity](#identity)
-- [Hydrolix](#hydrolix)
-- [Other](#other)
+## Encoding variants
 
-## Timestamp
+Determine which rules encoded the selected rows from deployment evidence or,
+when `biVariant` exists, an authorized bounded query of its values.
 
-| Column | Type | Flags | Sources |
-|--------|------|-------|---------|
-| `EdgeStartTimestamp` | string | suppressed | cloudflare |
-| `firehose_timestamp` | epoch | suppressed | cloudfront_firehose |
-| `origin_time_to_first_byte_ms` | uint64 | indexed | 8 transforms |
-| `origin_time_to_first_byte_sec` | uint64 | indexed, suppressed | cloudfront_firehose |
-| `origin_time_to_last_byte_ms` | uint64 | indexed | akamai_ds2 |
-| `outcome_timestamp` | datetime |  | 8 transforms |
-| `request_time_raw` | datetime | suppressed | tencent |
-| `response_time_to_first_byte` | double | suppressed | fastly |
-| `response_time_to_first_byte_sec` | double | suppressed | cloudfront_firehose |
-| `time_to_first_byte_ms` | uint64 | indexed | 8 transforms |
-| `timestamp` | epoch | primary | 8 transforms |
+- `cdn`: CDN `biIsBotTraffic` comes from the user-agent dictionary verdict.
+- `bm_siem`: CDN classification also includes a `securityRules` BOT match.
+  SIEM classification uses `attack_bot` or positive `botScore`, with the UA
+  dictionary fallback. SIEM action classification prioritizes deny/block,
+  mitigation, monitoring, then allow.
+- CDN `biTrafficCohort` is `Human` when the bot flag is false, otherwise `AI`
+  when `biAiCategory` is nonempty, otherwise `Bot`.
 
-## Request
+For `cdn` investigations, finish with CDN findings; SIEM is outside that
+variant and is not required input.
 
-| Column | Type | Flags | Sources |
-|--------|------|-------|---------|
-| `original_url` | string | indexed, suppressed | fastly |
-| `protocol` | string |  | 8 transforms |
-| `referer` | string | indexed, suppressed | akamai_ds2 |
-| `request_headers` | string |  | 8 transforms |
-| `request_headers_raw` | string | suppressed | akamai_siem, akamai_siem_gz |
-| `request_host` | string | indexed | 8 transforms |
-| `request_id` | string | suppressed | 7 transforms |
-| `request_method` | string | indexed | 8 transforms |
-| `request_path` | string | indexed | 8 transforms |
-| `request_path_norm` | string | indexed | 8 transforms |
-| `request_protocol` | string |  | 8 transforms |
-| `request_query_string` | string | indexed, suppressed | akamai_ds2, cloudfront_firehose |
-| `request_referer` | string |  | 8 transforms |
-| `request_url` | string |  | 8 transforms |
+A Bot Manager subscription or missing SIEM table does not select an encoding
+variant. If encoding is unknown, continue supported totals and request context
+before interpreting classification. Report mixed variants separately for
+classification comparisons and show excluded coverage if narrowing the scope.
+Mixed variants alone prove neither duplicated nor disjoint requests; qualify
+unique-request claims unless ingestion/deduplication evidence supports them.
 
-## Response
+Owner enrichment and bot-identity checks are separate from UA classification.
+Their presence in a transform does not guarantee their retention as dimensions
+in a summary. A category label alone cannot verify a crawler owner.
 
-| Column | Type | Flags | Sources |
-|--------|------|-------|---------|
-| `content_type` | string | suppressed | akamai_ds2 |
-| `origin_status_code` | uint32 |  | 8 transforms |
-| `response_content_type` | string |  | 8 transforms |
-| `response_headers` | string |  | 8 transforms |
-| `response_status_code` | string | indexed | 8 transforms |
-| `response_total_bytes` | uint64 | indexed | 8 transforms |
+## Summary anatomy
 
-## Cache
+Record the selected time grain, retained dimensions, metric representations,
+and missing detail needed by the question. The versioned CDN hour definition
+retains `biReqPathPattern`, not raw `reqPath`. Use the label "path pattern" for
+that grouping; a request for exact URLs needs another verified surface.
 
-| Column | Type | Flags | Sources |
-|--------|------|-------|---------|
-| `cache_status` | string |  | 8 transforms |
-| `cache_was_cached` | boolean | indexed | 8 transforms |
+The source defines count, conditional count/sum, and distinct aggregate aliases.
+Resolve their live column names and representations before writing queries:
 
-## Origin
+- A verified count state such as `count()` uses `countMerge` / `countMergeIf`.
+  Source alias `cnt_all` is not proof of a summable numeric column.
+- Inspect `column_category` and `default_expr` as well as the type. A numeric
+  `SummaryColumn` can expand to an aggregate expression. Use its underlying
+  state with the metadata's exact `merge_function`, or select the alias directly
+  with the requested dimension grouping; wrapping it in `sum()` nests aggregates.
+- Origin latency is the merged valid-duration sum divided by its matching
+  merged observation count. Average of per-row averages is incorrect.
+- Query-string request counts use the verified conditional-count merge.
+  Distinct query-string states require the matching distinct merge across
+  groups. Summing per-group distinct counts does not give global cardinality.
 
-| Column | Type | Flags | Sources |
-|--------|------|-------|---------|
-| `origin_bytes` | uint64 |  | 8 transforms |
-| `origin_ip` | string | indexed | 8 transforms |
+## Template parameters
 
-## Client
+All SQL fences in these playbooks are templates, not executable tool calls.
+Resolve `{database}`, `{cdn_summary}`, and `{siem_summary}` from discovered
+identifiers and safely quote them. Replace `{host_sql}` with an escaped string
+literal, and timestamps with explicit UTC `YYYY-MM-DD HH:MM:SS` values.
+`{variant_scope}` is `AND biVariant = 'cdn'`, `AND biVariant = 'bm_siem'`, or
+empty for requested all-variant totals. Keep comparison scopes consistent.
+For fleet questions, omit the host predicate and preserve requested grouping.
 
-| Column | Type | Flags | Sources |
-|--------|------|-------|---------|
-| `client_asn` | string | indexed | 8 transforms |
-| `client_city` | string | indexed | 8 transforms |
-| `client_country_iso_code` | string | indexed | 8 transforms |
-| `client_ip` | string | indexed | 8 transforms |
-| `ja4_client_type` | string |  | 6 transforms |
-
-## Geo
-
-| Column | Type | Flags | Sources |
-|--------|------|-------|---------|
-| `asn_type` | string |  | 6 transforms |
-| `continent` | string |  | 8 transforms |
-| `region_code` | string |  | 8 transforms |
-
-## User Agent
-
-| Column | Type | Flags | Sources |
-|--------|------|-------|---------|
-| `bot_category` | string |  | 8 transforms |
-| `bot_class` | string | indexed | 6 transforms |
-| `bot_confidence` | string | indexed | 6 transforms |
-| `bot_intent` | string | indexed | 6 transforms |
-| `bot_producer` | string |  | 6 transforms |
-| `bot_score` | uint8 |  | 8 transforms |
-| `bot_type` | string |  | 8 transforms |
-| `bot_verification_tier` | string | indexed | 6 transforms |
-| `is_bot_traffic` | boolean | indexed | 8 transforms |
-| `user_agent` | string | indexed | 8 transforms |
-| `user_agent_category` | string | indexed | akamai_siem, akamai_siem_gz |
-| `verified_bot_owner` | string |  | 6 transforms |
-
-## CDN
-
-| Column | Type | Flags | Sources |
-|--------|------|-------|---------|
-| `edge_ip` | string | indexed | 8 transforms |
-| `edge_pop` | string | indexed | 8 transforms |
-| `edge_ttfb_ms` | uint64 |  | 8 transforms |
-| `hdx_cdn` | string | indexed | 8 transforms |
-
-## Security
-
-| Column | Type | Flags | Sources |
-|--------|------|-------|---------|
-| `attack_data` | string |  | 8 transforms |
-| `attack_data_raw` | string | suppressed | akamai_siem, akamai_siem_gz |
-
-## Performance
-
-| Column | Type | Flags | Sources |
-|--------|------|-------|---------|
-| `hdx_source_latency_sec` | uint32 | indexed | 8 transforms |
-
-## Identity
-
-| Column | Type | Flags | Sources |
-|--------|------|-------|---------|
-| `session_id` | string |  | 8 transforms |
-
-## Hydrolix
-
-| Column | Type | Flags | Sources |
-|--------|------|-------|---------|
-| `hdx_transform` | string | indexed | 8 transforms |
-
-## Other
-
-| Column | Type | Flags | Sources |
-|--------|------|-------|---------|
-| `UA` | string | suppressed | akamai_ds2 |
-| `action_taken` | string |  | 8 transforms |
-| `action_taken_raw` | string | suppressed | akamai_siem, akamai_siem_gz |
-| `ai_category` | string | indexed | 8 transforms |
-| `auth_outcome` | string |  | 8 transforms |
-| `breadcrumbs` | string | suppressed | akamai_ds2 |
-| `business_outcome` | string |  | 8 transforms |
-| `cacheStatus` | boolean | indexed, suppressed | akamai_ds2 |
-| `config_id` | string |  | 8 transforms |
-| `detailed_result_type` | string | indexed, suppressed | cloudfront_firehose |
-| `enforcement_source` | string |  | 8 transforms |
-| `ja3_hash` | string |  | 8 transforms |
-| `ja4_hash` | string |  | 8 transforms |
-| `policy_id` | string |  | 8 transforms |
-| `port` | uint32 |  | 8 transforms |
-| `queryStr` | string | suppressed | akamai_ds2 |
-| `resource_category` | string | indexed | 8 transforms |
-| `result_type` | string | indexed, suppressed | 4 transforms |
-| `tls` | string |  | 8 transforms |
-| `tor` | string |  | 8 transforms |
-| `unknown` | map | indexed | 8 transforms |
+Templates assume DateTime-compatible time columns, string dimensions, numeric
+status, boolean cache status, and a verified `count()` count state. Adapt only
+from metadata evidence. Specialized metric-expression placeholders are defined
+beside their queries and must be resolved before execution. Missing prerequisites
+block the affected metric or pattern, not independently supported totals.
