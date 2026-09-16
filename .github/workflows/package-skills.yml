@@ -8,6 +8,9 @@ on:
       - 'CONTRIBUTING.md'
       - 'README.md'
       - '.claude-plugin/plugin.json'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'scripts/check-source-lines.py'
       - 'scripts/validate-skill-examples.py'
       - 'scripts/generate-site.sh'
       - 'tests/**'
@@ -19,6 +22,9 @@ on:
       - 'CONTRIBUTING.md'
       - 'README.md'
       - '.claude-plugin/plugin.json'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'scripts/check-source-lines.py'
       - 'scripts/validate-skill-examples.py'
       - 'scripts/generate-site.sh'
       - 'tests/**'
@@ -42,7 +48,10 @@ jobs:
       - uses: astral-sh/setup-uv@v5
 
       - name: Install test dependencies
-        run: uv pip install --system pytest
+        run: uv sync --locked
+
+      - name: Check source size
+        run: uv run python scripts/check-source-lines.py
 
       - name: Validate skills
         run: uv run python scripts/validate-skill-examples.py --strict
@@ -79,7 +88,7 @@ jobs:
               temp_dir=$(mktemp -d)
               mkdir -p "$temp_dir/$skill_name"
               cp -r "$skill_dir"* "$temp_dir/$skill_name/"
-              (cd "$temp_dir" && zip -r "$skill_name.zip" "$skill_name")
+              (cd "$temp_dir" && zip -r "$skill_name.zip" "$skill_name" -x '*/__pycache__/*' '*.pyc')
               mv "$temp_dir/$skill_name.zip" "dist/"
               rm -rf "$temp_dir"
 
