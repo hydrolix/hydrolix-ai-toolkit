@@ -9,6 +9,8 @@ description: >
   breaker (max_timerange, max_partitions, max_columns, max_result_rows/bytes),
   being canceled by the query head, or running slower than expected over MCP,
   the HTTP Query API, or another SQL client.
+metadata:
+  version: "1.0.0"
 ---
 
 # Debugging Hydrolix Queries
