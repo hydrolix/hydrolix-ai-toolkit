@@ -1,4 +1,4 @@
-# Hydrolix AI Toolkit 2.0.0
+# Hydrolix AI Toolkit 1.1.0
 
 Bot Insights is now a focused investigation skill. It guides traffic
 composition, baseline changes, crawler governance, and cache/origin analysis
