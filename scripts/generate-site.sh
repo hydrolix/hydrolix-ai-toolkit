@@ -26,6 +26,9 @@ SKILL_CARDS=""
 SKILL_JSON_ITEMS=""
 FIRST=true
 
+if [ -n "${PUBLISHED_CATALOG:-}" ]; then
+    SKILL_CARDS=$(uv run python scripts/publish_skills.py render --catalog "$PUBLISHED_CATALOG")
+else
 for skill_dir in skills/*/; do
     [ -f "${skill_dir}SKILL.md" ] || continue
     skill_name=$(basename "$skill_dir")
@@ -91,6 +94,7 @@ for skill_dir in skills/*/; do
                 </a>
             </div>"
 done
+fi
 
 # Generate HTML
 cat > "$SITE_DIR/index.html" << 'HTMLEOF'
@@ -392,15 +396,15 @@ cat > "$SITE_DIR/index.html" << 'HTMLEOF'
             </div>
             <div id="tab-manual" class="install-content">
                 <pre><code># Download and extract a skill, then copy to your platform's skills directory
-unzip bot-insights.zip -d ~/.claude/skills/</code></pre>
+unzip path/to/downloaded-skill.zip -d ~/.claude/skills/</code></pre>
             </div>
             <div id="tab-codex" class="install-content">
                 <pre><code># Download and extract a skill
-unzip bot-insights.zip -d .agents/skills/</code></pre>
+unzip path/to/downloaded-skill.zip -d .agents/skills/</code></pre>
             </div>
             <div id="tab-gemini" class="install-content">
                 <pre><code># Download and extract a skill
-unzip bot-insights.zip -d .gemini/skills/</code></pre>
+unzip path/to/downloaded-skill.zip -d .gemini/skills/</code></pre>
             </div>
         </div>
 
@@ -438,7 +442,10 @@ cat >> "$SITE_DIR/index.html" << FOOTEREOF
 </html>
 FOOTEREOF
 
-# Generate JSON manifest
+# Published deployments use exact release metadata; local previews use source.
+if [ -n "${PUBLISHED_CATALOG:-}" ]; then
+    cp "$PUBLISHED_CATALOG" "$SITE_DIR/skills.json"
+else
 cat > "$SITE_DIR/skills.json" << JSONEOF
 {
   "lastUpdated": "$TIMESTAMP",
@@ -449,6 +456,7 @@ cat > "$SITE_DIR/skills.json" << JSONEOF
   ]
 }
 JSONEOF
+fi
 
 echo "Site generated:"
 echo "  $SITE_DIR/index.html"

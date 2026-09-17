@@ -20,7 +20,9 @@ Current bundled skills assume:
 
 ## Download
 
-Standalone skill zip files are published by CI to the repo's GitHub Pages site and are also attached to releases when a release is cut.
+Each skill has its own versioned ZIP release. The GitHub Pages site and
+`skills.json` catalog link to published release assets. See [Releasing individual
+skills](RELEASING.md) for the Actions workflow and versioning rules.
 
 ## Upgrading to 2.0
 
@@ -57,19 +59,19 @@ Download a skill zip from the GitHub Pages site or a release asset, then extract
 **Claude Code:**
 
 ```bash
-unzip bot-insights.zip -d ~/.claude/skills/
+unzip path/to/downloaded-skill.zip -d ~/.claude/skills/
 ```
 
 **OpenAI Codex:**
 
 ```bash
-unzip bot-insights.zip -d .agents/skills/
+unzip path/to/downloaded-skill.zip -d .agents/skills/
 ```
 
 **Gemini CLI:**
 
 ```bash
-unzip bot-insights.zip -d .gemini/skills/
+unzip path/to/downloaded-skill.zip -d .gemini/skills/
 ```
 
 ## Maintaining Bot Insights guidance
