@@ -7,12 +7,11 @@ on:
       - 'skills/**'
       - 'CONTRIBUTING.md'
       - 'README.md'
+      - 'RELEASING.md'
       - '.claude-plugin/plugin.json'
       - 'pyproject.toml'
       - 'uv.lock'
-      - 'scripts/check-source-lines.py'
-      - 'scripts/validate-skill-examples.py'
-      - 'scripts/generate-site.sh'
+      - 'scripts/**'
       - 'tests/**'
       - '.github/workflows/package-skills.yml'
   pull_request:
@@ -21,127 +20,125 @@ on:
       - 'skills/**'
       - 'CONTRIBUTING.md'
       - 'README.md'
+      - 'RELEASING.md'
       - '.claude-plugin/plugin.json'
       - 'pyproject.toml'
       - 'uv.lock'
-      - 'scripts/check-source-lines.py'
-      - 'scripts/validate-skill-examples.py'
-      - 'scripts/generate-site.sh'
+      - 'scripts/**'
       - 'tests/**'
       - '.github/workflows/package-skills.yml'
   workflow_dispatch:
-  release:
-    types: [published]
+    inputs:
+      skill:
+        description: 'Skill directory to release (blank only refreshes the published catalog)'
+        required: false
+        type: string
+        default: ''
+
+# Serialize release creation through Pages deployment so concurrent skills cannot
+# overwrite one another's catalog. PR validation has its own concurrency group.
+concurrency:
+  group: skill-publishing-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
       - uses: astral-sh/setup-uv@v5
-
       - name: Install test dependencies
         run: uv sync --locked
-
       - name: Check source size
         run: uv run python scripts/check-source-lines.py
-
       - name: Validate skills
         run: uv run python scripts/validate-skill-examples.py --strict
-
-      - name: Test skill scripts
-        run: uv run python -m unittest discover -s tests
-
-      - name: Verify generated site
+      - name: Test skill scripts and publishing
+        run: uv run pytest -q
+      - name: Verify generated preview site
         run: scripts/generate-site.sh
+      - name: Build preview packages
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          for skill_dir in skills/*/; do
+            [ -f "${skill_dir}SKILL.md" ] || continue
+            skill=$(basename "$skill_dir")
+            uv run python scripts/publish_skills.py build \
+              --skill "$skill" --revision "$SOURCE_REVISION" --output "dist/$skill"
+          done
+      - name: Upload preview artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hydrolix-ai-toolkit
+          path: dist/
+          retention-days: 90
 
-  package:
+  publish:
+    if: github.repository == 'hydrolix/hydrolix-ai-toolkit' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     needs: validate
+    outputs:
+      has_releases: ${{ steps.catalog.outputs.has_releases }}
     permissions:
       contents: write
       pages: write
       id-token: write
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Create output directory
-        run: mkdir -p dist
-
-      - name: Package each skill
-        run: |
-          for skill_dir in skills/*/; do
-            if [ -f "${skill_dir}SKILL.md" ]; then
-              skill_name=$(basename "$skill_dir")
-              echo "Packaging: $skill_name"
-
-              temp_dir=$(mktemp -d)
-              mkdir -p "$temp_dir/$skill_name"
-              cp -r "$skill_dir"* "$temp_dir/$skill_name/"
-              (cd "$temp_dir" && zip -r "$skill_name.zip" "$skill_name" -x '*/__pycache__/*' '*.pyc')
-              mv "$temp_dir/$skill_name.zip" "dist/"
-              rm -rf "$temp_dir"
-
-              echo "  Created: dist/$skill_name.zip"
-            fi
-          done
-
-      - name: List packages
-        run: ls -la dist/
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/setup-python@v5
         with:
-          name: hydrolix-ai-toolkit
-          path: dist/*.zip
-          retention-days: 90
-
-      - name: Upload to release
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v1
-        with:
-          files: dist/*.zip
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --locked
+      - name: Publish selected skill release
+        if: github.event_name == 'workflow_dispatch' && inputs.skill != ''
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Generate site
-        if: github.event_name == 'release' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+          GH_TOKEN: ${{ github.token }}
+          SKILL_ID: ${{ inputs.skill }}
+          SOURCE_REVISION: ${{ github.sha }}
         run: |
-          export RELEASE_TAG="${{ github.event.release.tag_name || 'latest' }}"
-          chmod +x scripts/generate-site.sh
-          scripts/generate-site.sh
-
-      - name: Copy downloads to site
-        if: github.event_name == 'release' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-        run: cp dist/*.zip site/
-
+          uv run python scripts/publish_skills.py publish \
+            --skill "$SKILL_ID" --revision "$SOURCE_REVISION" --output dist/release
+      # Run in this workflow: releases created using GITHUB_TOKEN do not trigger
+      # another release workflow. Never depend on that event to deploy the catalog.
+      - name: Build catalog from all published skill releases
+        id: catalog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run python scripts/publish_skills.py catalog --output dist/skills.json
+          echo "has_releases=$(jq -r '.skills | length > 0' dist/skills.json)" >> "$GITHUB_OUTPUT"
+      - name: Generate published site
+        if: steps.catalog.outputs.has_releases == 'true'
+        env:
+          PUBLISHED_CATALOG: dist/skills.json
+        run: scripts/generate-site.sh
       - name: Configure GitHub Pages
-        if: github.event_name == 'release' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        if: steps.catalog.outputs.has_releases == 'true'
         uses: actions/configure-pages@v5
-
       - name: Upload GitHub Pages artifact
-        if: github.event_name == 'release' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        if: steps.catalog.outputs.has_releases == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./site
 
   deploy:
-    if: github.event_name == 'release' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: needs.publish.outputs.has_releases == 'true'
     runs-on: ubuntu-latest
-    needs: package
+    needs: publish
     permissions:
       pages: write
       id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
