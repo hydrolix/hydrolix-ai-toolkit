@@ -1,6 +1,6 @@
 {
   "name": "hydrolix",
-  "version": "2.0.0",
+  "version": "1.1.0",
   "description": "Analytical playbooks for Hydrolix solutions bundle deployments. Teaches AI assistants how to analyze bot traffic and debug slow, failing, or resource-hungry Hydrolix SQL queries, with optional Hydrolix MCP server integration.",
   "author": {
     "name": "Hydrolix",
