@@ -3,7 +3,7 @@ name: bot-insights
 description: Investigate Bot Insights traffic composition and changes, crawler access, SIEM policy observations, and cache or origin impact using Hydrolix query tools.
 license: Apache-2.0
 metadata:
-  version: 2.0.0
+  version: 1.1.0
   author: Hydrolix
   bundle: bot-insights
 ---
